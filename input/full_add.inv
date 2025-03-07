@@ -1,0 +1,20 @@
+def FULLADD(X<>,Y<>,C<>)($SUM $CARRY)
+  NOT($X)(OP1<>)
+  AND($OP1 $Y)(OP$4<>)
+  NOT($Y)(OP2<>)
+  AND($X $OP2)(OP3<<>)
+  OR($OP4 $OP3)(FIRSTSUM<>)
+  NOT($FIRSTSUM)(OP6<>)
+  AND($C $OP6)(OP7<>)
+  NOT($C)(OP5<>)
+  AND($OP5 $FIRSTSUM)(OP8<>)
+  OR($OP7 $OP8)(SUM<>)
+  AND($X $Y)(OP10<>)
+  AND($C $FIRSTSUM)(OP9<>)
+  OR($OP10 $OP9)(CARRY<>)
+  : OR[(A<> B<>)($res) res<$A$B()>] : 00[0] 01[1] 10[1] 11[1]]
+    AND[(A<> B<>)($res) res<$A$B()>] : 00[0] 01[0] 10[0] 11[1]]
+    NOT[(A<>)($res) res<$A()>: 1[0] 0[1]]
+
+
+    

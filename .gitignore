@@ -1,0 +1,31 @@
+# Build artifacts
+/build/
+*.o
+*.out
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+output.spv
+output.dae
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS-specific garbage
+.DS_Store
+Thumbs.db
+
+# Debug logs and dumps
+*.log
+*.core
+*.stackdump
+
+# Ninja & Clippy files
+build.ninja
+build.mln
+.ninja_log

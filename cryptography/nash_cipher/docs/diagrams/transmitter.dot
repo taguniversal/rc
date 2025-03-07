@@ -1,0 +1,31 @@
+digraph NashTransmitter {
+    // Graph settings
+    rankdir=LR;
+    node [shape=box, fontname="Arial"];
+    edge [fontname="Arial"];
+
+    // Input and Output
+    input [shape=none, label="Input"];
+    output [shape=none, label="Output"];
+
+    // Components
+    A [label="A\n(Adder)"];
+    D [label="D\n(Decider)"];
+    P [label="P\n(Permuter)"];
+
+    // Connections
+    input -> A;
+    A -> output;
+    A -> D;
+    D -> P;
+    P -> A [constraint=false];
+
+    // Labels
+    subgraph cluster_legend {
+        label="Legend";
+        node [shape=plaintext];
+        l1 [label="A: Binary Addition mod 2"];
+        l2 [label="D: Chooses Red/Blue Path"];
+        l3 [label="P: Permuter"];
+    }
+}

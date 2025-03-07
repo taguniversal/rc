@@ -1,0 +1,97 @@
+.TH RC 1 "March 2025" "Version 1.0" "CryptoLogic LLC"
+
+.SH NAME
+rc \- Reality Compiler: A Universal Hardware, Software, and Logic Synthesis Engine
+
+.SH SYNOPSIS
+.B rc
+[OPTIONS] INPUT_FILE
+
+.SH DESCRIPTION
+.B rc
+(Reality Compiler) is a high-performance synthesis engine designed to generate complete, precision-optimized representations of logical, computational, and physical structures from a single abstract specification. It seamlessly bridges the gap between software execution, circuit design, and physical realization by generating:
+
+- **Software Executables** (SPIR-V, VHDL, optimized C)
+- **Digital Logic Schematics** (Netlists, FPGA bitstreams)
+- **Printed Circuit Boards** (KiCad PCB layouts, Gerber files)
+- **3D Structural Representations** (COLLADA, material compositions)
+
+Reality Compiler is engineered for minimalism, precision, and hardware-awareness, ensuring that every generated output aligns with real-world constraints in time, space, and material physics. It is designed to scale from individual logic gates to complex photonic-electronic hybrid processors, seamlessly integrating AI-driven optimizations for material selection, process design, and circuit layout.
+
+.SH OPTIONS
+.TP
+.B \-o OUTPUT
+Specify output directory for generated files.
+.TP
+.B \--target [spirv|netlist|pcb|collada]
+Explicitly specify a target format to generate.
+.TP
+.B \--validate
+Run validation checks on generated output files.
+.TP
+.B \--debug
+Enable verbose debug output.
+
+.SH USAGE
+.PP
+Compile an invocation script into all supported formats:
+
+.EX
+$ rc input/full_add.inv
+
+# Generates:
+#  - Netlist representation (netlist/output.json)
+#  - SPIR-V binary for logic simulation (logic_sim/output.spv)
+#  - Schematic for circuit visualization (pcb_schematic/output.scm)
+#  - PCB layout ready for manufacturing (pcb_layout/output.kicad_pcb)
+#  - 3D model representation (3d_models/output.dae)
+.EE
+
+Generate only a specific target format:
+
+.EX
+$ rc --target spirv input/full_add.inv
+.EE
+
+Run SPIR-V validation and disassembly:
+
+.EX
+$ rc --validate
+$ spirv-dis logic_sim/output.spv
+.EE
+
+.SH FILES
+.TP
+.B input/
+Directory containing source invocation scripts.
+.TP
+.B netlist/
+Generated netlists representing circuit connectivity.
+.TP
+.B logic_sim/
+SPIR-V binaries for logic simulation.
+.TP
+.B pcb_schematic/
+Generated schematics in a KiCad-compatible format.
+.TP
+.B pcb_layout/
+Final PCB layouts ready for fabrication.
+.TP
+.B 3d_models/
+3D representations of logical structures in COLLADA format.
+.TP
+.B material_library/
+Material and component selection database for AI-driven optimizations.
+
+.SH SEE ALSO
+.B spirv-dis(1), spirv-val(1), kicad(1), unqlite(3)
+
+.SH BUGS
+If you encounter unexpected behavior, submit an issue via the CryptoLogic LLC support portal or join our development discussion at:
+https://cryptologic.dev/rc
+
+.SH COPYRIGHT
+Copyright (c) 2025 CryptoLogic LLC
+
+Permission is granted to use, copy, modify, and distribute this software under the terms of the MIT License.
+
