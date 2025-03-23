@@ -1,0 +1,33 @@
+{
+  "@context": {
+    "oscPath": "https://example.org/schema/oscPath",
+    "sendsType": "https://example.org/schema/sendsType",
+    "valueRange": "https://example.org/schema/valueRange",
+    "semanticMeaning": "https://example.org/schema/semanticMeaning",
+    "description": "https://schema.org/description",
+    "options": "https://example.org/schema/options",
+    "position": "https://example.org/schema/position",
+    "x": "https://example.org/schema/x",
+    "y": "https://example.org/schema/y",
+    "type": "@type",
+    "UIComponent": "https://example.org/schema/UIComponent",
+    "Radio": "https://example.org/schema/Radio"
+  },
+  "@id": "https://example.org/ui/radio1",
+  "@type": ["UIComponent", "Radio"],
+  "oscPath": "/radio1",
+  "sendsType": "int",
+  "valueRange": "0 - N (selected index)",
+  "semanticMeaning": "Select an operational preset",
+  "description": "A radio button group that sends an integer representing the selected option",
+  "options": [
+    "Idle",
+    "Tracking",
+    "Recording",
+    "Emergency"
+  ],
+  "position": {
+    "x": 6,
+    "y": 2
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "@context": {
+    "oscPath": "https://example.org/schema/oscPath",
+    "sendsType": "https://example.org/schema/sendsType",
+    "valueRange": "https://example.org/schema/valueRange",
+    "semanticMeaning": "https://example.org/schema/semanticMeaning",
+    "description": "https://schema.org/description",
+    "position": "https://example.org/schema/position",
+    "x": "https://example.org/schema/x",
+    "y": "https://example.org/schema/y",
+    "type": "@type",
+    "UIComponent": "https://example.org/schema/UIComponent",
+    "Fader": "https://example.org/schema/Fader"
+  },
+  "@id": "https://example.org/ui/fader5",
+  "@type": ["UIComponent", "Fader"],
+  "oscPath": "/fader5",
+  "sendsType": "float",
+  "valueRange": "0.0 - 1.0",
+  "semanticMeaning": "Control brightness level",
+  "description": "A linear fader that sends a float value between 0.0 and 1.0",
+  "position": {
+    "x": 5,
+    "y": 2
+  }
+}

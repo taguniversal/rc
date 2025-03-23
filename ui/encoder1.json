@@ -1,0 +1,28 @@
+{
+  "@context": {
+    "oscPath": "https://example.org/schema/oscPath",
+    "sendsType": "https://example.org/schema/sendsType",
+    "valueRange": "https://example.org/schema/valueRange",
+    "semanticMeaning": "https://example.org/schema/semanticMeaning",
+    "description": "https://schema.org/description",
+    "unit": "https://example.org/schema/unit",
+    "position": "https://example.org/schema/position",
+    "x": "https://example.org/schema/x",
+    "y": "https://example.org/schema/y",
+    "type": "@type",
+    "UIComponent": "https://example.org/schema/UIComponent",
+    "Encoder": "https://example.org/schema/Encoder"
+  },
+  "@id": "https://example.org/ui/encoder1",
+  "@type": ["UIComponent", "Encoder"],
+  "oscPath": "/encoder1",
+  "sendsType": "float",
+  "valueRange": "-1.0 to +1.0 (relative rotation)",
+  "semanticMeaning": "Adjust parameter incrementally",
+  "description": "A rotary encoder that sends relative float values to indicate rotation",
+  "unit": "delta",
+  "position": {
+    "x": 3,
+    "y": 4
+  }
+}

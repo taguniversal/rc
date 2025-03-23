@@ -1,0 +1,29 @@
+{
+    "@context": {
+      "oscPath": "https://example.org/schema/oscPath",
+      "sendsType": "https://example.org/schema/sendsType",
+      "valueRange": "https://example.org/schema/valueRange",
+      "semanticMeaning": "https://example.org/schema/semanticMeaning",
+      "description": "https://schema.org/description",
+      "unit": "https://example.org/schema/unit",
+      "position": "https://example.org/schema/position",
+      "x": "https://example.org/schema/x",
+      "y": "https://example.org/schema/y",
+      "type": "@type",
+      "UIComponent": "https://example.org/schema/UIComponent",
+      "Grid": "https://example.org/schema/Grid"
+    },
+    "@id": "https://example.org/ui/grid1",
+    "@type": ["UIComponent", "Grid"],
+    "oscPath": "/grid1/[row]",
+    "sendsType": "float",
+    "valueRange": "0.0 - 1.0",
+    "semanticMeaning": "Control multiple parallel values (like mixer channels or matrix rows)",
+    "description": "A multi-row control surface where each row sends a float between 0 and 1",
+    "unit": "normalized",
+    "position": {
+      "x": 8,
+      "y": 1
+    }
+  }
+  

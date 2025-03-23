@@ -1,0 +1,8 @@
+@prefix ex: <http://example.org/reality-compiler#> .
+
+SELECT ?source ?destination ?content
+WHERE {
+    ?source a ex:SourcePlace .
+    OPTIONAL { ?source ex:hasContent ?content . }
+    OPTIONAL { ?source ex:sendsTo ?destination . }
+}

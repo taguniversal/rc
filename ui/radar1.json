@@ -1,0 +1,29 @@
+{
+    "@context": {
+      "oscPath": "https://example.org/schema/oscPath",
+      "sendsType": "https://example.org/schema/sendsType",
+      "valueRange": "https://example.org/schema/valueRange",
+      "semanticMeaning": "https://example.org/schema/semanticMeaning",
+      "description": "https://schema.org/description",
+      "unit": "https://example.org/schema/unit",
+      "position": "https://example.org/schema/position",
+      "x": "https://example.org/schema/x",
+      "y": "https://example.org/schema/y",
+      "type": "@type",
+      "UIComponent": "https://example.org/schema/UIComponent",
+      "Radar": "https://example.org/schema/Radar"
+    },
+    "@id": "https://example.org/ui/radar1",
+    "@type": ["UIComponent", "Radar"],
+    "oscPath": "/radar1",
+    "sendsType": "float,float",
+    "valueRange": "0.0 - 1.0 (X,Y normalized)",
+    "semanticMeaning": "Indicate relative target position or heading vector",
+    "description": "An XY-style control emitting two float values for tracking or directional control",
+    "unit": "normalized",
+    "position": {
+      "x": 7,
+      "y": 1
+    }
+  }
+  

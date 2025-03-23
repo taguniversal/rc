@@ -1,0 +1,7 @@
+@prefix ex: <http://example.org/reality-compiler#> .
+
+ex:Abel a ex:SourcePlace ;
+    ex:hasContent "AGXST" ;
+    ex:sendsTo ex:Baker .
+
+ex:Baker a ex:DestinationPlace .

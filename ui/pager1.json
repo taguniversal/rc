@@ -1,0 +1,26 @@
+{
+  "@context": {
+    "oscPath": "https://example.org/schema/oscPath",
+    "sendsType": "https://example.org/schema/sendsType",
+    "valueRange": "https://example.org/schema/valueRange",
+    "semanticMeaning": "https://example.org/schema/semanticMeaning",
+    "description": "https://schema.org/description",
+    "position": "https://example.org/schema/position",
+    "x": "https://example.org/schema/x",
+    "y": "https://example.org/schema/y",
+    "type": "@type",
+    "UIComponent": "https://example.org/schema/UIComponent",
+    "Pager": "https://example.org/schema/Pager"
+  },
+  "@id": "https://example.org/ui/pager1",
+  "@type": ["UIComponent", "Pager"],
+  "oscPath": "/pager1",
+  "sendsType": "int",
+  "valueRange": "0 - N (page index)",
+  "semanticMeaning": "Select UI page or operational mode",
+  "description": "A pager control that sends an integer indicating the active page or mode",
+  "position": {
+    "x": 4,
+    "y": 1
+  }
+}

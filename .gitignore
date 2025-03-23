@@ -17,7 +17,7 @@ output.dae
 *.swo
 
 # OS-specific garbage
-.DS_Store
+**/.DS_Store
 Thumbs.db
 
 # Debug logs and dumps
@@ -29,3 +29,5 @@ Thumbs.db
 build.ninja
 build.mln
 .ninja_log
+
+venv

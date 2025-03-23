@@ -1,0 +1,60 @@
+@prefix ex: <http://example.org/reality-compiler#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+# Define the base class for all places
+ex:Place a rdfs:Class ;
+    rdfs:label "Place" ;
+    rdfs:comment "A generic concept of a place where values can originate or be received." .
+
+# Define SourcePlace as a subclass of Place
+ex:SourcePlace a rdfs:Class ;
+    rdfs:subClassOf ex:Place ;
+    rdfs:label "Source Place" ;
+    rdfs:comment "A place that generates or emits data." .
+
+# Define DestinationPlace as a subclass of Place
+ex:DestinationPlace a rdfs:Class ;
+    rdfs:subClassOf ex:Place ;
+    rdfs:label "Destination Place" ;
+    rdfs:comment "A place that receives or stores data." .
+
+# Define the 'content' property for SourcePlace
+ex:hasContent a rdf:Property ;
+    rdfs:domain ex:SourcePlace ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "has content" ;
+    rdfs:comment "Defines the content stored in a Source Place." .
+
+# Define a relationship where a SourcePlace sends data to a DestinationPlace
+ex:sendsTo a rdf:Property ;
+    rdfs:domain ex:SourcePlace ;
+    rdfs:range ex:DestinationPlace ;
+    rdfs:label "sends to" ;
+    rdfs:comment "Defines a data flow from a Source Place to a Destination Place." .
+
+# A logical or physical unit that applies a transformation to input data
+ex:Transformation a rdfs:Class ;
+    rdfs:label "Transformation" ;
+    rdfs:comment "An operation that maps one or more inputs to one or more outputs." .
+
+# Link transformation to its input(s) and output(s)
+ex:input a rdf:Property ;
+    rdfs:domain ex:Transformation ;
+    rdfs:range ex:Place ;
+    rdfs:label "input" ;
+    rdfs:comment "Input to a transformation." .
+
+ex:output a rdf:Property ;
+    rdfs:domain ex:Transformation ;
+    rdfs:range ex:Place ;
+    rdfs:label "output" ;
+    rdfs:comment "Output of a transformation." .
+
+# Optional: add a field for specifying the actual logic
+ex:definition a rdf:Property ;
+    rdfs:domain ex:Transformation ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "definition" ;
+    rdfs:comment "The logic or operation performed, in textual or symbolic form." .

@@ -1,0 +1,11 @@
+{
+  "@context": {
+    "oscPath": "https://example.org/oscPath",
+    "type": "@type",
+    "Button": "https://example.org/Button",
+    "UIComponent": "https://example.org/UIComponent"
+  },
+  "@id": "https://example.org/ui/button1",
+  "@type": ["UIComponent", "Button"],
+  "oscPath": "/button1"
+}

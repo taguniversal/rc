@@ -1,0 +1,26 @@
+{
+  "@context": {
+    "oscPath": "https://example.org/schema/oscPath",
+    "sendsType": "https://example.org/schema/sendsType",
+    "valueRange": "https://example.org/schema/valueRange",
+    "semanticMeaning": "https://example.org/schema/semanticMeaning",
+    "description": "https://schema.org/description",
+    "position": "https://example.org/schema/position",
+    "x": "https://example.org/schema/x",
+    "y": "https://example.org/schema/y",
+    "type": "@type",
+    "UIComponent": "https://example.org/schema/UIComponent",
+    "XYPad": "https://example.org/schema/XYPad"
+  },
+  "@id": "https://example.org/ui/xy1",
+  "@type": ["UIComponent", "XYPad"],
+  "oscPath": "/xy1",
+  "sendsType": "float,float",
+  "valueRange": "0.0 - 1.0 (both axes)",
+  "semanticMeaning": "Pan and tilt control",
+  "description": "An XY pad that sends two float values between 0.0 and 1.0 for X and Y axes",
+  "position": {
+    "x": 2,
+    "y": 3
+  }
+}

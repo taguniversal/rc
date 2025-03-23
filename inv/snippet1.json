@@ -1,0 +1,10 @@
+{
+    "@context": {
+      "ex": "http://example.org/reality-compiler#"
+    },
+    "@type": "ex:Transformation",
+    "ex:input": "/fader5",
+    "ex:output": "/encoder1",
+    "ex:definition": "scale(x, 0.0, 1.0, 0, 100)"
+  }
+  
