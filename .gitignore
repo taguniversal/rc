@@ -31,3 +31,4 @@ build.mln
 .ninja_log
 
 venv
+state/db.sqlite3

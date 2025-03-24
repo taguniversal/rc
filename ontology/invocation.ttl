@@ -19,6 +19,13 @@ ex:DestinationPlace a rdfs:Class ;
     rdfs:subClassOf ex:Place ;
     rdfs:label "Destination Place" ;
     rdfs:comment "A place that receives or stores data." .
+    
+# Define a name property for matching
+ex:name a rdf:Property ;
+    rdfs:domain ex:Place ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "name" ;
+    rdfs:comment "The identifier or tag used for matching places." .
 
 # Define the 'content' property for SourcePlace
 ex:hasContent a rdf:Property ;

@@ -1,0 +1,11 @@
+{
+    "@context": {
+      "ex": "http://example.org/reality-compiler#"
+    },
+    "@id": "/grid1/2",
+    "@type": "ex:DestinationPlace",
+    "ex:name": "Volume", 
+    "ex:to": "/grid1/2"
+  }
+  
+  

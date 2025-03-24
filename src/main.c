@@ -11,6 +11,7 @@
 #include <signal.h>
 #include <sys/socket.h>
 #include <time.h>
+#include <dirent.h>
 #include "udp_send.h"  // You’ll need to create or adapt this
 
 
@@ -133,6 +134,73 @@ char* enrich(const char* osc_path) {
 
     return content;
 }
+
+const char* lookup_name_by_osc_path(sqlite3* db, const char* osc_path) {
+    static char result[128];
+    sqlite3_stmt* stmt;
+    const char* sql = "SELECT object FROM triples WHERE subject = ? AND predicate = 'ex:name' LIMIT 1;";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_text(stmt, 1, osc_path, -1, SQLITE_STATIC);
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char* val = sqlite3_column_text(stmt, 0);
+        strncpy(result, (const char*)val, sizeof(result));
+        sqlite3_finalize(stmt);
+        return result;
+    }
+
+    sqlite3_finalize(stmt);
+    return NULL;
+}
+
+const char* lookup_destination_for_name(sqlite3* db, const char* name) {
+    static char result[128];
+    sqlite3_stmt* stmt;
+    const char *sql = "SELECT DISTINCT subject FROM triples WHERE predicate = 'ex:name' AND object = ? LIMIT 1";
+    printf("lookup_destination_for_name %s\n", name);
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+
+    char subject[128];
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char* subj = sqlite3_column_text(stmt, 0);
+        printf("🎯 Matched destination subject: %s\n", subj);
+        snprintf(subject, sizeof(subject), "%s", subj);
+        sqlite3_finalize(stmt);
+    } else {
+        sqlite3_finalize(stmt);
+        return NULL;
+    }
+    printf("🔍 Looking up ex:to for subject: %s\n", subject);
+
+    // Now lookup 'ex:to' for the found subject
+    const char* sql2 = "SELECT object FROM triples WHERE subject = ? AND predicate = 'ex:to' LIMIT 1;";
+    if (sqlite3_prepare_v2(db, sql2, -1, &stmt, NULL) != SQLITE_OK) {
+        fprintf(stderr, "❌ sqlite3_prepare_v2 failed for sql2: %s\n", sqlite3_errmsg(db));
+        printf("❌ No ex:to mapping found for subject: %s\n", subject);
+        sqlite3_finalize(stmt);
+        return NULL;
+    } else {
+        printf("debug 2\n");
+    }
+
+    sqlite3_bind_text(stmt, 1, subject, -1, SQLITE_STATIC);
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char* val = sqlite3_column_text(stmt, 0);
+        printf("✅ ex:to resolved to: %s\n", val);  
+        strncpy(result, (const char*)val, sizeof(result));
+        sqlite3_finalize(stmt);
+        return result;
+     } else {
+        printf("debug 3\n");
+     }
+    
+    sqlite3_finalize(stmt);
+    return NULL;
+}
+
 
 
 void process_osc_message(const char *buffer, int len) {
@@ -389,11 +457,113 @@ void process_osc_response(char *buffer, int len) {
     tosc_parseMessage(&osc, buffer, len);
 
     const char *addr = tosc_getAddress(&osc);
-    if (strcmp(addr, "/grid1/1") == 0) {
-        float v = tosc_getNextFloat(&osc);
-        printf("🔁 Forwarding /grid1/1 -> /grid1/2 with value: %f\n", v);
-        send_osc_float("/grid1/2", v); // Emit to control 2
+    const char *name = lookup_name_by_osc_path(db, addr);
+    if (!name) return;
+    printf("Found source %s\n",name);
+
+    const char *dest = lookup_destination_for_name(db, name);
+    if (!dest) return;
+    printf("Found destination %s\n", dest);
+
+    float v = tosc_getNextFloat(&osc);
+    printf("🔁 Forwarding %s → %s (via name: %s) with value: %f\n", addr, dest, name, v);
+    send_osc_float(dest, v);
+}
+
+char* load_file(const char* filename) {
+    FILE* file = fopen(filename, "rb");
+    if (!file) return NULL;
+
+    fseek(file, 0, SEEK_END);
+    long len = ftell(file);
+    rewind(file);
+
+    char* buffer = malloc(len + 1);
+    if (!buffer) {
+        fclose(file);
+        return NULL;
     }
+
+    fread(buffer, 1, len, file);
+    buffer[len] = '\0';
+    fclose(file);
+    return buffer;
+}
+
+bool is_type(cJSON* root, const char* type) {
+    cJSON* t = cJSON_GetObjectItem(root, "@type");
+    if (!t) return false;
+
+    if (cJSON_IsArray(t)) {
+        cJSON* item = NULL;
+        cJSON_ArrayForEach(item, t) {
+            if (cJSON_IsString(item) && strcmp(item->valuestring, type) == 0) {
+                return true;
+            }
+        }
+    } else if (cJSON_IsString(t)) {
+        return strcmp(t->valuestring, type) == 0;
+    }
+
+    return false;
+}
+
+const char* get_value(cJSON* root, const char* key) {
+    cJSON* val = cJSON_GetObjectItem(root, key);
+    if (val && cJSON_IsString(val)) {
+        return val->valuestring;
+    }
+    return NULL;
+}
+
+void map_io(sqlite3* db) {
+    DIR* dir = opendir("inv");
+    struct dirent* entry;
+    printf("🔍 map_io starting...\n");
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strstr(entry->d_name, ".json")) {
+            char path[256];
+            snprintf(path, sizeof(path), "inv/%s", entry->d_name);
+            char* json = load_file(path);
+            if (!json) continue;
+
+            cJSON* root = cJSON_Parse(json);
+            if (!root) {
+                free(json);
+                continue;
+            }
+
+            if (is_type(root, "ex:SourcePlace")) {
+                const char* name = get_value(root, "ex:name");
+                const char* from = get_value(root, "ex:from");
+
+                if (name && from) {
+                    printf("🟢 SourcePlace: name=%s from=%s\n", name, from);
+                    insert_triple(db, block, from, "rdf:type", "ex:SourcePlace");
+                    insert_triple(db, block, from, "ex:name", name);
+                    insert_triple(db, block, from, "ex:from", from);  // optional if needed for completeness
+                }
+            }
+
+            if (is_type(root, "ex:DestinationPlace")) {
+                const char* name = get_value(root, "ex:name");
+                const char* to = get_value(root, "ex:to");
+
+                if (name && to) {
+                    printf("🔵 DestinationPlace: name=%s to=%s\n", name, to);
+                    insert_triple(db, block, to, "rdf:type", "ex:DestinationPlace");
+                    insert_triple(db, block, to, "ex:name", name);
+                    insert_triple(db, block, to, "ex:to", to);  // ← this is the one needed for `lookup_destination_for_name`
+                }
+            }
+
+            free(json);
+            cJSON_Delete(root);
+        }
+    }
+
+    closedir(dir);
 }
 
 
@@ -428,39 +598,102 @@ void run_osc_listener() {
 
     printf("🎧 Listening for OSC on port %d...\n", OSC_PORT_XMIT);
 
+    while (keep_running) {
+        len = sizeof(cliaddr);
+        n = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&cliaddr, &len);
+        if (n > 0) {
+            process_osc_message(buffer, n);
+           
+            process_osc_response(buffer, n);
+        }
+        // else: timeout occurred, just loop back and check keep_running
+    }
+
     printf("👋 Shutting down OSC listener.\n");
     close(sockfd);
 }
 
+void export_dot(sqlite3 *db, const char *filename) {
+    FILE *dot = fopen(filename, "w");
+    if (!dot) {
+        perror("fopen for dot");
+        return;
+    }
+
+    fprintf(dot, "digraph G {\n");
+    fprintf(dot, "  rankdir=LR;\n");
+    fprintf(dot, "  node [shape=ellipse, fontname=\"Helvetica\"];\n");
+
+    sqlite3_stmt *stmt;
+    const char *query = "SELECT subject, predicate, object FROM triples WHERE predicate = 'rdf:type';";
+
+    if (sqlite3_prepare_v2(db, query, -1, &stmt, NULL) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *subj = (const char *)sqlite3_column_text(stmt, 0);
+            const char *type = (const char *)sqlite3_column_text(stmt, 2);
+
+            const char *color = strstr(type, "SourcePlace") ? "green" :
+                                strstr(type, "DestinationPlace") ? "blue" : "gray";
+
+            fprintf(dot, "  \"%s\" [style=filled, fillcolor=%s];\n", subj, color);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    // Draw matching edges by name (basic string equality match)
+    const char *link_query = "SELECT DISTINCT s1.subject, s2.subject "
+                             "FROM triples s1, triples s2 "
+                             "WHERE s1.predicate = 'rdf:type' AND s1.object = 'ex:SourcePlace' "
+                             "AND s2.predicate = 'rdf:type' AND s2.object = 'ex:DestinationPlace' "
+                             "AND s1.subject = s2.subject;";
+
+    if (sqlite3_prepare_v2(db, link_query, -1, &stmt, NULL) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *from = (const char *)sqlite3_column_text(stmt, 0);
+            const char *to = (const char *)sqlite3_column_text(stmt, 1);
+            fprintf(dot, "  \"%s\" -> \"%s\";\n", from, to);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    fprintf(dot, "}\n");
+    fclose(dot);
+
+    printf("✅ DOT file written to %s\n", filename);
+}
+
+
+
 int main(int argc, char *argv[]) {
     printf("Reality Compiler CLI\n");
 
+    // 🧱 Genesis Block
     block = new_block();
     printf("Genesis Block: %s\n", block);
 
-    // SQLite Test
-    mkdir("state", 0755);  // creates directory if not already present
+    // 🗂️ Ensure state directory exists
+    mkdir("state", 0755);
 
+    // 📂 Open SQLite DB
     int rc = sqlite3_open("state/db.sqlite3", &db);
-
     if (rc != SQLITE_OK) {
         printf("Cannot open database: %s\n", sqlite3_errmsg(db));
         return 1;
-    } else {
-        printf("SQLite initialized in state/db.sqlite3.\n");
     }
+    printf("SQLite initialized in state/db.sqlite3.\n");
 
+    // 📜 Load schema
     FILE *schema_file = fopen("state/schema.sql", "rb");
     if (schema_file) {
         fseek(schema_file, 0, SEEK_END);
         long len = ftell(schema_file);
         rewind(schema_file);
-    
+
         char *schema_sql = malloc(len + 1);
         fread(schema_sql, 1, len, schema_file);
         schema_sql[len] = '\0';
         fclose(schema_file);
-    
+
         char *errmsg = 0;
         if (sqlite3_exec(db, schema_sql, 0, 0, &errmsg) != SQLITE_OK) {
             fprintf(stderr, "❌ Failed to load schema: %s\n", errmsg);
@@ -468,82 +701,86 @@ int main(int argc, char *argv[]) {
         } else {
             printf("✅ Schema loaded from state/schema.sql\n");
         }
-    
         free(schema_sql);
     } else {
         fprintf(stderr, "❌ Could not open state/schema.sql\n");
     }
-    
 
-    if (argc > 1 && strcmp(argv[1], "--daemon") == 0) {
-        printf("🛠 Daemonizing...\n");
-        daemonize();
-        printf("🔍 Final DB Pointer before loop: %p\n", db);
-        run_osc_listener();
-        return 0;
-    }
+    // 📥 Load RDF UI triples and Invocation IO mappings
+    load_rdf_from_dir("ui", db, block);
+    map_io(db);
 
-    if (argc > 1 && strcmp(argv[1], "--debug") == 0) {
-        signal(SIGTERM, handle_signal);
-        signal(SIGINT, handle_signal);
-        printf("🔍 Final DB Pointer before loop: %p\n", db);
-        run_osc_listener();
-        return 0;
-    }
-
-    if (argc == 4 && strcmp(argv[1], "--dump-series") == 0) {
-        const char *subject = argv[2];
-        const char *predicate = argv[3];
-
-        printf("📊 Dumping time series for subject: %s, predicate: %s\n", subject, predicate);
-        cJSON *series = query_time_series(db, subject, predicate);
-
-        if (series) {
-            char *json_str = cJSON_Print(series);
-            if (json_str) {
-                printf("%s\n", json_str);
-                free(json_str);
-            }
-            cJSON_Delete(series);
-        } else {
-            printf("❌ Failed to generate time series data.\n");
+    // 🎛️ Handle flags
+    if (argc > 1) {
+        if (strcmp(argv[1], "--daemon") == 0) {
+            printf("🛠 Daemonizing...\n");
+            daemonize();
+            signal(SIGTERM, handle_signal);
+            signal(SIGINT, handle_signal);
+            printf("🔍 Final DB Pointer before loop: %p\n", db);
+            run_osc_listener();
+            return 0;
         }
 
-        sqlite3_close(db);
-        if (block) free(block);
-        return 0;
+        if (strcmp(argv[1], "--debug") == 0) {
+            signal(SIGTERM, handle_signal);
+            signal(SIGINT, handle_signal);
+            printf("🧪 Debug Mode: Entering OSC Loop...\n");
+            run_osc_listener();
+            return 0;
+        }
+
+        if (strcmp(argv[1], "--export-graph") == 0) {
+            export_dot(db, "graph.dot");
+            return 0;
+        }
+
+        if (strcmp(argv[1], "--dump-series") == 0 && argc == 4) {
+            const char *subject = argv[2];
+            const char *predicate = argv[3];
+            printf("📊 Dumping time series for subject: %s, predicate: %s\n", subject, predicate);
+
+            cJSON *series = query_time_series(db, subject, predicate);
+            if (series) {
+                char *json_str = cJSON_Print(series);
+                if (json_str) {
+                    printf("%s\n", json_str);
+                    free(json_str);
+                }
+                cJSON_Delete(series);
+            } else {
+                printf("❌ Failed to generate time series data.\n");
+            }
+
+            sqlite3_close(db);
+            if (block) free(block);
+            return 0;
+        }
     }
 
-    
-    // JSON Test
+    // 🧪 Default test block
     const char *json_string = "{\"name\": \"Reality Compiler\"}";
     cJSON *json = cJSON_Parse(json_string);
-    if (json == NULL) {
-        printf("Error parsing JSON\n");
-        return 1;
+    if (json) {
+        cJSON *name = cJSON_GetObjectItemCaseSensitive(json, "name");
+        if (cJSON_IsString(name) && name->valuestring != NULL) {
+            printf("JSON Parsed: Name = %s\n", name->valuestring);
+        }
+        cJSON_Delete(json);
     }
-    cJSON *name = cJSON_GetObjectItemCaseSensitive(json, "name");
-    if (cJSON_IsString(name) && (name->valuestring != NULL)) {
-        printf("JSON Parsed: Name = %s\n", name->valuestring);
-    }
-    cJSON_Delete(json);
 
-    // Serd Test
     printf("Serd initialized.\n");
 
-    load_rdf_from_dir("ui", db, block);
-
+    // 🧬 Reset block and emit a dummy test message
     block = new_block();
     printf("Block: %s\n", block);
 
     int len = tosc_writeMessage(buffer, BUFFER_SIZE, "/generate_ipv6", "");
     process_osc_message(buffer, len);
 
-    if (argc == 1) {
-        sqlite3_close(db);
-    }
-    
-    if (block != NULL) free(block);
+    sqlite3_close(db);
+    if (block) free(block);
 
     return 0;
 }
+
