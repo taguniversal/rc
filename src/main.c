@@ -134,72 +134,76 @@ char* enrich(const char* osc_path) {
 
     return content;
 }
-
 const char* lookup_name_by_osc_path(sqlite3* db, const char* osc_path) {
-    static char result[128];
+    static char name[128];
     sqlite3_stmt* stmt;
-    const char* sql = "SELECT object FROM triples WHERE subject = ? AND predicate = 'ex:name' LIMIT 1;";
 
+    // Step 1: Find subject where ex:from = osc_path
+    const char *sql = "SELECT subject FROM triples WHERE predicate = 'ex:from' AND object = ? LIMIT 1;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
+
     sqlite3_bind_text(stmt, 1, osc_path, -1, SQLITE_STATIC);
-
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        const unsigned char* val = sqlite3_column_text(stmt, 0);
-        strncpy(result, (const char*)val, sizeof(result));
-        sqlite3_finalize(stmt);
-        return result;
-    }
-
-    sqlite3_finalize(stmt);
-    return NULL;
-}
-
-const char* lookup_destination_for_name(sqlite3* db, const char* name) {
-    static char result[128];
-    sqlite3_stmt* stmt;
-    const char *sql = "SELECT DISTINCT subject FROM triples WHERE predicate = 'ex:name' AND object = ? LIMIT 1";
-    printf("lookup_destination_for_name %s\n", name);
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
-    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
 
     char subject[128];
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         const unsigned char* subj = sqlite3_column_text(stmt, 0);
-        printf("🎯 Matched destination subject: %s\n", subj);
         snprintf(subject, sizeof(subject), "%s", subj);
         sqlite3_finalize(stmt);
     } else {
         sqlite3_finalize(stmt);
         return NULL;
     }
-    printf("🔍 Looking up ex:to for subject: %s\n", subject);
 
-    // Now lookup 'ex:to' for the found subject
-    const char* sql2 = "SELECT object FROM triples WHERE subject = ? AND predicate = 'ex:to' LIMIT 1;";
-    if (sqlite3_prepare_v2(db, sql2, -1, &stmt, NULL) != SQLITE_OK) {
-        fprintf(stderr, "❌ sqlite3_prepare_v2 failed for sql2: %s\n", sqlite3_errmsg(db));
-        printf("❌ No ex:to mapping found for subject: %s\n", subject);
-        sqlite3_finalize(stmt);
-        return NULL;
-    } else {
-        printf("debug 2\n");
-    }
+    // Step 2: Look up ex:name for that subject
+    const char *sql2 = "SELECT object FROM triples WHERE subject = ? AND predicate = 'ex:name' LIMIT 1;";
+    if (sqlite3_prepare_v2(db, sql2, -1, &stmt, NULL) != SQLITE_OK) return NULL;
 
     sqlite3_bind_text(stmt, 1, subject, -1, SQLITE_STATIC);
 
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         const unsigned char* val = sqlite3_column_text(stmt, 0);
-        printf("✅ ex:to resolved to: %s\n", val);  
-        strncpy(result, (const char*)val, sizeof(result));
+        snprintf(name, sizeof(name), "%s", val);
         sqlite3_finalize(stmt);
-        return result;
-     } else {
-        printf("debug 3\n");
-     }
-    
+        return name;
+    }
+
     sqlite3_finalize(stmt);
     return NULL;
 }
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "sqlite3.h"
+
+int lookup_destinations_for_name(sqlite3* db, const char* name, char dests[][128], int max_dests) {
+    sqlite3_stmt* stmt;
+    const char *sql = "SELECT DISTINCT subject FROM triples WHERE predicate = 'ex:name' AND object = ?;";
+    int count = 0;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW && count < max_dests) {
+        const unsigned char* subj = sqlite3_column_text(stmt, 0);
+
+        sqlite3_stmt* stmt2;
+        const char* sql2 = "SELECT object FROM triples WHERE subject = ? AND predicate = 'ex:to' LIMIT 1;";
+        if (sqlite3_prepare_v2(db, sql2, -1, &stmt2, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(stmt2, 1, (const char*)subj, -1, SQLITE_STATIC);
+            if (sqlite3_step(stmt2) == SQLITE_ROW) {
+                const unsigned char* val = sqlite3_column_text(stmt2, 0);
+                strncpy(dests[count], (const char*)val, 128);
+                count++;
+            }
+            sqlite3_finalize(stmt2);
+        }
+    }
+
+    sqlite3_finalize(stmt);
+    return count;
+}
+
 
 
 
@@ -451,7 +455,6 @@ void process_osc_message(const char *buffer, int len) {
     }
 }
 
-
 void process_osc_response(char *buffer, int len) {
     tosc_message osc;
     tosc_parseMessage(&osc, buffer, len);
@@ -459,16 +462,21 @@ void process_osc_response(char *buffer, int len) {
     const char *addr = tosc_getAddress(&osc);
     const char *name = lookup_name_by_osc_path(db, addr);
     if (!name) return;
-    printf("Found source %s\n",name);
 
-    const char *dest = lookup_destination_for_name(db, name);
-    if (!dest) return;
-    printf("Found destination %s\n", dest);
+    printf("Found source %s\n", name);
+
+    char dests[10][128];  // Support up to 10 fan-out targets
+    int num = lookup_destinations_for_name(db, name, dests, 10);
+    if (num == 0) return;
 
     float v = tosc_getNextFloat(&osc);
-    printf("🔁 Forwarding %s → %s (via name: %s) with value: %f\n", addr, dest, name, v);
-    send_osc_float(dest, v);
+
+    for (int i = 0; i < num; i++) {
+        printf("🔁 Fanout %s → %s (via name: %s) with value: %f\n", addr, dests[i], name, v);
+        send_osc_float(dests[i], v);
+    }
 }
+
 
 char* load_file(const char* filename) {
     FILE* file = fopen(filename, "rb");

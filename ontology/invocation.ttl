@@ -1,67 +1,167 @@
-@prefix ex: <http://example.org/reality-compiler#> .
+@prefix inv: <https://universaljourney.io/ontology/invocation#> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 
-# Define the base class for all places
-ex:Place a rdfs:Class ;
+### Abstract class for all named elements
+inv:NamedEntity a rdfs:Class ;
+    rdfs:label "Named Entity" ;
+    rdfs:comment "An abstract class for constructs that have a symbolic name." .
+
+### Base Class: Place
+inv:Place a rdfs:Class ;
+    rdfs:subClassOf inv:NamedEntity ;
     rdfs:label "Place" ;
     rdfs:comment "A generic concept of a place where values can originate or be received." .
 
-# Define SourcePlace as a subclass of Place
-ex:SourcePlace a rdfs:Class ;
-    rdfs:subClassOf ex:Place ;
+### Subclasses of Place
+inv:SourcePlace a rdfs:Class ;
+    rdfs:subClassOf inv:Place ;
     rdfs:label "Source Place" ;
     rdfs:comment "A place that generates or emits data." .
 
-# Define DestinationPlace as a subclass of Place
-ex:DestinationPlace a rdfs:Class ;
-    rdfs:subClassOf ex:Place ;
+inv:DestinationPlace a rdfs:Class ;
+    rdfs:subClassOf inv:Place ;
     rdfs:label "Destination Place" ;
     rdfs:comment "A place that receives or stores data." .
-    
-# Define a name property for matching
-ex:name a rdf:Property ;
-    rdfs:domain ex:Place ;
+
+### Properties for Named Entities (now includes Place, Definition, Invocation)
+inv:name a rdf:Property ;
+    rdfs:domain inv:NamedEntity ;
     rdfs:range rdfs:Literal ;
     rdfs:label "name" ;
-    rdfs:comment "The identifier or tag used for matching places." .
+    rdfs:comment "The identifier or tag used for matching named entities like places, definitions, and invocations." .
 
-# Define the 'content' property for SourcePlace
-ex:hasContent a rdf:Property ;
-    rdfs:domain ex:SourcePlace ;
+### Source content
+inv:hasContent a rdf:Property ;
+    rdfs:domain inv:SourcePlace ;
     rdfs:range rdfs:Literal ;
     rdfs:label "has content" ;
     rdfs:comment "Defines the content stored in a Source Place." .
 
-# Define a relationship where a SourcePlace sends data to a DestinationPlace
-ex:sendsTo a rdf:Property ;
-    rdfs:domain ex:SourcePlace ;
-    rdfs:range ex:DestinationPlace ;
-    rdfs:label "sends to" ;
-    rdfs:comment "Defines a data flow from a Source Place to a Destination Place." .
+### Shared superclass for anything with I/O lists
+inv:HasIOLists a rdfs:Class ;
+    rdfs:label "Has IO Lists" ;
+    rdfs:comment "An abstract class for constructs with source and destination lists." .
 
-# A logical or physical unit that applies a transformation to input data
-ex:Transformation a rdfs:Class ;
-    rdfs:label "Transformation" ;
-    rdfs:comment "An operation that maps one or more inputs to one or more outputs." .
+### Core Constructs
+inv:Definition a rdfs:Class ;
+    rdfs:subClassOf inv:HasIOLists, inv:NamedEntity ;
+    rdfs:label "Definition" ;
+    rdfs:comment "A top-level construct mapping inputs to outputs via transformation logic." .
 
-# Link transformation to its input(s) and output(s)
-ex:input a rdf:Property ;
-    rdfs:domain ex:Transformation ;
-    rdfs:range ex:Place ;
-    rdfs:label "input" ;
-    rdfs:comment "Input to a transformation." .
+inv:Invocation a rdfs:Class ;
+    rdfs:subClassOf inv:HasIOLists, inv:NamedEntity ;
+    rdfs:label "Invocation" ;
+    rdfs:comment "A symbolic activation of a Definition by name, carrying source and destination lists." .
 
-ex:output a rdf:Property ;
-    rdfs:domain ex:Transformation ;
-    rdfs:range ex:Place ;
-    rdfs:label "output" ;
-    rdfs:comment "Output of a transformation." .
+inv:SourceList a rdfs:Class ;
+    rdfs:label "Source List" ;
+    rdfs:comment "A list of source places serving as inputs." .
 
-# Optional: add a field for specifying the actual logic
-ex:definition a rdf:Property ;
-    rdfs:domain ex:Transformation ;
+inv:DestinationList a rdfs:Class ;
+    rdfs:label "Destination List" ;
+    rdfs:comment "A list of destination places serving as outputs." .
+
+inv:PlaceOfResolution a rdfs:Class ;
+    rdfs:label "Place of Resolution" ;
+    rdfs:comment "An expression or sub-structure where content is evaluated and transformed." .
+
+inv:ContainedDefinition a rdfs:Class ;
+    rdfs:label "Contained Definition" ;
+    rdfs:comment "A sub-definition or child construct nested within a larger definition." .
+
+### Properties linking HasIOLists to its parts
+inv:hasSourceList a rdf:Property ;
+    rdfs:domain inv:HasIOLists ;
+    rdfs:range inv:SourceList ;
+    rdfs:label "has source list" ;
+    rdfs:comment "Links a construct to its SourceList, which contains input places." .
+
+inv:hasDestinationList a rdf:Property ;
+    rdfs:domain inv:HasIOLists ;
+    rdfs:range inv:DestinationList ;
+    rdfs:label "has destination list" ;
+    rdfs:comment "Links a construct to its DestinationList, which contains output places." .
+
+### Properties for internal logic (Definition only)
+inv:hasResolutionPlace a rdf:Property ;
+    rdfs:domain inv:Definition ;
+    rdfs:range inv:PlaceOfResolution ;
+    rdfs:label "has resolution place" ;
+    rdfs:comment "Links a Definition to the place where input values are evaluated and transformed." .
+
+inv:hasContainedDefinition a rdf:Property ;
+    rdfs:domain inv:Definition ;
+    rdfs:range inv:ContainedDefinition ;
+    rdfs:label "has contained definition" ;
+    rdfs:comment "Links a Definition to another nested Definition within it." .
+
+### Properties for Resolution Logic
+inv:hasInvocation a rdf:Property ;
+    rdfs:domain inv:PlaceOfResolution ;
+    rdfs:range inv:Invocation ;
+    rdfs:label "has invocation" ;
+    rdfs:comment "Allows a PlaceOfResolution to contain one or more invocations that operate on current inputs." .
+
+inv:hasExpressionFragment a rdf:Property ;
+    rdfs:domain inv:PlaceOfResolution ;
+    rdfs:range inv:ExpressionFragment ;
+    rdfs:label "has expression fragment" ;
+    rdfs:comment "Contains one or more fragments representing assignments, invocations, or logic steps." .
+
+### Constant Definitions
+inv:ConstantDefinitions a rdfs:Class ;
+    rdfs:label "Constant Definitions" ;
+    rdfs:comment "A set of definitions that resolve to a value without referencing inputs — used for fixed logic or truth tables." .
+
+inv:hasConstantDefinitions a rdf:Property ;
+    rdfs:domain inv:Definition ;
+    rdfs:range inv:ConstantDefinitions ;
+    rdfs:label "has constant definitions" ;
+    rdfs:comment "Links a Definition to embedded constant definitions representing static value resolution logic." .
+
+inv:TruthTableRow a rdfs:Class ;
+    rdfs:label "Truth Table Row" ;
+    rdfs:comment "A row mapping an input bit pattern to an output constant." .
+
+inv:inputPattern a rdf:Property ;
+    rdfs:domain inv:TruthTableRow ;
     rdfs:range rdfs:Literal ;
-    rdfs:label "definition" ;
-    rdfs:comment "The logic or operation performed, in textual or symbolic form." .
+    rdfs:label "input pattern" ;
+    rdfs:comment "A binary string or symbolic list representing the input condition." .
+
+inv:outputConstant a rdf:Property ;
+    rdfs:domain inv:TruthTableRow ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "output constant" ;
+    rdfs:comment "The constant result associated with the input pattern." .
+
+inv:hasTruthTableRow a rdf:Property ;
+    rdfs:domain inv:ConstantDefinitions ;
+    rdfs:range inv:TruthTableRow ;
+    rdfs:label "has truth table row" ;
+    rdfs:comment "Associates a ConstantDefinitions block with one or more logic table rows." .
+
+### Expression Fragment Class
+inv:ExpressionFragment a rdfs:Class ;
+    rdfs:label "Expression Fragment" ;
+    rdfs:comment "A fragment of logic or operation used within a Place of Resolution. May include invocations, constants, and assignments." .
+
+inv:targetPlace a rdf:Property ;
+    rdfs:domain inv:ExpressionFragment ;
+    rdfs:range inv:Place ;
+    rdfs:label "target place" ;
+    rdfs:comment "The place to receive the output of this expression." .
+
+inv:invokesDefinition a rdf:Property ;
+    rdfs:domain inv:ExpressionFragment ;
+    rdfs:range inv:Invocation ;
+    rdfs:label "invokes definition" ;
+    rdfs:comment "Points to a named invocation or definition called within this fragment." .
+
+inv:invocationArguments a rdf:Property ;
+    rdfs:domain inv:ExpressionFragment ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "invocation arguments" ;
+    rdfs:comment "Comma-separated literal values passed as arguments to the invocation." .
