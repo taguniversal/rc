@@ -1,18 +1,18 @@
 {
   "@context": {
-    "oscPath": "https://example.org/schema/oscPath",
-    "sendsType": "https://example.org/schema/sendsType",
-    "valueRange": "https://example.org/schema/valueRange",
-    "semanticMeaning": "https://example.org/schema/semanticMeaning",
+    "oscPath": "https://digitalblockchain.io/schema/oscPath",
+    "sendsType": "https://digitalblockchain.io/schema/sendsType",
+    "valueRange": "https://digitalblockchain.io/schema/valueRange",
+    "semanticMeaning": "https://digitalblockchain.io/schema/semanticMeaning",
     "description": "https://schema.org/description",
-    "position": "https://example.org/schema/position",
-    "x": "https://example.org/schema/x",
-    "y": "https://example.org/schema/y",
+    "position": "https://digitalblockchain.io/schema/position",
+    "x": "https://digitalblockchain.io/schema/x",
+    "y": "https://digitalblockchain.io/schema/y",
     "type": "@type",
-    "UIComponent": "https://example.org/schema/UIComponent",
-    "XYPad": "https://example.org/schema/XYPad"
+    "UIComponent": "https://digitalblockchain.io/schema/UIComponent",
+    "XYPad": "https://digitalblockchain.io/schema/XYPad"
   },
-  "@id": "https://example.org/ui/xy1",
+  "@id": "https://digitalblockchain.io/ui/xy1",
   "@type": ["UIComponent", "XYPad"],
   "oscPath": "/xy1",
   "sendsType": "float,float",

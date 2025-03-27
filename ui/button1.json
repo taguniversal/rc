@@ -1,11 +1,11 @@
 {
   "@context": {
-    "oscPath": "https://example.org/oscPath",
+    "oscPath": "https://digitalblockchain.io/oscPath",
     "type": "@type",
-    "Button": "https://example.org/Button",
-    "UIComponent": "https://example.org/UIComponent"
+    "Button": "https://digitalblockchain.io/Button",
+    "UIComponent": "https://digitalblockchain.io/UIComponent"
   },
-  "@id": "https://example.org/ui/button1",
+  "@id": "https://digitalblockchain.io/ui/button1",
   "@type": ["UIComponent", "Button"],
   "oscPath": "/button1"
 }

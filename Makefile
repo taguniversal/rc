@@ -43,5 +43,13 @@ generate-plotly:
 	done
 	@echo "✅ All plots generated in hugo-site/static/plots/"
 
+# Validate all Turtle RDF files
+check-ttl:
+	@echo "🧠 Validating Turtle files in ontology..."
+	@find ontology -name "*.ttl" | while read file; do \
+		echo "🔍 Checking $$file..."; \
+		rapper -i turtle -c "$$file" || exit 1; \
+	done
+	@echo "✅ All TTL files are valid."
 
-.PHONY: all clean generate-plotly
+.PHONY: all clean generate-plotly check-ttl

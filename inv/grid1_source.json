@@ -1,6 +1,6 @@
 {
   "@context": {
-    "ex": "http://example.org/reality-compiler#"
+    "ex": "https://digitalblockchain.io/schema/"
   },
   "@id": "/grid1/1",
   "@type": "ex:SourcePlace",

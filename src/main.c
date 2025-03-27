@@ -134,6 +134,8 @@ char* enrich(const char* osc_path) {
 
     return content;
 }
+
+
 const char* lookup_name_by_osc_path(sqlite3* db, const char* osc_path) {
     static char name[128];
     sqlite3_stmt* stmt;
@@ -178,22 +180,23 @@ const char* lookup_name_by_osc_path(sqlite3* db, const char* osc_path) {
 
 int lookup_destinations_for_name(sqlite3* db, const char* name, char dests[][128], int max_dests) {
     sqlite3_stmt* stmt;
-    const char *sql = "SELECT DISTINCT subject FROM triples WHERE predicate = 'ex:name' AND object = ?;";
+    const char *sql = "SELECT DISTINCT s.subject FROM triples s \
+                   WHERE s.predicate = 'ex:name' AND s.object = ?;";
     int count = 0;
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
 
     while (sqlite3_step(stmt) == SQLITE_ROW && count < max_dests) {
-        const unsigned char* subj = sqlite3_column_text(stmt, 0);
+        const char* subject = (const char*)sqlite3_column_text(stmt, 0);
 
+        // Verify it's a DestinationPlace
         sqlite3_stmt* stmt2;
-        const char* sql2 = "SELECT object FROM triples WHERE subject = ? AND predicate = 'ex:to' LIMIT 1;";
-        if (sqlite3_prepare_v2(db, sql2, -1, &stmt2, NULL) == SQLITE_OK) {
-            sqlite3_bind_text(stmt2, 1, (const char*)subj, -1, SQLITE_STATIC);
+        const char* check_type = "SELECT 1 FROM triples WHERE subject = ? AND predicate = 'rdf:type' AND object = 'ex:DestinationPlace';";
+        if (sqlite3_prepare_v2(db, check_type, -1, &stmt2, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(stmt2, 1, subject, -1, SQLITE_STATIC);
             if (sqlite3_step(stmt2) == SQLITE_ROW) {
-                const unsigned char* val = sqlite3_column_text(stmt2, 0);
-                strncpy(dests[count], (const char*)val, 128);
+                strncpy(dests[count], subject, 128);
                 count++;
             }
             sqlite3_finalize(stmt2);
@@ -203,8 +206,6 @@ int lookup_destinations_for_name(sqlite3* db, const char* name, char dests[][128
     sqlite3_finalize(stmt);
     return count;
 }
-
-
 
 
 void process_osc_message(const char *buffer, int len) {
@@ -455,27 +456,6 @@ void process_osc_message(const char *buffer, int len) {
     }
 }
 
-void process_osc_response(char *buffer, int len) {
-    tosc_message osc;
-    tosc_parseMessage(&osc, buffer, len);
-
-    const char *addr = tosc_getAddress(&osc);
-    const char *name = lookup_name_by_osc_path(db, addr);
-    if (!name) return;
-
-    printf("Found source %s\n", name);
-
-    char dests[10][128];  // Support up to 10 fan-out targets
-    int num = lookup_destinations_for_name(db, name, dests, 10);
-    if (num == 0) return;
-
-    float v = tosc_getNextFloat(&osc);
-
-    for (int i = 0; i < num; i++) {
-        printf("🔁 Fanout %s → %s (via name: %s) with value: %f\n", addr, dests[i], name, v);
-        send_osc_float(dests[i], v);
-    }
-}
 
 
 char* load_file(const char* filename) {
@@ -551,6 +531,8 @@ void map_io(sqlite3* db) {
                     insert_triple(db, block, from, "rdf:type", "ex:SourcePlace");
                     insert_triple(db, block, from, "ex:name", name);
                     insert_triple(db, block, from, "ex:from", from);  // optional if needed for completeness
+                    insert_triple(db, block, from, "context", json);
+
                 }
             }
 
@@ -563,6 +545,8 @@ void map_io(sqlite3* db) {
                     insert_triple(db, block, to, "rdf:type", "ex:DestinationPlace");
                     insert_triple(db, block, to, "ex:name", name);
                     insert_triple(db, block, to, "ex:to", to);  // ← this is the one needed for `lookup_destination_for_name`
+                    insert_triple(db, block, to, "context", json);
+
                 }
             }
 
@@ -572,6 +556,28 @@ void map_io(sqlite3* db) {
     }
 
     closedir(dir);
+}
+
+void process_osc_response(char *buffer, int len) {
+    tosc_message osc;
+    tosc_parseMessage(&osc, buffer, len);
+
+    const char *addr = tosc_getAddress(&osc);
+    const char *name = lookup_name_by_osc_path(db, addr);
+    if (!name) return;
+
+    printf("Found source %s\n", name);
+
+    char dests[10][128];  // Support up to 10 fan-out targets
+    int num = lookup_destinations_for_name(db, name, dests, 10);
+    if (num == 0) return;
+
+    float v = tosc_getNextFloat(&osc);
+
+    for (int i = 0; i < num; i++) {
+        printf("🔁 Fanout %s → %s (via name: %s) with value: %f\n", addr, dests[i], name, v);
+        send_osc_response(dests[i], v);
+    }
 }
 
 

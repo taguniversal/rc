@@ -6,32 +6,23 @@
 #include <stdlib.h>
 #include <sqlite3.h>
 
-void insert_triple(sqlite3 *db, const char *psi, const char *subj, const char *pred, const char *obj) {
-    if (db == NULL) {
-        printf("❌ insert_triple(): Database handle is NULL!\n");
-        return;
-    }
-    printf("insert_triple  PSI: %s, SUBJECT: %s, PREDICATE: %s, OBJECT: %s\n", psi, subj, pred, obj);
-
-    char *sql = "INSERT INTO triples (psi, subject, predicate, object) VALUES (?, ?, ?, ?);";
+void insert_triple(sqlite3 *db, const char *psi, const char *subject, const char *predicate, const char *object) {
     sqlite3_stmt *stmt;
+    const char *sql = "INSERT OR IGNORE INTO triples (psi, subject, predicate, object) VALUES (?, ?, ?, ?);";
 
-    printf("DB Handle: %p\n", db);
-    printf("SQL: %s\n", sql);
-
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, psi, -1, SQLITE_STATIC);
-        sqlite3_bind_text(stmt, 2, subj, -1, SQLITE_STATIC);
-        sqlite3_bind_text(stmt, 3, pred, -1, SQLITE_STATIC);
-        sqlite3_bind_text(stmt, 4, obj, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, subject, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 3, predicate, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 4, object, -1, SQLITE_STATIC);
 
-        if (sqlite3_step(stmt) != SQLITE_DONE) {
-            printf("❌ SQLite Error (step): %s\n", sqlite3_errmsg(db));
+        int rc = sqlite3_step(stmt);
+        if (rc != SQLITE_DONE && rc != SQLITE_CONSTRAINT) {
+            fprintf(stderr, "❌ SQLite Error (step): %s\n", sqlite3_errmsg(db));
         }
-
         sqlite3_finalize(stmt);
     } else {
-        printf("❌ SQLite Error (prepare): %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, "❌ SQLite Error (prepare): %s\n", sqlite3_errmsg(db));
     }
 }
 
