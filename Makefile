@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Iexternal/cJSON -Iexternal/serd -Iexternal/sqlite -Iexternal/mkrand -Iexternal/tinyosc
-LDFLAGS = -lcrypto -ldl 
+LDFLAGS = -lcrypto 
 
 SRC = src/main.c src/rdf.c external/cJSON/cJSON.c src/udp_send.c external/sqlite/sqlite3.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c
 OBJ = $(patsubst %.c, build/%.o, $(SRC))
@@ -12,7 +12,7 @@ $(shell mkdir -p build output/time_series output/plotly)
 all: $(BIN)
 
 $(BIN): $(OBJ)
-	$(CC) $(OBJ) -o $(BIN) $(LDFLAGS)
+	$(CC) $(OBJ) -o $(BIN) $(LDFLAGS) -ldl
 
 build/%.o: %.c
 	mkdir -p $(dir $@)
