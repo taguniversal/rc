@@ -22,11 +22,45 @@
 #include "sqlite3.h"
 #include "rdf.h"
 
+#include <time.h>
+#include <stdarg.h>
+#include <unistd.h>
+
+#define COLOR_RESET   "\x1b[0m"
+#define COLOR_INFO    "\x1b[36m"
+#define COLOR_WARN    "\x1b[33m"
+#define COLOR_ERROR   "\x1b[31m"
+
+#define LOG(level, color, fmt, ...) do { \
+    time_t now = time(NULL); \
+    struct tm *tm_info = localtime(&now); \
+    char time_buf[20]; \
+    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info); \
+    if (isatty(fileno(stderr))) { \
+        fprintf(stderr, "%s[%s] [%s] " fmt "%s\n", color, time_buf, level, ##__VA_ARGS__, COLOR_RESET); \
+    } else { \
+        fprintf(stderr, "[%s] [%s] " fmt "\n", time_buf, level, ##__VA_ARGS__); \
+    } \
+} while (0)
+
+#define LOG_INFO(fmt, ...)  LOG("INFO",  COLOR_INFO,  fmt, ##__VA_ARGS__)
+#define LOG_WARN(fmt, ...)  LOG("WARN",  COLOR_WARN,  fmt, ##__VA_ARGS__)
+#define LOG_ERROR(fmt, ...) LOG("ERROR", COLOR_ERROR, fmt, ##__VA_ARGS__)
+
+
 #define PSI_BLOCK_LEN 39
 #define OSC_PORT_XMIT 4242
 #define OSC_PORT_RECV 4243
 #define BUFFER_SIZE 1024
 #define IPV6_ADDR "fc00::1"
+
+const char* default_schema = 
+  "CREATE TABLE IF NOT EXISTS triples ("
+  "psi TEXT,"
+  "subject TEXT,"
+  "predicate TEXT,"
+  "object TEXT"
+  ");";
 
 
 sqlite3 *db;
@@ -88,7 +122,11 @@ void generate_ipv6_address(const uint8_t *pubkey, char *ipv6_str) {
 void send_osc_response(const char *address, float value) {
     int sockfd;
     struct sockaddr_in touchosc_addr;
-    
+
+    // 1. Emit JSON response to stdout
+    printf("{\"path\": \"%s\", \"value\": %.6f}\n", address, value);
+    fflush(stdout);  // <---- THIS
+    // 2. Send OSC UDP message (same as before)
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         perror("socket failed");
@@ -98,7 +136,7 @@ void send_osc_response(const char *address, float value) {
     memset(&touchosc_addr, 0, sizeof(touchosc_addr));
     touchosc_addr.sin_family = AF_INET;
     touchosc_addr.sin_port = htons(OSC_PORT_RECV);
-    touchosc_addr.sin_addr.s_addr = inet_addr("127.0.0.1"); // Sending to localhost
+    touchosc_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     char msg[BUFFER_SIZE];
     int len = tosc_writeMessage(msg, BUFFER_SIZE, address, "f", value);
@@ -210,11 +248,11 @@ int lookup_destinations_for_name(sqlite3* db, const char* name, char dests[][128
 
 void process_osc_message(const char *buffer, int len) {
     tosc_message osc;
-    printf("📡 Raw OSC Message: %s\n", buffer);
+    LOG_INFO("📡 Raw OSC Message: %s\n", buffer);
 
     sqlite3_int64 mem_used = sqlite3_memory_used();
     sqlite3_int64 mem_high = sqlite3_memory_highwater(1);
-    printf("SQLite Memory Used: %lld bytes, Highwater: %lld bytes\n", mem_used, mem_high);
+    LOG_INFO("SQLite Memory Used: %lld bytes, Highwater: %lld bytes\n", mem_used, mem_high);
 
     // Generate ISO 8601 timestamp
     char iso_timestamp[32];
@@ -222,25 +260,25 @@ void process_osc_message(const char *buffer, int len) {
     struct tm *tm_info = gmtime(&now);  // Use gmtime for UTC (or localtime for local tz)
     strftime(iso_timestamp, sizeof(iso_timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
 
-    printf("⏱️  Timestamp: %s\n", iso_timestamp);
+    LOG_INFO("⏱️  Timestamp: %s\n", iso_timestamp);
     
     if (tosc_parseMessage(&osc, (char *)buffer, len) == 0) {
-        printf("📡 Parsed OSC Address: %s\n", osc.buffer);
+        LOG_INFO("📡 Parsed OSC Address: %s\n", osc.buffer);
         if (osc.format && *osc.format)
-            printf("📡 Extracted OSC Format: %s\n", osc.format);
+            LOG_INFO("📡 Extracted OSC Format: %s\n", osc.format);
         else
-            printf("⚠️ Warning: OSC format string is empty!\n");
+            LOG_INFO("⚠️ Warning: OSC format string is empty!\n");
 
         if (osc.marker)
-            printf("📡 OSC Payload (raw): %s\n", osc.marker);
+            LOG_INFO("📡 OSC Payload (raw): %s\n", osc.marker);
         else
-            printf("⚠️ Warning: No payload found in OSC message!\n");
+            LOG_INFO("⚠️ Warning: No payload found in OSC message!\n");
 
         if (strcmp(osc.buffer, "/generate_ipv6") == 0) {
             char ipv6_str[INET6_ADDRSTRLEN];
             uint8_t pubkey[32] = {0x01, 0x02, 0x03};
             generate_ipv6_address(pubkey, ipv6_str);
-            printf("✅ Generated IPv6: %s\n", ipv6_str);
+            LOG_INFO("✅ Generated IPv6: %s\n", ipv6_str);
         }
 
 
@@ -248,7 +286,7 @@ void process_osc_message(const char *buffer, int len) {
             float val = 0.0;
             if (osc.format[0] == 'f') {   
                 val = tosc_getNextFloat(&osc);
-                printf("🟢 Button 1 sent value: %f\n", val);
+                LOG_INFO("🟢 Button 1 sent value: %f\n", val);
             }
         
             // Create timestamp
@@ -257,8 +295,8 @@ void process_osc_message(const char *buffer, int len) {
             struct tm *tm_info = gmtime(&now);
             strftime(iso_timestamp, sizeof(iso_timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
         
-            printf("🟢 Button 1 pressed! Triggering event...\n");
-            printf("⏱️  Timestamp: %s\n", iso_timestamp);
+            LOG_INFO("🟢 Button 1 pressed! Triggering event...\n");
+            LOG_INFO("⏱️  Timestamp: %s\n", iso_timestamp);
         
             // Convert value to string for RDF storage
             char val_str[32];
@@ -284,8 +322,8 @@ void process_osc_message(const char *buffer, int len) {
             struct tm *tm_info = gmtime(&now);
             strftime(iso_timestamp, sizeof(iso_timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
         
-            printf("🟢 Grid Update: Row %d = %f\n", row, value);
-            printf("⏱️  Timestamp: %s\n", iso_timestamp);
+            LOG_INFO("🟢 Grid Update: Row %d = %f\n", row, value);
+            LOG_INFO("⏱️  Timestamp: %s\n", iso_timestamp);
         
             // Convert value to string
             char val_str[32];
@@ -312,8 +350,8 @@ void process_osc_message(const char *buffer, int len) {
             struct tm *tm_info = gmtime(&now);
             strftime(iso_timestamp, sizeof(iso_timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
         
-            printf("📡 Radar Update: X = %f, Y = %f\n", x, y);
-            printf("⏱️  Timestamp: %s\n", iso_timestamp);
+            LOG_INFO("📡 Radar Update: X = %f, Y = %f\n", x, y);
+            LOG_INFO("⏱️  Timestamp: %s\n", iso_timestamp);
         
             // Compose strings
             char x_str[32], y_str[32];
@@ -343,8 +381,8 @@ void process_osc_message(const char *buffer, int len) {
             struct tm *tm_info = gmtime(&now);
             strftime(iso_timestamp, sizeof(iso_timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
         
-            printf("📡 Pager Activated: Page %d\n", page);
-            printf("⏱️  Timestamp: %s\n", iso_timestamp);
+            LOG_INFO("📡 Pager Activated: Page %d\n", page);
+            LOG_INFO("⏱️  Timestamp: %s\n", iso_timestamp);
         
             // Convert page to string for RDF storage
             char page_str[16];
@@ -366,8 +404,8 @@ void process_osc_message(const char *buffer, int len) {
             struct tm *tm_info = gmtime(&now);
             strftime(iso_timestamp, sizeof(iso_timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
         
-            printf("🔄 Encoder Moved: %f\n", value);
-            printf("⏱️  Timestamp: %s\n", iso_timestamp);
+            LOG_INFO("🔄 Encoder Moved: %f\n", value);
+            LOG_INFO("⏱️  Timestamp: %s\n", iso_timestamp);
         
             // Convert value to string for RDF storage
             char value_str[32];
@@ -389,8 +427,8 @@ void process_osc_message(const char *buffer, int len) {
             struct tm *tm_info = gmtime(&now);
             strftime(iso_timestamp, sizeof(iso_timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
         
-            printf("📡 Radio Button Selected: Option %d\n", selection);
-            printf("⏱️  Timestamp: %s\n", iso_timestamp);
+            LOG_INFO("📡 Radio Button Selected: Option %d\n", selection);
+            LOG_INFO("⏱️  Timestamp: %s\n", iso_timestamp);
         
             // Convert selection to string for RDF storage
             char sel_str[16];
@@ -413,8 +451,8 @@ void process_osc_message(const char *buffer, int len) {
             struct tm *tm_info = gmtime(&now);
             strftime(iso_timestamp, sizeof(iso_timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
         
-            printf("🕹️ XY Pad Moved: X = %f, Y = %f\n", x, y);
-            printf("⏱️  Timestamp: %s\n", iso_timestamp);
+            LOG_INFO("🕹️ XY Pad Moved: X = %f, Y = %f\n", x, y);
+            LOG_INFO("⏱️  Timestamp: %s\n", iso_timestamp);
         
             // Convert values to strings for RDF storage
             char x_str[32], y_str[32];
@@ -438,8 +476,8 @@ void process_osc_message(const char *buffer, int len) {
             struct tm *tm_info = gmtime(&now);
             strftime(iso_timestamp, sizeof(iso_timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
         
-            printf("🎚️ Fader 5 Adjusted: %f\n", value);
-            printf("⏱️  Timestamp: %s\n", iso_timestamp);
+            LOG_INFO("🎚️ Fader 5 Adjusted: %f\n", value);
+            LOG_INFO("⏱️  Timestamp: %s\n", iso_timestamp);
         
             // Convert value to string for RDF storage
             char value_str[32];
@@ -504,10 +542,16 @@ const char* get_value(cJSON* root, const char* key) {
     return NULL;
 }
 
-void map_io(sqlite3* db) {
-    DIR* dir = opendir("inv");
+void map_io(sqlite3* db, const char* inv_dir) {
+    DIR* dir = opendir(inv_dir);
     struct dirent* entry;
-    printf("🔍 map_io starting...\n");
+    LOG_INFO("🔍 map_io starting. in %s\n", inv_dir);
+
+    if (!dir) {
+      LOG_ERROR("❌ '%s' directory not found. Skipping map_io.", inv_dir);
+        return;
+    }
+
 
     while ((entry = readdir(dir)) != NULL) {
         if (strstr(entry->d_name, ".json")) {
@@ -527,7 +571,7 @@ void map_io(sqlite3* db) {
                 const char* from = get_value(root, "ex:from");
 
                 if (name && from) {
-                    printf("🟢 SourcePlace: name=%s from=%s\n", name, from);
+                    LOG_INFO("🟢 SourcePlace: name=%s from=%s\n", name, from);
                     insert_triple(db, block, from, "rdf:type", "ex:SourcePlace");
                     insert_triple(db, block, from, "ex:name", name);
                     insert_triple(db, block, from, "ex:from", from);  // optional if needed for completeness
@@ -541,7 +585,7 @@ void map_io(sqlite3* db) {
                 const char* to = get_value(root, "ex:to");
 
                 if (name && to) {
-                    printf("🔵 DestinationPlace: name=%s to=%s\n", name, to);
+                    LOG_INFO("🔵 DestinationPlace: name=%s to=%s\n", name, to);
                     insert_triple(db, block, to, "rdf:type", "ex:DestinationPlace");
                     insert_triple(db, block, to, "ex:name", name);
                     insert_triple(db, block, to, "ex:to", to);  // ← this is the one needed for `lookup_destination_for_name`
@@ -566,7 +610,7 @@ void process_osc_response(char *buffer, int len) {
     const char *name = lookup_name_by_osc_path(db, addr);
     if (!name) return;
 
-    printf("Found source %s\n", name);
+    LOG_INFO("Found source %s\n", name);
 
     char dests[10][128];  // Support up to 10 fan-out targets
     int num = lookup_destinations_for_name(db, name, dests, 10);
@@ -575,7 +619,7 @@ void process_osc_response(char *buffer, int len) {
     float v = tosc_getNextFloat(&osc);
 
     for (int i = 0; i < num; i++) {
-        printf("🔁 Fanout %s → %s (via name: %s) with value: %f\n", addr, dests[i], name, v);
+        LOG_INFO("🔁 Fanout %s → %s (via name: %s) with value: %f\n", addr, dests[i], name, v);
         send_osc_response(dests[i], v);
     }
 }
@@ -610,20 +654,20 @@ void run_osc_listener() {
     timeout.tv_usec = 0;
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-    printf("🎧 Listening for OSC on port %d...\n", OSC_PORT_XMIT);
+    LOG_INFO("🎧 Listening for OSC on port %d...\n", OSC_PORT_XMIT);
 
     while (keep_running) {
         len = sizeof(cliaddr);
         n = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&cliaddr, &len);
         if (n > 0) {
             process_osc_message(buffer, n);
-           
+            
             process_osc_response(buffer, n);
         }
         // else: timeout occurred, just loop back and check keep_running
     }
 
-    printf("👋 Shutting down OSC listener.\n");
+    LOG_INFO("👋 Shutting down OSC listener.\n");
     close(sockfd);
 }
 
@@ -676,62 +720,86 @@ void export_dot(sqlite3 *db, const char *filename) {
     printf("✅ DOT file written to %s\n", filename);
 }
 
+cJSON* run_poll_cycle(sqlite3* db, const char* block) {
+    // Create the root JSON object
+    cJSON* root = cJSON_CreateObject();
+
+    // Timestamp
+    time_t now = time(NULL);
+    struct tm* tm_info = gmtime(&now);
+    char iso_timestamp[32];
+    strftime(iso_timestamp, sizeof(iso_timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
+    cJSON_AddStringToObject(root, "timestamp", iso_timestamp);
+
+    // Placeholder: executed invocations array
+    cJSON* executed = cJSON_CreateArray();
+    cJSON_AddItemToObject(root, "executed", executed);
+
+    // Placeholder: live values object
+    cJSON* live = cJSON_CreateObject();
+    cJSON_AddItemToObject(root, "live_values", live);
+
+    // TODO: Add logic here to scan triples and update these sections
+
+    // Example: dummy value
+    cJSON_AddNumberToObject(live, "/grid1/2", 0.521434);
+    cJSON_AddNumberToObject(live, "/fader5", 0.1123);
+
+    return root;
+}
 
 
 int main(int argc, char *argv[]) {
-    printf("Reality Compiler CLI\n");
+    const char* state_dir = "./state";
+    const char* inv_dir = "./inv";
+    LOG_INFO("Reality Compiler CLI\n");
 
     // 🧱 Genesis Block
     block = new_block();
-    printf("Genesis Block: %s\n", block);
+    LOG_INFO("Genesis Block: %s\n", block);
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--state") == 0 && i + 1 < argc) {
+            state_dir = argv[++i];
+        } else if (strcmp(argv[i], "--inv") == 0 && i + 1 < argc) {
+            inv_dir = argv[++i];
+        }
+    }
 
     // 🗂️ Ensure state directory exists
-    mkdir("state", 0755);
+    mkdir(state_dir, 0755);
+    char db_path[256];
+    snprintf(db_path, sizeof(db_path), "%s/db.sqlite3", state_dir);
 
     // 📂 Open SQLite DB
-    int rc = sqlite3_open("state/db.sqlite3", &db);
+    int rc = sqlite3_open(db_path, &db);
     if (rc != SQLITE_OK) {
-        printf("Cannot open database: %s\n", sqlite3_errmsg(db));
-        return 1;
+        LOG_ERROR("Cannot open database: %s\n", sqlite3_errmsg(db));
+        return 1; 
     }
-    printf("SQLite initialized in state/db.sqlite3.\n");
+    LOG_INFO("SQLite initialized in %s/db.sqlite3.\n", state_dir);
 
     // 📜 Load schema
-    FILE *schema_file = fopen("state/schema.sql", "rb");
-    if (schema_file) {
-        fseek(schema_file, 0, SEEK_END);
-        long len = ftell(schema_file);
-        rewind(schema_file);
-
-        char *schema_sql = malloc(len + 1);
-        fread(schema_sql, 1, len, schema_file);
-        schema_sql[len] = '\0';
-        fclose(schema_file);
-
-        char *errmsg = 0;
-        if (sqlite3_exec(db, schema_sql, 0, 0, &errmsg) != SQLITE_OK) {
-            fprintf(stderr, "❌ Failed to load schema: %s\n", errmsg);
-            sqlite3_free(errmsg);
-        } else {
-            printf("✅ Schema loaded from state/schema.sql\n");
-        }
-        free(schema_sql);
+    char *errmsg = 0;
+    if (sqlite3_exec(db, default_schema, 0, 0, &errmsg) != SQLITE_OK) {
+        fprintf(stderr, "❌ Failed to load schema: %s\n", errmsg);
+        sqlite3_free(errmsg);
     } else {
-        fprintf(stderr, "❌ Could not open state/schema.sql\n");
+        LOG_INFO("✅ Schema loadedn\n");
     }
 
     // 📥 Load RDF UI triples and Invocation IO mappings
     load_rdf_from_dir("ui", db, block);
-    map_io(db);
+    map_io(db, inv_dir);
 
-    // 🎛️ Handle flags
-    if (argc > 1) {
+       // 🎛️ Handle flags
+       if (argc > 1) {
         if (strcmp(argv[1], "--daemon") == 0) {
-            printf("🛠 Daemonizing...\n");
+            LOG_INFO("🛠 Daemonizing...\n");
             daemonize();
             signal(SIGTERM, handle_signal);
             signal(SIGINT, handle_signal);
-            printf("🔍 Final DB Pointer before loop: %p\n", db);
+            LOG_INFO("🔍 Final DB Pointer before loop: %p\n", db);
             run_osc_listener();
             return 0;
         }
@@ -739,7 +807,7 @@ int main(int argc, char *argv[]) {
         if (strcmp(argv[1], "--debug") == 0) {
             signal(SIGTERM, handle_signal);
             signal(SIGINT, handle_signal);
-            printf("🧪 Debug Mode: Entering OSC Loop...\n");
+            LOG_INFO("🧪 Debug Mode: Entering OSC Loop...\n");
             run_osc_listener();
             return 0;
         }
@@ -770,6 +838,56 @@ int main(int argc, char *argv[]) {
             if (block) free(block);
             return 0;
         }
+
+        if (strcmp(argv[1], "--osc") == 0 && argc >= 3) {
+            const char* json_input = argv[2];
+            char buffer[2048] = {0};
+        
+            // 🔁 Read from stdin if `-` is passed
+            if (strcmp(json_input, "-") == 0) {
+                size_t total_read = fread(buffer, 1, sizeof(buffer) - 1, stdin);
+                buffer[total_read] = '\0';
+                json_input = buffer;
+            }
+        
+            cJSON* json = cJSON_Parse(json_input);
+            if (!json) {
+                fprintf(stderr, "❌ Failed to parse JSON: %s\n", cJSON_GetErrorPtr());
+                exit(1);
+            }
+        
+            const cJSON* path = cJSON_GetObjectItemCaseSensitive(json, "path");
+            const cJSON* value = cJSON_GetObjectItemCaseSensitive(json, "value");
+        
+            if (cJSON_IsString(path) && cJSON_IsNumber(value)) {
+                send_osc_response(path->valuestring, value->valuedouble);
+            } else {
+                fprintf(stderr, "❌ Invalid JSON structure.\n");
+            }
+        
+            cJSON_Delete(json);
+            exit(0);
+        }
+
+
+        if (strcmp(argv[1], "--poll") == 0) {
+            LOG_INFO("🔍 Starting poll cycle...");
+            cJSON* report = run_poll_cycle(db, block);
+        
+            if (report) {
+                LOG_INFO("✅ Poll cycle returned successfully.");
+                char* out = cJSON_Print(report);
+                fprintf(stdout, "%s\n", out);  // same result, but more control
+                free(out);
+                cJSON_Delete(report);
+            } else {
+                LOG_ERROR("❌ Polling cycle failed: report was NULL.");
+            }
+        
+            sqlite3_close(db);
+            if (block) free(block);
+            return 0;
+        }
     }
 
     // 🧪 Default test block
@@ -778,16 +896,16 @@ int main(int argc, char *argv[]) {
     if (json) {
         cJSON *name = cJSON_GetObjectItemCaseSensitive(json, "name");
         if (cJSON_IsString(name) && name->valuestring != NULL) {
-            printf("JSON Parsed: Name = %s\n", name->valuestring);
+            LOG_INFO("JSON Parsed: Name = %s\n", name->valuestring);
         }
         cJSON_Delete(json);
     }
 
-    printf("Serd initialized.\n");
+    LOG_INFO("Serd initialized.\n");
 
     // 🧬 Reset block and emit a dummy test message
     block = new_block();
-    printf("Block: %s\n", block);
+    LOG_INFO("Block: %s\n", block);
 
     int len = tosc_writeMessage(buffer, BUFFER_SIZE, "/generate_ipv6", "");
     process_osc_message(buffer, len);
