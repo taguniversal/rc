@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Iexternal/cJSON -Iexternal/serd -Iexternal/sqlite -Iexternal/mkrand -Iexternal/tinyosc
-LDFLAGS = -lcrypto  -ldl 
+LDFLAGS = -lcrypto  -ldl -lpthread
 
 SRC = src/main.c src/rdf.c external/cJSON/cJSON.c src/udp_send.c external/sqlite/sqlite3.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c
 OBJ = $(patsubst %.c, build/%.o, $(SRC))
