@@ -5,7 +5,7 @@ LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm
 
 SRC = src/main.c src/rdf.c external/cJSON/cJSON.c src/udp_send.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c
 OBJ = $(patsubst %.c, build/%.o, $(SRC))
-BIN = build/rc
+BIN = build/digitalblockchain
 
 # Ensure build + output directories exist
 $(shell mkdir -p build output/time_series output/plotly)

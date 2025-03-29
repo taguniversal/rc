@@ -211,11 +211,6 @@ const char* lookup_name_by_osc_path(sqlite3* db, const char* osc_path) {
     return NULL;
 }
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include "sqlite3.h"
-
 int lookup_destinations_for_name(sqlite3* db, const char* name, char dests[][128], int max_dests) {
     sqlite3_stmt* stmt;
     const char *sql = "SELECT DISTINCT s.subject FROM triples s \
@@ -763,8 +758,13 @@ int main(int argc, char *argv[]) {
             state_dir = argv[++i];
         } else if (strcmp(argv[i], "--inv") == 0 && i + 1 < argc) {
             inv_dir = argv[++i];
+            // 🗂️ Ensure inv directory exists
+            if (inv_dir) {
+                mkdir(inv_dir, 0755);
+            }
         }
     }
+    LOG_INFO("Using state directory %s, invocation directory %s\n", state_dir, inv_dir);
 
     // 🗂️ Ensure state directory exists
     mkdir(state_dir, 0755);
@@ -785,7 +785,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "❌ Failed to load schema: %s\n", errmsg);
         sqlite3_free(errmsg);
     } else {
-        LOG_INFO("✅ Schema loadedn\n");
+        LOG_INFO("✅ Schema loaded\n");
     }
 
     // 📥 Load RDF UI triples and Invocation IO mappings
