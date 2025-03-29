@@ -13,7 +13,7 @@ $(shell mkdir -p build output/time_series output/plotly)
 all: $(BIN)
 
 $(BIN): $(OBJ)
-	$(CC) $(OBJ) -o $(BIN) $(LDFLAGS)
+	$(CC) $(OBJ) -o $(BIN) -lcrypto -ldl -lpthread -lsqlite3 -lm
 
 build/%.o: %.c
 	mkdir -p $(dir $@)
