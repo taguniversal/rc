@@ -145,6 +145,33 @@ void send_osc_response(const char *address, float value) {
     close(sockfd);
 }
 
+void send_osc_response_str(const char *address, const char *str) {
+    int sockfd;
+    struct sockaddr_in dest_addr;
+
+    // Emit JSON to stdout
+    printf("{\"path\": \"%s\", \"value\": \"%s\"}\n", address, str);
+    fflush(stdout);
+
+    // Create socket
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        perror("socket failed");
+        return;
+    }
+
+    memset(&dest_addr, 0, sizeof(dest_addr));
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(OSC_PORT_RECV);
+    dest_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    char msg[BUFFER_SIZE];
+    int len = tosc_writeMessage(msg, BUFFER_SIZE, address, "s", str);
+
+    sendto(sockfd, msg, len, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+    close(sockfd);
+}
+
 char* enrich(const char* osc_path) {
     // Strip leading '/' if present
     const char* base_name = (osc_path[0] == '/') ? osc_path + 1 : osc_path;
@@ -276,6 +303,13 @@ void process_osc_message(const char *buffer, int len) {
             LOG_INFO("✅ Generated IPv6: %s\n", ipv6_str);
         }
 
+        if (strcmp(osc.buffer, "/poll") == 0) {
+            LOG_INFO("📡 Received /poll\n");
+        
+            const char *json = "{\"status\":\"ok\"}";
+            send_osc_response_str("/poll_response", json);
+        }
+        
 
         if (strcmp(osc.buffer, "/button1") == 0) {
             float val = 0.0;
