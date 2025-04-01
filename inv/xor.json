@@ -1,0 +1,63 @@
+{
+    "@context": {
+      "ex": "https://digitalblockchain.io/schema/"
+    },
+    "@id": "/expression/1",
+    "@type": "ex:Expression",
+    "ex:name": "XOR",
+    "ex:source_list": [
+      {
+        "@id": "/grid1/1",
+        "@type": "ex:SourcePlace",
+        "ex:name": "A"
+      },
+      {
+        "@id": "/grid1/2",
+        "@type": "ex:SourcePlace",
+        "ex:name": "B"
+      }
+    ],
+    "ex:destination_list": [
+      {
+        "@id": "/grid1/3",
+        "@type": "ex:DestinationPlace",
+        "ex:name": "Out0",
+        "ex:to": "/grid1/3",
+        "ex:conditionalInvocation": {
+          "ex:pattern": ["$A", "$B"],
+          "ex:call": "XORGate",
+          "ex:outputBinding": "OUT",
+          "ex:patternApplication": "$A$B()"
+        }
+      }
+    ],
+    "ex:place_of_resolution": {
+      "@id": "/por/1",
+      "@type": "ex:PlaceOfResolution",
+      "ex:hasExpressionFragment": [
+        {
+          "@id": "/frag/1",
+          "@type": "ex:ExpressionFragment",
+          "ex:targetPlace": "/grid1/3",
+          "ex:invokesDefinition": "XORGate",
+          "ex:invocationArguments": ["/grid1/1", "/grid1/2"]
+        }
+      ]
+    },
+    "ex:containsDefinition": [
+      {
+        "@id": "/def/XORGate",
+        "@type": "ex:Definition",
+        "ex:name": "XORGate",
+        "ex:patternVariables": ["A", "B"],
+        "ex:destinationNames": ["OUT"],
+        "ex:resolutionTable": {
+          "00": "0",
+          "01": "1",
+          "10": "1",
+          "11": "0"
+        }
+      }
+    ]
+  }
+  

@@ -6,6 +6,32 @@
 #include <stdlib.h>
 #include <sqlite3.h>
 
+const char* lookup_object(sqlite3* db, const char* subject, const char* predicate) {
+    static char result[256];
+    sqlite3_stmt* stmt;
+    const char* sql = "SELECT object FROM triples WHERE subject = ? AND predicate = ? LIMIT 1;";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
+        return NULL;
+
+    sqlite3_bind_text(stmt, 1, subject, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, predicate, -1, SQLITE_STATIC);
+
+    const char* found = NULL;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        strncpy(result, (const char*)sqlite3_column_text(stmt, 0), sizeof(result));
+        result[sizeof(result)-1] = '\0';
+        found = result;
+    }
+
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+const char* lookup_value(sqlite3* db, const char* subject, const char* predicate) {
+    return lookup_object(db, subject, predicate);
+}
+
 void insert_triple(sqlite3 *db, const char *psi, const char *subject, const char *predicate, const char *object) {
     sqlite3_stmt *stmt;
     const char *sql = "INSERT OR IGNORE INTO triples (psi, subject, predicate, object) VALUES (?, ?, ?, ?);";

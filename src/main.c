@@ -21,6 +21,7 @@
 #include "serd.h"
 #include "sqlite3.h"
 #include "rdf.h"
+#include "eval.h"
 
 #include <time.h>
 #include <stdarg.h>
@@ -571,21 +572,25 @@ const char* get_value(cJSON* root, const char* key) {
     return NULL;
 }
 
+const char* anon_id(void) {
+   return "0";
+}
+
 void map_io(sqlite3* db, const char* inv_dir) {
     DIR* dir = opendir(inv_dir);
     struct dirent* entry;
     LOG_INFO("🔍 map_io starting. in %s\n", inv_dir);
 
     if (!dir) {
-      LOG_ERROR("❌ '%s' directory not found. Skipping map_io.", inv_dir);
+        LOG_ERROR("❌ '%s' directory not found. Skipping map_io.", inv_dir);
         return;
     }
-
 
     while ((entry = readdir(dir)) != NULL) {
         if (strstr(entry->d_name, ".json")) {
             char path[256];
             snprintf(path, sizeof(path), "inv/%s", entry->d_name);
+            LOG_INFO("Loading %s\n", path);
             char* json = load_file(path);
             if (!json) continue;
 
@@ -603,9 +608,8 @@ void map_io(sqlite3* db, const char* inv_dir) {
                     LOG_INFO("🟢 SourcePlace: name=%s from=%s\n", name, from);
                     insert_triple(db, block, from, "rdf:type", "ex:SourcePlace");
                     insert_triple(db, block, from, "ex:name", name);
-                    insert_triple(db, block, from, "ex:from", from);  // optional if needed for completeness
+                    insert_triple(db, block, from, "ex:from", from);
                     insert_triple(db, block, from, "context", json);
-
                 }
             }
 
@@ -617,9 +621,84 @@ void map_io(sqlite3* db, const char* inv_dir) {
                     LOG_INFO("🔵 DestinationPlace: name=%s to=%s\n", name, to);
                     insert_triple(db, block, to, "rdf:type", "ex:DestinationPlace");
                     insert_triple(db, block, to, "ex:name", name);
-                    insert_triple(db, block, to, "ex:to", to);  // ← this is the one needed for `lookup_destination_for_name`
+                    insert_triple(db, block, to, "ex:to", to);
                     insert_triple(db, block, to, "context", json);
+                }
+            }
 
+            if (is_type(root, "ex:Expression")) {
+                const char* name = get_value(root, "ex:name");
+                const char* id = get_value(root, "@id");
+                if (!id) id = anon_id();
+
+                LOG_INFO("📘 Expression: name=%s id=%s\n", name, id);
+                insert_triple(db, block, id, "rdf:type", "ex:Expression");
+                if (name) insert_triple(db, block, id, "ex:name", name);
+                insert_triple(db, block, id, "context", json);
+
+                // --- NEW: source_list ---
+                cJSON* src_list = cJSON_GetObjectItem(root, "ex:source_list");
+                if (src_list && cJSON_IsArray(src_list)) {
+                    for (int i = 0; i < cJSON_GetArraySize(src_list); i++) {
+                        cJSON* src = cJSON_GetArrayItem(src_list, i);
+                        const char* from = get_value(src, "@id");
+                        const char* name = get_value(src, "ex:name");
+                        if (from) {
+                            LOG_INFO("🟢 [Expression] SourcePlace: name=%s from=%s\n", name ? name : "(unnamed)", from);
+                            insert_triple(db, block, from, "rdf:type", "ex:SourcePlace");
+                            if (name) insert_triple(db, block, from, "ex:name", name);
+                        }
+                    }
+                }
+
+                // --- NEW: destination_list ---
+                cJSON* dst_list = cJSON_GetObjectItem(root, "ex:destination_list");
+                if (dst_list && cJSON_IsArray(dst_list)) {
+                    for (int i = 0; i < cJSON_GetArraySize(dst_list); i++) {
+                        cJSON* dst = cJSON_GetArrayItem(dst_list, i);
+                        const char* to = get_value(dst, "@id");
+                        const char* name = get_value(dst, "ex:name");
+                        const char* to_ref = get_value(dst, "ex:to");
+                        if (to) {
+                            LOG_INFO("🔵 [Expression] DestinationPlace: name=%s to=%s\n", name ? name : "(unnamed)", to_ref ? to_ref : to);
+                            insert_triple(db, block, to, "rdf:type", "ex:DestinationPlace");
+                            if (name) insert_triple(db, block, to, "ex:name", name);
+                            if (to_ref) insert_triple(db, block, to, "ex:to", to_ref);
+                        }
+                    }
+                }
+
+                // --- NEW: embedded PlaceOfResolution ---
+                cJSON* por = cJSON_GetObjectItem(root, "ex:place_of_resolution");
+                if (por && cJSON_IsObject(por)) {
+                    const char* por_id = get_value(por, "@id");
+                    if (!por_id) por_id = anon_id();
+                    LOG_INFO("🧠 [Expression] PlaceOfResolution: id=%s\n", por_id);
+                    insert_triple(db, block, por_id, "rdf:type", "ex:PlaceOfResolution");
+
+                    cJSON* fragments = cJSON_GetObjectItem(por, "ex:hasExpressionFragment");
+                    if (fragments && cJSON_IsArray(fragments)) {
+                        int count = cJSON_GetArraySize(fragments);
+                        for (int i = 0; i < count; i++) {
+                            cJSON* fragment = cJSON_GetArrayItem(fragments, i);
+                            if (!fragment || !cJSON_IsObject(fragment)) continue;
+
+                            const char* frag_id = get_value(fragment, "@id");
+                            if (!frag_id) frag_id = anon_id();
+
+                            LOG_INFO("🔩 ExpressionFragment: %s\n", frag_id);
+                            insert_triple(db, block, frag_id, "rdf:type", "ex:ExpressionFragment");
+                            insert_triple(db, block, por_id, "ex:hasExpressionFragment", frag_id);
+
+                            const char* target = get_value(fragment, "ex:targetPlace");
+                            const char* def = get_value(fragment, "ex:invokesDefinition");
+                            const char* args = get_value(fragment, "ex:invocationArguments");
+
+                            if (target) insert_triple(db, block, frag_id, "ex:targetPlace", target);
+                            if (def) insert_triple(db, block, frag_id, "ex:invokesDefinition", def);
+                            if (args) insert_triple(db, block, frag_id, "ex:invocationArguments", args);
+                        }
+                    }
                 }
             }
 
@@ -630,6 +709,7 @@ void map_io(sqlite3* db, const char* inv_dir) {
 
     closedir(dir);
 }
+
 
 void process_osc_response(char *buffer, int len) {
     tosc_message osc;
@@ -825,6 +905,8 @@ int main(int argc, char *argv[]) {
     // 📥 Load RDF UI triples and Invocation IO mappings
     load_rdf_from_dir("ui", db, block);
     map_io(db, inv_dir);
+    eval(db);
+
 
        // 🎛️ Handle flags
        if (argc > 1) {

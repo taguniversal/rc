@@ -3,7 +3,7 @@ CFLAGS = -Wall -Iexternal/cJSON -Iexternal/serd -Iexternal/mkrand -Iexternal/tin
 LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm
 
 
-SRC = src/main.c src/rdf.c external/cJSON/cJSON.c src/udp_send.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c
+SRC = src/main.c src/eval.c src/rdf.c external/cJSON/cJSON.c src/udp_send.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c
 OBJ = $(patsubst %.c, build/%.o, $(SRC))
 BIN = build/rcnode
 
