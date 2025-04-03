@@ -26,27 +26,7 @@
 #include <time.h>
 #include <stdarg.h>
 #include <unistd.h>
-
-#define COLOR_RESET   "\x1b[0m"
-#define COLOR_INFO    "\x1b[36m"
-#define COLOR_WARN    "\x1b[33m"
-#define COLOR_ERROR   "\x1b[31m"
-
-#define LOG(level, color, fmt, ...) do { \
-    time_t now = time(NULL); \
-    struct tm *tm_info = localtime(&now); \
-    char time_buf[20]; \
-    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info); \
-    if (isatty(fileno(stderr))) { \
-        fprintf(stderr, "%s[%s] [%s] " fmt "%s\n", color, time_buf, level, ##__VA_ARGS__, COLOR_RESET); \
-    } else { \
-        fprintf(stderr, "[%s] [%s] " fmt "\n", time_buf, level, ##__VA_ARGS__); \
-    } \
-} while (0)
-
-#define LOG_INFO(fmt, ...)  LOG("INFO",  COLOR_INFO,  fmt, ##__VA_ARGS__)
-#define LOG_WARN(fmt, ...)  LOG("WARN",  COLOR_WARN,  fmt, ##__VA_ARGS__)
-#define LOG_ERROR(fmt, ...) LOG("ERROR", COLOR_ERROR, fmt, ##__VA_ARGS__)
+#include "log.h"
 
 
 #define PSI_BLOCK_LEN 39
@@ -206,8 +186,8 @@ const char* lookup_name_by_osc_path(sqlite3* db, const char* osc_path) {
     static char name[128];
     sqlite3_stmt* stmt;
 
-    // Step 1: Find subject where ex:from = osc_path
-    const char *sql = "SELECT subject FROM triples WHERE predicate = 'ex:from' AND object = ? LIMIT 1;";
+    // Step 1: Find subject where inv:from = osc_path
+    const char *sql = "SELECT subject FROM triples WHERE predicate = 'inv:from' AND object = ? LIMIT 1;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return NULL;
 
     sqlite3_bind_text(stmt, 1, osc_path, -1, SQLITE_STATIC);
@@ -222,8 +202,8 @@ const char* lookup_name_by_osc_path(sqlite3* db, const char* osc_path) {
         return NULL;
     }
 
-    // Step 2: Look up ex:name for that subject
-    const char *sql2 = "SELECT object FROM triples WHERE subject = ? AND predicate = 'ex:name' LIMIT 1;";
+    // Step 2: Look up inv:name for that subject
+    const char *sql2 = "SELECT object FROM triples WHERE subject = ? AND predicate = 'inv:name' LIMIT 1;";
     if (sqlite3_prepare_v2(db, sql2, -1, &stmt, NULL) != SQLITE_OK) return NULL;
 
     sqlite3_bind_text(stmt, 1, subject, -1, SQLITE_STATIC);
@@ -242,7 +222,7 @@ const char* lookup_name_by_osc_path(sqlite3* db, const char* osc_path) {
 int lookup_destinations_for_name(sqlite3* db, const char* name, char dests[][128], int max_dests) {
     sqlite3_stmt* stmt;
     const char *sql = "SELECT DISTINCT s.subject FROM triples s \
-                   WHERE s.predicate = 'ex:name' AND s.object = ?;";
+                   WHERE s.predicate = 'inv:name' AND s.object = ?;";
     int count = 0;
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
@@ -253,7 +233,7 @@ int lookup_destinations_for_name(sqlite3* db, const char* name, char dests[][128
 
         // Verify it's a DestinationPlace
         sqlite3_stmt* stmt2;
-        const char* check_type = "SELECT 1 FROM triples WHERE subject = ? AND predicate = 'rdf:type' AND object = 'ex:DestinationPlace';";
+        const char* check_type = "SELECT 1 FROM triples WHERE subject = ? AND predicate = 'rdf:type' AND object = 'inv:DestinationPlace';";
         if (sqlite3_prepare_v2(db, check_type, -1, &stmt2, NULL) == SQLITE_OK) {
             sqlite3_bind_text(stmt2, 1, subject, -1, SQLITE_STATIC);
             if (sqlite3_step(stmt2) == SQLITE_ROW) {
@@ -579,6 +559,7 @@ const char* anon_id(void) {
 void map_io(sqlite3* db, const char* inv_dir) {
     DIR* dir = opendir(inv_dir);
     struct dirent* entry;
+    bool matched = false;
     LOG_INFO("🔍 map_io starting. in %s\n", inv_dir);
 
     if (!dir) {
@@ -600,83 +581,102 @@ void map_io(sqlite3* db, const char* inv_dir) {
                 continue;
             }
 
-            if (is_type(root, "ex:SourcePlace")) {
-                const char* name = get_value(root, "ex:name");
-                const char* from = get_value(root, "ex:from");
-
-                if (name && from) {
-                    LOG_INFO("🟢 SourcePlace: name=%s from=%s\n", name, from);
-                    insert_triple(db, block, from, "rdf:type", "ex:SourcePlace");
-                    insert_triple(db, block, from, "ex:name", name);
-                    insert_triple(db, block, from, "ex:from", from);
-                    insert_triple(db, block, from, "context", json);
+            if (is_type(root, "inv:SourcePlace")) {
+                matched = true;
+            
+                const char* name    = get_value(root, "inv:name");
+                const char* content = get_value(root, "inv:content");
+                const char* id      = get_value(root, "@id");
+            
+                if (id) {
+                    LOG_INFO("🟢 SourcePlace: name=%s id=%s\n", name ? name : "(unnamed)", id);
+                    insert_triple(db, block, id, "rdf:type", "inv:SourcePlace");
+            
+                    if (name)
+                        insert_triple(db, block, id, "inv:name", name);
+            
+                    if (content)
+                        insert_triple(db, block, id, "inv:content", content);
+            
+                    insert_triple(db, block, id, "context", json);
                 }
             }
+            
 
-            if (is_type(root, "ex:DestinationPlace")) {
-                const char* name = get_value(root, "ex:name");
-                const char* to = get_value(root, "ex:to");
-
-                if (name && to) {
-                    LOG_INFO("🔵 DestinationPlace: name=%s to=%s\n", name, to);
-                    insert_triple(db, block, to, "rdf:type", "ex:DestinationPlace");
-                    insert_triple(db, block, to, "ex:name", name);
-                    insert_triple(db, block, to, "ex:to", to);
-                    insert_triple(db, block, to, "context", json);
+            if (is_type(root, "inv:DestinationPlace")) {
+                matched = true;
+            
+                const char* name    = get_value(root, "inv:name");
+                const char* content = get_value(root, "inv:content");  // Optional if you're writing output
+                const char* id      = get_value(root, "@id");
+            
+                if (id) {
+                    LOG_INFO("🔵 DestinationPlace: name=%s id=%s\n", name ? name : "(unnamed)", id);
+                    insert_triple(db, block, id, "rdf:type", "inv:DestinationPlace");
+            
+                    if (name)
+                        insert_triple(db, block, id, "inv:name", name);
+            
+                    if (content)
+                        insert_triple(db, block, id, "inv:content", content);
+            
+                    insert_triple(db, block, id, "context", json);
                 }
             }
+            
 
-            if (is_type(root, "ex:Expression")) {
-                const char* name = get_value(root, "ex:name");
+            if (is_type(root, "inv:Expression")) {
+                matched = true;
+                const char* name = get_value(root, "inv:name");
                 const char* id = get_value(root, "@id");
                 if (!id) id = anon_id();
 
                 LOG_INFO("📘 Expression: name=%s id=%s\n", name, id);
-                insert_triple(db, block, id, "rdf:type", "ex:Expression");
-                if (name) insert_triple(db, block, id, "ex:name", name);
+                insert_triple(db, block, id, "rdf:type", "inv:Expression");
+                if (name) insert_triple(db, block, id, "inv:name", name);
                 insert_triple(db, block, id, "context", json);
 
                 // --- NEW: source_list ---
-                cJSON* src_list = cJSON_GetObjectItem(root, "ex:source_list");
+                cJSON* src_list = cJSON_GetObjectItem(root, "inv:source_list");
                 if (src_list && cJSON_IsArray(src_list)) {
                     for (int i = 0; i < cJSON_GetArraySize(src_list); i++) {
                         cJSON* src = cJSON_GetArrayItem(src_list, i);
                         const char* from = get_value(src, "@id");
-                        const char* name = get_value(src, "ex:name");
+                        const char* name = get_value(src, "inv:name");
                         if (from) {
                             LOG_INFO("🟢 [Expression] SourcePlace: name=%s from=%s\n", name ? name : "(unnamed)", from);
-                            insert_triple(db, block, from, "rdf:type", "ex:SourcePlace");
-                            if (name) insert_triple(db, block, from, "ex:name", name);
+                            insert_triple(db, block, from, "rdf:type", "inv:SourcePlace");
+                            if (name) insert_triple(db, block, from, "inv:name", name);
                         }
                     }
                 }
 
                 // --- NEW: destination_list ---
-                cJSON* dst_list = cJSON_GetObjectItem(root, "ex:destination_list");
+                cJSON* dst_list = cJSON_GetObjectItem(root, "inv:destination_list");
                 if (dst_list && cJSON_IsArray(dst_list)) {
                     for (int i = 0; i < cJSON_GetArraySize(dst_list); i++) {
                         cJSON* dst = cJSON_GetArrayItem(dst_list, i);
                         const char* to = get_value(dst, "@id");
-                        const char* name = get_value(dst, "ex:name");
-                        const char* to_ref = get_value(dst, "ex:to");
+                        const char* name = get_value(dst, "inv:name");
+                        const char* to_ref = get_value(dst, "inv:to");
                         if (to) {
                             LOG_INFO("🔵 [Expression] DestinationPlace: name=%s to=%s\n", name ? name : "(unnamed)", to_ref ? to_ref : to);
-                            insert_triple(db, block, to, "rdf:type", "ex:DestinationPlace");
-                            if (name) insert_triple(db, block, to, "ex:name", name);
-                            if (to_ref) insert_triple(db, block, to, "ex:to", to_ref);
+                            insert_triple(db, block, to, "rdf:type", "inv:DestinationPlace");
+                            if (name) insert_triple(db, block, to, "inv:name", name);
+                            if (to_ref) insert_triple(db, block, to, "inv:to", to_ref);
                         }
                     }
                 }
 
                 // --- NEW: embedded PlaceOfResolution ---
-                cJSON* por = cJSON_GetObjectItem(root, "ex:place_of_resolution");
+                cJSON* por = cJSON_GetObjectItem(root, "inv:place_of_resolution");
                 if (por && cJSON_IsObject(por)) {
                     const char* por_id = get_value(por, "@id");
                     if (!por_id) por_id = anon_id();
                     LOG_INFO("🧠 [Expression] PlaceOfResolution: id=%s\n", por_id);
-                    insert_triple(db, block, por_id, "rdf:type", "ex:PlaceOfResolution");
+                    insert_triple(db, block, por_id, "rdf:type", "inv:PlaceOfResolution");
 
-                    cJSON* fragments = cJSON_GetObjectItem(por, "ex:hasExpressionFragment");
+                    cJSON* fragments = cJSON_GetObjectItem(por, "inv:hasExpressionFragment");
                     if (fragments && cJSON_IsArray(fragments)) {
                         int count = cJSON_GetArraySize(fragments);
                         for (int i = 0; i < count; i++) {
@@ -687,22 +687,34 @@ void map_io(sqlite3* db, const char* inv_dir) {
                             if (!frag_id) frag_id = anon_id();
 
                             LOG_INFO("🔩 ExpressionFragment: %s\n", frag_id);
-                            insert_triple(db, block, frag_id, "rdf:type", "ex:ExpressionFragment");
-                            insert_triple(db, block, por_id, "ex:hasExpressionFragment", frag_id);
+                            insert_triple(db, block, frag_id, "rdf:type", "inv:ExpressionFragment");
+                            insert_triple(db, block, por_id, "inv:hasExpressionFragment", frag_id);
 
-                            const char* target = get_value(fragment, "ex:targetPlace");
-                            const char* def = get_value(fragment, "ex:invokesDefinition");
-                            const char* args = get_value(fragment, "ex:invocationArguments");
+                            const char* target = get_value(fragment, "inv:targetPlace");
+                            const char* def = get_value(fragment, "inv:invokesDefinition");
+                            const char* args = get_value(fragment, "inv:invocationArguments");
 
-                            if (target) insert_triple(db, block, frag_id, "ex:targetPlace", target);
-                            if (def) insert_triple(db, block, frag_id, "ex:invokesDefinition", def);
-                            if (args) insert_triple(db, block, frag_id, "ex:invocationArguments", args);
+                            if (target) insert_triple(db, block, frag_id, "inv:targetPlace", target);
+                            if (def) insert_triple(db, block, frag_id, "inv:invokesDefinition", def);
+                            
+                            if (args) insert_triple(db, block, frag_id, "inv:invocationArguments", args);
                         }
                     }
                 }
             }
 
+            
+
             free(json);
+            if (!matched) {
+                const char* type = get_value(root, "@type");
+                if (type) {
+                    LOG_WARN("⚠️ Unrecognized type: %s in file %s\n", type, entry->d_name);
+                } else {
+                    LOG_WARN("⚠️ No @type found in file %s\n", entry->d_name);
+                }
+            }
+            
             cJSON_Delete(root);
         }
     }
@@ -810,8 +822,8 @@ void export_dot(sqlite3 *db, const char *filename) {
     // Draw matching edges by name (basic string equality match)
     const char *link_query = "SELECT DISTINCT s1.subject, s2.subject "
                              "FROM triples s1, triples s2 "
-                             "WHERE s1.predicate = 'rdf:type' AND s1.object = 'ex:SourcePlace' "
-                             "AND s2.predicate = 'rdf:type' AND s2.object = 'ex:DestinationPlace' "
+                             "WHERE s1.predicate = 'rdf:type' AND s1.object = 'inv:SourcePlace' "
+                             "AND s2.predicate = 'rdf:type' AND s2.object = 'inv:DestinationPlace' "
                              "AND s1.subject = s2.subject;";
 
     if (sqlite3_prepare_v2(db, link_query, -1, &stmt, NULL) == SQLITE_OK) {

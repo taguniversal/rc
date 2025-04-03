@@ -5,10 +5,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sqlite3.h>
+#include "log.h"
+
+
+
+#define PSI_BLOCK_LEN 39
+#define OSC_PORT_XMIT 4242
+#define OSC_PORT_RECV 4243
+#define BUFFER_SIZE 1024
+#define IPV6_ADDR "fc00::1"
+
 
 const char* lookup_object(sqlite3* db, const char* subject, const char* predicate) {
     static char result[256];
     sqlite3_stmt* stmt;
+    LOG_INFO("RDF lookup_object. Subject: %s, Predicate: %s\n", subject, predicate);
+
     const char* sql = "SELECT object FROM triples WHERE subject = ? AND predicate = ? LIMIT 1;";
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)

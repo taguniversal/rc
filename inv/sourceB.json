@@ -1,0 +1,10 @@
+{
+    "@context": {
+      "inv": "https://digitalblockchain.io/ontology/invocation#"
+    },
+    "@id": "/sourceB",
+    "@type": "inv:SourcePlace",
+    "inv:name": "B",
+    "inv:content": "1"
+  }
+  

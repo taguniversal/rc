@@ -1,22 +1,26 @@
 CC = gcc
 CFLAGS = -Wall -Iexternal/cJSON -Iexternal/serd -Iexternal/mkrand -Iexternal/tinyosc
-LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm
+LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm 
 
-
-SRC = src/main.c src/eval.c src/rdf.c external/cJSON/cJSON.c src/udp_send.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c
-OBJ = $(patsubst %.c, build/%.o, $(SRC))
-BIN = build/rcnode
+# For rcnode
+rcnode_SRC = src/main.c src/eval.c src/rdf.c external/cJSON/cJSON.c src/udp_send.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c
+rcnode_OBJ = $(patsubst src/%.c, build/src/%.o, $(rcnode_SRC))
+rcnode_BIN = build/rcnode
 
 # Ensure build + output directories exist
-$(shell mkdir -p build output/time_series output/plotly)
+$(shell mkdir -p build/src output/time_series output/plotly)
 
-all: $(BIN)
+all: $(rcnode_BIN) $(serdtest_BIN)
 
-$(BIN): $(OBJ)
-	$(CC) $(OBJ) -o $(BIN) -lcrypto -ldl -lpthread -lm -lsqlite3
+$(serdtest_BIN): $(serdtest_OBJ)
+	$(CC) $(serdtest_OBJ) -o $(serdtest_BIN) $(LDFLAGS)
 
-build/%.o: %.c
-	mkdir -p $(dir $@)
+$(rcnode_BIN): $(rcnode_OBJ)
+	$(CC) $(rcnode_OBJ) -o $(rcnode_BIN) $(LDFLAGS)
+
+# Ensure each object file is created in the correct directory
+build/src/%.o: src/%.c
+	mkdir -p $(dir $@)  # Ensure the directory exists
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:

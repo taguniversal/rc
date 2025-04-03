@@ -25,6 +25,11 @@ inv:DestinationPlace a rdfs:Class ;
     rdfs:label "Destination Place" ;
     rdfs:comment "A place that receives or stores data." .
 
+inv:ConditionalInvocation a rdfs:Class ;
+    rdfs:subClassOf inv:NamedEntity ;
+    rdfs:label "Conditional Invocation" ;
+    rdfs:comment "Represents an invocation dynamically formed from one or more destination places." .
+
 ### Properties for Named Entities (now includes Place, Definition, Invocation)
 inv:name a rdf:Property ;
     rdfs:domain inv:NamedEntity ;
@@ -109,7 +114,30 @@ inv:hasExpressionFragment a rdf:Property ;
     rdfs:range inv:ExpressionFragment ;
     rdfs:label "has expression fragment" ;
     rdfs:comment "Contains one or more fragments representing assignments, invocations, or logic steps." .
+### Update to ExpressionFragment
+inv:ExpressionFragment a rdfs:Class ;
+    rdfs:label "Expression Fragment" ;
+    rdfs:comment "A fragment of logic or operation used within a Place of Resolution. May include invocations, constants, and assignments." .
 
+inv:hasConditionalInvocation a rdf:Property ;
+    rdfs:domain inv:ExpressionFragment ;
+    rdfs:range inv:ConditionalInvocation ;
+    rdfs:label "has conditional invocation" ;
+    rdfs:comment "Links an expression fragment to a conditional invocation." .
+
+### Updated Properties for ExpressionFragment (conditional handling)
+inv:invocationName a rdf:Property ;
+    rdfs:domain inv:ConditionalInvocation ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "invocation name" ;
+    rdfs:comment "The dynamically formed name of the conditional invocation, based on destination places." .
+
+inv:hasDestinationNames a rdf:Property ;
+    rdfs:domain inv:ConditionalInvocation ;
+    rdfs:range inv:DestinationPlace ;
+    rdfs:label "has destination names" ;
+    rdfs:comment "Links a conditional invocation to one or more destination places that form the invocation name." .
+    
 ### Constant Definitions
 inv:ConstantDefinitions a rdfs:Class ;
     rdfs:label "Constant Definitions" ;
@@ -147,12 +175,6 @@ inv:hasTruthTableRow a rdf:Property ;
 inv:ExpressionFragment a rdfs:Class ;
     rdfs:label "Expression Fragment" ;
     rdfs:comment "A fragment of logic or operation used within a Place of Resolution. May include invocations, constants, and assignments." .
-
-inv:targetPlace a rdf:Property ;
-    rdfs:domain inv:ExpressionFragment ;
-    rdfs:range inv:Place ;
-    rdfs:label "target place" ;
-    rdfs:comment "The place to receive the output of this expression." .
 
 inv:invokesDefinition a rdf:Property ;
     rdfs:domain inv:ExpressionFragment ;
