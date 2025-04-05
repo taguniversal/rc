@@ -2,42 +2,35 @@
   "@context": {
     "inv": "https://digitalblockchain.io/ontology/invocation#"
   },
-  "@id": "/expression/1",
-  "@type": "inv:Expression",
+  "@type": "inv:Definition",
   "inv:name": "XOR",
   "inv:source_list": [
     { 
-      "@id": "/sourceA", 
       "@type": "inv:SourcePlace", 
       "inv:name": "A" 
     },
     { 
-      "@id": "/sourceB", 
       "@type": "inv:SourcePlace", 
       "inv:name": "B" 
     }
   ],
   "inv:destination_list": [
     {
-      "@id": "/destination/1",
       "@type": "inv:DestinationPlace",
       "inv:name": "Out0"
     }
   ],
   "inv:place_of_resolution": {
-    "@id": "/por/1",
     "@type": "inv:PlaceOfResolution",
     "inv:hasExpressionFragment": [
       {
-        "@id": "/frag/1",
         "@type": "inv:ExpressionFragment",
         "inv:hasConditionalInvocation": {
-          "@id": "/cond_invocation/1",
           "@type": "inv:ConditionalInvocation",
           "inv:invocationName": "$A$B",
           "inv:hasDestinationNames": [
-            { "@id": "/destination/A", "@type": "inv:DestinationPlace", "inv:name": "A" },
-            { "@id": "/destination/B", "@type": "inv:DestinationPlace", "inv:name": "B" }
+            { "@type": "inv:DestinationPlace", "inv:name": "A" },
+            { "@type": "inv:DestinationPlace", "inv:name": "B" }
           ]
         }
       }
@@ -45,7 +38,6 @@
   },
   "inv:containsDefinition": [
     {
-      "@id": "/def/1",
       "@type": "inv:Definition",
       "inv:patternVariables": ["A", "B"],
       "inv:sourceNames": ["OUT"],

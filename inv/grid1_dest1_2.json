@@ -2,7 +2,6 @@
   "@context": {
     "ex": "https://digitalblockchain.io/schema/"
   },
-  "@id": "/grid1/2",
   "@type": "ex:DestinationPlace",
   "ex:name": "Volume",
   "ex:to": "/grid1/2"
