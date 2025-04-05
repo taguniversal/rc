@@ -14,6 +14,13 @@ inv:Place a rdfs:Class ;
     rdfs:label "Place" ;
     rdfs:comment "A generic concept of a place where values can originate or be received." .
 
+### Place Content
+inv:hasContent a rdf:Property ;
+    rdfs:domain inv:Place ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "has content" ;
+    rdfs:comment "Defines the current content value present in a Place." .
+
 ### Subclasses of Place
 inv:SourcePlace a rdfs:Class ;
     rdfs:subClassOf inv:Place ;
@@ -37,12 +44,6 @@ inv:name a rdf:Property ;
     rdfs:label "name" ;
     rdfs:comment "The identifier or tag used for matching named entities like places, definitions, and invocations." .
 
-### Source content
-inv:hasContent a rdf:Property ;
-    rdfs:domain inv:SourcePlace ;
-    rdfs:range rdfs:Literal ;
-    rdfs:label "has content" ;
-    rdfs:comment "Defines the content stored in a Source Place." .
 
 ### Shared superclass for anything with I/O lists
 inv:HasIOLists a rdfs:Class ;

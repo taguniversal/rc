@@ -1,3 +1,4 @@
 #include "sqlite3.h"
 
-void eval(sqlite3* db);
+int cycle(sqlite3* db, const char* block, const char* expr_id) ;
+void eval(sqlite3* db, const char* block) ;

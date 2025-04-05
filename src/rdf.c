@@ -16,6 +16,79 @@
 #define IPV6_ADDR "fc00::1"
 
 
+const char* lookup_value_by_name(sqlite3* db, const char* expr_id, const char* name) {
+    sqlite3_stmt* stmt;
+    const char* sql = "SELECT subject FROM triples WHERE subject IN ("
+                      "SELECT object FROM triples WHERE subject = ? AND predicate = 'inv:source_list') "
+                      "AND predicate = 'inv:name' AND object = ?";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        LOG_ERROR("Failed to prepare lookup_value_by_name query.");
+        return NULL;
+    }
+
+    sqlite3_bind_text(stmt, 1, expr_id, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, name, -1, SQLITE_STATIC);
+
+    const char* source_id = NULL;
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        source_id = strdup((const char*)sqlite3_column_text(stmt, 0));  // Need to copy it because sqlite3_finalize will free it
+    }
+
+    sqlite3_finalize(stmt);
+
+    if (!source_id) return NULL;
+
+    const char* value = lookup_value(db, source_id, "inv:hasContent");
+    free((void*)source_id);
+    return value;
+}
+
+
+int lookup_destinations_for_name(sqlite3* db, const char* name, char dests[][128], int max_dests) {
+    sqlite3_stmt* stmt;
+    const char *sql = "SELECT DISTINCT s.subject FROM triples s \
+                   WHERE s.predicate = 'inv:name' AND s.object = ?;";
+    int count = 0;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW && count < max_dests) {
+        const char* subject = (const char*)sqlite3_column_text(stmt, 0);
+
+        // Verify it's a DestinationPlace
+        sqlite3_stmt* stmt2;
+        const char* check_type = "SELECT 1 FROM triples WHERE subject = ? AND predicate = 'rdf:type' AND object = 'inv:DestinationPlace';";
+        if (sqlite3_prepare_v2(db, check_type, -1, &stmt2, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(stmt2, 1, subject, -1, SQLITE_STATIC);
+            if (sqlite3_step(stmt2) == SQLITE_ROW) {
+                strncpy(dests[count], subject, 128);
+                count++;
+            }
+            sqlite3_finalize(stmt2);
+        }
+    }
+
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+
+
+const char* lookup_resolution(sqlite3* db, const char* expr_id, const char* key) {
+    // Find the Definition object from the expression
+    const char* def_id = lookup_object(db, expr_id, "inv:containsDefinition");
+    if (!def_id) return NULL;
+
+    // Construct key path like: "inv:resolutionTable:10"
+    char predicate[256];
+    snprintf(predicate, sizeof(predicate), "inv:resolutionTable:%s", key);
+
+    return lookup_value(db, def_id, predicate);
+}
+
 const char* lookup_object(sqlite3* db, const char* subject, const char* predicate) {
     static char result[256];
     sqlite3_stmt* stmt;
@@ -44,6 +117,27 @@ const char* lookup_value(sqlite3* db, const char* subject, const char* predicate
     return lookup_object(db, subject, predicate);
 }
 
+void delete_expression_triples(sqlite3* db, const char* psi, const char* expr_id) {
+    sqlite3_stmt* stmt;
+    const char* sql = "DELETE FROM triples WHERE psi = ? AND subject = ?";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, psi, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, expr_id, -1, SQLITE_STATIC);
+
+        int rc = sqlite3_step(stmt);
+        if (rc != SQLITE_DONE) {
+            fprintf(stderr, "❌ SQLite Error (delete): %s\n", sqlite3_errmsg(db));
+        } else {
+            LOG_INFO("🧹 Deleted existing triples for %s in block %s\n", expr_id, psi);
+        }
+
+        sqlite3_finalize(stmt);
+    } else {
+        fprintf(stderr, "❌ SQLite Error (prepare delete): %s\n", sqlite3_errmsg(db));
+    }
+}
+
 void insert_triple(sqlite3 *db, const char *psi, const char *subject, const char *predicate, const char *object) {
     sqlite3_stmt *stmt;
     const char *sql = "INSERT OR IGNORE INTO triples (psi, subject, predicate, object) VALUES (?, ?, ?, ?);";
@@ -63,6 +157,26 @@ void insert_triple(sqlite3 *db, const char *psi, const char *subject, const char
         fprintf(stderr, "❌ SQLite Error (prepare): %s\n", sqlite3_errmsg(db));
     }
 }
+
+void delete_triple(sqlite3 *db, const char *subject, const char *predicate) {
+    sqlite3_stmt *stmt;
+    const char *sql = "DELETE FROM triples WHERE subject = ? AND predicate = ?;";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, subject, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, predicate, -1, SQLITE_STATIC);
+
+        int rc = sqlite3_step(stmt);
+        if (rc != SQLITE_DONE) {
+            fprintf(stderr, "❌ SQLite Error (delete step): %s\n", sqlite3_errmsg(db));
+        }
+
+        sqlite3_finalize(stmt);
+    } else {
+        fprintf(stderr, "❌ SQLite Error (delete prepare): %s\n", sqlite3_errmsg(db));
+    }
+}
+
 
 static void load_jsonld_file(const char *path, sqlite3 *db, const char *psi) {
     FILE *f = fopen(path, "rb");
