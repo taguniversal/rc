@@ -170,16 +170,18 @@ int cycle(sqlite3* db, const char* block, const char* expr_id) {
 }
 
 
+#define MAX_ITERATIONS 3 // Or whatever feels safe for your app
+
 int eval(sqlite3* db, const char* block) {
     LOG_INFO("⚙️  Starting eval() pass for %s (until stabilization)\n", block);
     int total_side_effects = 0;
     int iteration = 0;
 
-    while (1) {
+    while (iteration < MAX_ITERATIONS) {
         int side_effect_this_round = 0;
 
         sqlite3_stmt* stmt;
-        const char* sql = "SELECT subject FROM triples WHERE predicate = 'rdf:type' AND object = 'inv:Expression' AND psi = ?";
+        const char* sql = "SELECT subject FROM triples WHERE predicate = 'rdf:type' AND object = 'inv:Definition' AND psi = ?";
 
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
             LOG_ERROR("❌ Failed to prepare eval query: %s\n", sqlite3_errmsg(db));
@@ -209,8 +211,13 @@ int eval(sqlite3* db, const char* block) {
         }
     }
 
+    if (iteration >= MAX_ITERATIONS) {
+        LOG_WARN("⚠️ Eval for %s did not stabilize after %d iterations. Bailout triggered.\n", block, MAX_ITERATIONS);
+    }
+
     return total_side_effects;
 }
+
 
 
 

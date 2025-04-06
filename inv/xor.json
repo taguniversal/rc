@@ -4,7 +4,7 @@
   },
   "@type": "inv:Definition",
   "inv:name": "XOR",
-  "inv:source_list": [
+  "inv:SourceList": [
     { 
       "@type": "inv:SourcePlace", 
       "inv:name": "A" 
@@ -14,13 +14,13 @@
       "inv:name": "B" 
     }
   ],
-  "inv:destination_list": [
+  "inv:DestinationList": [
     {
       "@type": "inv:DestinationPlace",
       "inv:name": "Out0"
     }
   ],
-  "inv:place_of_resolution": {
+  "inv:PlaceOfResolution": {
     "@type": "inv:PlaceOfResolution",
     "inv:hasExpressionFragment": [
       {
@@ -36,17 +36,18 @@
       }
     ]
   },
-  "inv:containsDefinition": [
-    {
-      "@type": "inv:Definition",
-      "inv:patternVariables": ["A", "B"],
-      "inv:sourceNames": ["OUT"],
-      "inv:resolutionTable": {
-        "00": "0",
-        "01": "1",
-        "10": "1",
-        "11": "0"
-      }
+ "inv:containsDefinition": [
+  {
+    "@type": "inv:Definition",
+    "inv:destinationNames": ["Out0"],
+    "inv:sourceNames": ["A", "B"],
+    "inv:resolutionTable": {
+      "00": "0",
+      "01": "1",
+      "10": "1",
+      "11": "0"
     }
-  ]
+  }
+]
+
 }

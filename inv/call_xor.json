@@ -4,7 +4,7 @@
     },
     "@type": "inv:Invocation",
     "inv:name": "XOR",
-    "inv:source_list": [
+    "inv:SourceList": [
       {
         "@type": "inv:SourcePlace",
         "inv:name": "A",
@@ -16,7 +16,7 @@
         "inv:hasContent": "0"
       }
     ],
-    "inv:destination_list": [
+    "inv:DestinationList": [
       {
         "@type": "inv:DestinationPlace",
         "inv:name": "Out0"

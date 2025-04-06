@@ -76,7 +76,7 @@ int lookup_destinations_for_name(sqlite3* db, const char* name, char dests[][128
 }
 
 
-
+/*
 const char* lookup_resolution(sqlite3* db, const char* expr_id, const char* key) {
     // Find the Definition object from the expression
     const char* def_id = lookup_object(db, expr_id, "inv:containsDefinition");
@@ -87,6 +87,37 @@ const char* lookup_resolution(sqlite3* db, const char* expr_id, const char* key)
     snprintf(predicate, sizeof(predicate), "inv:resolutionTable:%s", key);
 
     return lookup_value(db, def_id, predicate);
+}*/
+
+const char* lookup_resolution(sqlite3* db, const char* expr_id, const char* key) {
+    LOG_INFO("🔍 Starting resolution lookup in %s for key %s\n", expr_id, key);
+
+    sqlite3_stmt* stmt;
+    const char* sql = "SELECT object FROM triples WHERE subject = ? AND predicate = 'inv:containsDefinition'";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        LOG_ERROR("❌ Failed to query containsDefinition: %s\n", sqlite3_errmsg(db));
+        return NULL;
+    }
+
+    sqlite3_bind_text(stmt, 1, expr_id, -1, SQLITE_STATIC);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* def_id = (const char*)sqlite3_column_text(stmt, 0);
+        LOG_INFO("🔍 Found contained definition: %s\n", def_id);
+
+        // Now get resolutionTable[key]
+        const char* result = lookup_object(db, def_id, key);
+        if (result) {
+            LOG_INFO("✅ Found resolution: %s => %s\n", key, result);
+            sqlite3_finalize(stmt);
+            return result;
+        } else {
+            LOG_WARN("🛑 No match for key %s in def %s\n", key, def_id);
+        }
+    }
+
+    sqlite3_finalize(stmt);
+    return NULL;
 }
 
 const char* lookup_object(sqlite3* db, const char* subject, const char* predicate) {

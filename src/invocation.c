@@ -97,7 +97,7 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
         insert_triple(db, block, name, "inv:name", name);
         insert_triple(db, block, name, "context", json);
 
-        cJSON *src_list = cJSON_GetObjectItem(root, "inv:source_list");
+        cJSON *src_list = cJSON_GetObjectItem(root, "inv:SourceList");
         if (src_list && cJSON_IsArray(src_list)) {
           cJSON *src;
           cJSON_ArrayForEach(src, src_list) {
@@ -109,13 +109,13 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
             insert_triple(db, block, sname, "inv:name", sname);
             if (val)
               insert_triple(db, block, sname, "inv:hasContent", val);
-            insert_triple(db, block, sname, "inv:source_list", sname);
+            insert_triple(db, block, sname, "inv:SourceList", sname);
             LOG_INFO("\xF0\x9F\x9F\xA2 Invocation SourcePlace: %s = %s\n",
                      sname, val ? val : "(null)");
           }
         }
 
-        cJSON *dst_list = cJSON_GetObjectItem(root, "inv:destination_list");
+        cJSON *dst_list = cJSON_GetObjectItem(root, "inv:DestinationList");
         if (dst_list && cJSON_IsArray(dst_list)) {
           cJSON *dst;
           cJSON_ArrayForEach(dst, dst_list) {
@@ -124,7 +124,7 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
               continue;
             insert_triple(db, block, dname, "rdf:type", "inv:DestinationPlace");
             insert_triple(db, block, dname, "inv:name", dname);
-            insert_triple(db, block, name, "inv:destination_list", dname);
+            insert_triple(db, block, name, "inv:DestinationList", dname);
             LOG_INFO("\xF0\x9F\x94\xB5 Invocation DestinationPlace: %s\n",
                      dname);
           }
@@ -148,7 +148,7 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
         insert_triple(db, block, name, "context", json);
 
         // --- Source_list ---
-        cJSON *src_list = cJSON_GetObjectItem(root, "inv:source_list");
+        cJSON *src_list = cJSON_GetObjectItem(root, "inv:SourceList");
         if (src_list && cJSON_IsArray(src_list)) {
           for (int i = 0; i < cJSON_GetArraySize(src_list); i++) {
             cJSON *src = cJSON_GetArrayItem(src_list, i);
@@ -164,8 +164,8 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
           }
         }
 
-        // --- NEW: destination_list ---
-        cJSON *dst_list = cJSON_GetObjectItem(root, "inv:destination_list");
+        // --- Destination_list ---
+        cJSON *dst_list = cJSON_GetObjectItem(root, "inv:DestinationList");
         if (dst_list && cJSON_IsArray(dst_list)) {
           for (int i = 0; i < cJSON_GetArraySize(dst_list); i++) {
             cJSON *dst = cJSON_GetArrayItem(dst_list, i);
@@ -177,14 +177,14 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
           }
         }
 
-        // --- NEW: embedded PlaceOfResolution ---
-        cJSON *por = cJSON_GetObjectItem(root, "inv:place_of_resolution");
+        // --- Embedded PlaceOfResolution ---
+        cJSON *por = cJSON_GetObjectItem(root, "inv:PlaceOfResolution");
         if (por && cJSON_IsObject(por)) {
           LOG_INFO("🧠 [Definition] PlaceOfResolution for %s\n",
                    name ? name : "(unnamed)");
           char por_key[64];
           snprintf(por_key, sizeof(por_key), "%s:por", name);
-          insert_triple(db, block, name, "inv:place_of_resolution", por_key);
+          insert_triple(db, block, name, "inv:PlaceOfResolution", por_key);
           insert_triple(db, block, por_key, "rdf:type",
                         "inv:PlaceOfResolution");
 
@@ -198,19 +198,19 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
 
               LOG_INFO("🔩 ExpressionFragment %d in PlaceOfResolution\n", i);
               char frag_name[32];
-              snprintf(frag_name, sizeof(frag_name), "%s:frag%d", name, i);
+              snprintf(frag_name, sizeof(frag_name), "%s:frag#%d", frag_name, i);
               insert_triple(db, block, frag_name, "rdf:type",
                             "inv:ExpressionFragment");
               insert_triple(db, block, por_key, "inv:hasExpressionFragment",
                             frag_name);
 
               const char *destinationPlace =
-                  get_value(fragment, "inv:destinationPlace");
+                  get_value(fragment, "inv:DestinationPlace");
               const char *def = get_value(fragment, "inv:invokesDefinition");
               const char *args = get_value(fragment, "inv:invocationArguments");
 
               if (destinationPlace)
-                insert_triple(db, block, frag_name, "inv:destinationPlace",
+                insert_triple(db, block, frag_name, "inv:DestinationPlace",
                               destinationPlace);
               if (def)
                 insert_triple(db, block, frag_name, "inv:invokesDefinition",
@@ -233,10 +233,11 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
 
                 const char *invocationName =
                     get_value(cond_inv, "inv:invocationName");
-                if (invocationName)
-                  insert_triple(db, block, cond_name, "inv:invocationName",
+                if (invocationName) {
+                    insert_triple(db, block, cond_name, "inv:invocationName",
                                 invocationName);
-
+                    LOG_INFO("📛 ConditionalInvocationName: %s\n", invocationName);
+                  }
                 cJSON *out_list =
                     cJSON_GetObjectItem(cond_inv, "inv:hasDestinationNames");
                 if (out_list && cJSON_IsArray(out_list)) {
