@@ -32,11 +32,6 @@ inv:DestinationPlace a rdfs:Class ;
     rdfs:label "Destination Place" ;
     rdfs:comment "A place that receives or stores data." .
 
-inv:ConditionalInvocation a rdfs:Class ;
-    rdfs:subClassOf inv:NamedEntity ;
-    rdfs:label "Conditional Invocation" ;
-    rdfs:comment "Represents an invocation dynamically formed from one or more destination places." .
-
 ### Properties for Named Entities (now includes Place, Definition, Invocation)
 inv:name a rdf:Property ;
     rdfs:domain inv:NamedEntity ;
@@ -44,11 +39,53 @@ inv:name a rdf:Property ;
     rdfs:label "name" ;
     rdfs:comment "The identifier or tag used for matching named entities like places, definitions, and invocations." .
 
+inv:Outputs a rdf:Property ;
+    rdfs:domain inv:IO ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "outputs" ;
+    rdfs:comment "Names of output places." .
+
+inv:Output a rdf:Property ;
+    rdfs:domain inv:ConditionalInvocation ;
+    rdfs:range inv:DestinationPlace ;
+    rdfs:label "output" ;
+    rdfs:comment "The DestinationPlace where the result of this invocation should be written." .
 
 ### Shared superclass for anything with I/O lists
 inv:HasIOLists a rdfs:Class ;
     rdfs:label "Has IO Lists" ;
     rdfs:comment "An abstract class for constructs with source and destination lists." .
+
+### I/O abstraction container
+inv:IO a rdfs:Class ;
+    rdfs:label "IO" ;
+    rdfs:comment "A convenience wrapper that contains both inputs and outputs." .
+
+inv:hasIO a rdf:Property ;
+    rdfs:domain inv:HasIOLists ;
+    rdfs:range inv:IO ;
+    rdfs:label "has IO" ;
+    rdfs:comment "Associates an entity with its combined input and output names via the IO object." .
+
+
+inv:Inputs a rdf:Property ;
+    rdfs:domain [ owl:unionOf (inv:IO inv:Definition inv:ContainedDefinition) ] ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "inputs" ;
+    rdfs:comment "Input place names for a Definition or IO structure." .
+
+inv:Outputs a rdf:Property ;
+    rdfs:domain [ owl:unionOf (inv:IO inv:Definition inv:ContainedDefinition) ] ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "outputs" ;
+    rdfs:comment "Output place names for a Definition or IO structure." .
+
+### Invocation Name Property
+inv:invocationName a rdf:Property ;
+    rdfs:domain inv:ConditionalInvocation ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "invocation name" ;
+    rdfs:comment "A dynamically constructed name formed from the current values of input Places during a ConditionalInvocation. Used to index into resolution tables or dispatch specific behaviors." .
 
 ### Core Constructs
 inv:Definition a rdfs:Class ;
@@ -97,7 +134,7 @@ inv:hasResolutionPlace a rdf:Property ;
     rdfs:label "has resolution place" ;
     rdfs:comment "Links a Definition to the place where input values are evaluated and transformed." .
 
-inv:hasContainedDefinition a rdf:Property ;
+inv:ContainsDefinition a rdf:Property ;
     rdfs:domain inv:Definition ;
     rdfs:range inv:ContainedDefinition ;
     rdfs:label "has contained definition" ;
@@ -116,12 +153,6 @@ inv:hasExpressionFragment a rdf:Property ;
     rdfs:label "has expression fragment" ;
     rdfs:comment "Contains one or more fragments representing assignments, invocations, or logic steps." .
 
-inv:hasConditionalInvocation a rdf:Property ;
-    rdfs:domain inv:ExpressionFragment ;
-    rdfs:range inv:ConditionalInvocation ;
-    rdfs:label "has conditional invocation" ;
-    rdfs:comment "Links an expression fragment to a conditional invocation." .
-
 ### Updated Properties for ExpressionFragment (conditional handling)
 inv:invocationName a rdf:Property ;
     rdfs:domain inv:ConditionalInvocation ;
@@ -133,12 +164,6 @@ inv:ResolutionMapping a rdfs:Class ;
     rdfs:label "Resolution Mapping" ;
     rdfs:comment "A compact mapping of symbolic inputs to outputs, used in conditional resolution scenarios." .
 
-inv:hasDestinationNames a rdf:Property ;
-    rdfs:domain inv:ConditionalInvocation ;
-    rdfs:range inv:DestinationPlace ;
-    rdfs:label "has destination names" ;
-    rdfs:comment "Links a conditional invocation to one or more destination places that form the invocation name." .
-    
 inv:sourceNames rdf:type rdf:Property ;
     rdfs:domain inv:ContainedDefinition ;
     rdfs:range rdfs:Literal ;
@@ -149,7 +174,7 @@ inv:destinationNames rdf:type rdf:Property ;
     rdfs:range rdfs:Literal ;
     rdfs:comment "Outputs targeted by resolutionTable key values." .
 
-inv:resolutionTable rdf:type rdf:Property ;
+inv:rRsolutionTable rdf:type rdf:Property ;
     rdfs:comment "A map of symbolic input combinations to output values, e.g. { '00': '1', '01': '0' }. Interpreted using sourceNames and destinationNames." ;
     rdfs:domain inv:ContainedDefinition ;
     rdfs:range rdfs:Literal .

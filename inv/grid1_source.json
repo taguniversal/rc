@@ -1,8 +1,0 @@
-{
-  "@context": {
-    "ex": "https://digitalblockchain.io/schema/"
-  },
-  "@type": "ex:SourcePlace",
-  "ex:name": "Volume",
-  "ex:from": "/grid1/1"
-}

@@ -104,12 +104,8 @@ cJSON* run_poll_cycle(sqlite3* db, const char* block) {
     cJSON_AddItemToObject(root, "live_values", live);
 
     // TODO: Add logic here to scan triples and update these sections
-
-    // Example: dummy value
-    cJSON_AddNumberToObject(live, "/grid1/2", 0.521434);
-    cJSON_AddNumberToObject(live, "/fader5", 0.1123);
-
     return root;
+  
 }
 
 
@@ -161,7 +157,7 @@ int main(int argc, char *argv[]) {
     }
 
     // 📥 Load RDF UI triples and Invocation IO mappings
-    load_rdf_from_dir("ui", db, block);
+   // load_rdf_from_dir("ui", db, block);
     map_io(db, block, inv_dir);
     eval(db, block);
 

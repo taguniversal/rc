@@ -59,6 +59,256 @@ bool is_type(cJSON *root, const char *type) {
   return false;
 }
 
+void insert_resolution_table_triples(sqlite3 *db, const char *block,
+                                     const char *def_key,
+                                     const char *resolution_json) {
+  if (!resolution_json || strlen(resolution_json) == 0) {
+    LOG_WARN("⚠️ Resolution JSON is empty for %s\n", def_key);
+    return;
+  }
+
+  // Optionally store the raw string for debug/reference
+  insert_triple(db, block, def_key, "inv:ResolutionTable", resolution_json);
+
+  // Parse and store each entry as (def_key, input_pattern, output_value)
+  cJSON *res_obj = cJSON_Parse(resolution_json);
+  if (!res_obj || !cJSON_IsObject(res_obj)) {
+    LOG_WARN("⚠️ Could not parse resolutionTable JSON for %s\n", def_key);
+    return;
+  }
+
+  cJSON *row = NULL;
+  cJSON_ArrayForEach(row, res_obj) {
+    const char *key = row->string;
+    const char *val = cJSON_GetStringValue(row);
+    if (key && val) {
+      insert_triple(db, block, def_key, key, val);
+      LOG_INFO("🔢 ResolutionRow: %s[%s] = %s\n", def_key, key, val);
+    }
+  }
+
+  cJSON_Delete(res_obj);
+}
+
+void process_definition(sqlite3 *db, const char *block, cJSON *root,
+                        const char *raw_json, const char *fallback_name) {
+
+  const char *name = get_value(root, "inv:name");
+  if (!name)
+    name = fallback_name;
+
+  delete_expression_triples(db, block, name);
+
+  LOG_INFO("\xF0\x9F\x93\x98 Definition: name=%s\n", name);
+  insert_triple(db, block, name, "rdf:type", "inv:Definition");
+  insert_triple(db, block, name, "inv:name", name);
+  insert_triple(db, block, name, "context", raw_json);
+
+  // --- SourceList ---
+  cJSON *src_list = cJSON_GetObjectItem(root, "inv:SourceList");
+  if (src_list && cJSON_IsArray(src_list)) {
+    cJSON *src;
+    cJSON_ArrayForEach(src, src_list) {
+      const char *sname = get_value(src, "inv:name");
+      if (!sname)
+        continue;
+      LOG_INFO("\xF0\x9F\x9F\xA2 [Expression] SourcePlace: name=%s\n", sname);
+      insert_triple(db, block, sname, "rdf:type", "inv:SourcePlace");
+      insert_triple(db, block, sname, "inv:name", sname);
+    }
+  }
+
+  // --- DestinationList ---
+  cJSON *dst_list = cJSON_GetObjectItem(root, "inv:DestinationList");
+  if (dst_list && cJSON_IsArray(dst_list)) {
+    cJSON *dst;
+    cJSON_ArrayForEach(dst, dst_list) {
+      const char *dname = get_value(dst, "inv:name");
+      if (!dname)
+        continue;
+      LOG_INFO("\xF0\x9F\x94\xB5 [Expression] DestinationPlace: name=%s\n",
+               dname);
+      insert_triple(db, block, dname, "rdf:type", "inv:DestinationPlace");
+      insert_triple(db, block, dname, "inv:name", dname);
+    }
+  }
+
+  // --- Expand IO inputs ---
+  cJSON *io = cJSON_GetObjectItem(root, "inv:IO");
+  if (io && cJSON_IsObject(io)) {
+    cJSON *inputs = cJSON_GetObjectItem(io, "inputs");
+    if (inputs && cJSON_IsArray(inputs)) {
+      cJSON *iname;
+      cJSON_ArrayForEach(iname, inputs) {
+        if (!cJSON_IsString(iname))
+          continue;
+        const char *sname = iname->valuestring;
+        insert_triple(db, block, sname, "rdf:type", "inv:SourcePlace");
+        insert_triple(db, block, sname, "inv:name", sname);
+        insert_triple(db, block, name, "inv:SourceList", sname);
+      }
+    }
+
+    cJSON *outputs = cJSON_GetObjectItem(io, "outputs");
+    if (outputs && cJSON_IsArray(outputs)) {
+      cJSON *oname;
+      cJSON_ArrayForEach(oname, outputs) {
+        if (!cJSON_IsString(oname))
+          continue;
+        const char *dname = oname->valuestring;
+        insert_triple(db, block, dname, "rdf:type", "inv:DestinationPlace");
+        insert_triple(db, block, dname, "inv:name", dname);
+        insert_triple(db, block, name, "inv:DestinationList", dname);
+      }
+    }
+  }
+
+  // --- PlaceOfResolution ---
+  cJSON *por = cJSON_GetObjectItem(root, "inv:PlaceOfResolution");
+  if (por && cJSON_IsObject(por)) {
+    LOG_INFO("\xF0\x9F\xA7\xA0 [Definition] PlaceOfResolution for %s\n", name);
+    char por_key[128];
+    snprintf(por_key, sizeof(por_key), "%s:por", name);
+    insert_triple(db, block, por_key, "rdf:type", "inv:PlaceOfResolution");
+    insert_triple(db, block, name, "inv:PlaceOfResolution", por_key);
+
+    cJSON *frags = cJSON_GetObjectItem(por, "inv:hasExpressionFragment");
+    if (frags && cJSON_IsArray(frags)) {
+      for (int i = 0; i < cJSON_GetArraySize(frags); i++) {
+        cJSON *frag = cJSON_GetArrayItem(frags, i);
+        if (!frag)
+          continue;
+
+        char frag_id[128];
+        snprintf(frag_id, sizeof(frag_id), "%s:frag%d", name, i);
+        insert_triple(db, block, frag_id, "rdf:type", "inv:ExpressionFragment");
+        insert_triple(db, block, por_key, "inv:hasExpressionFragment", frag_id);
+
+        cJSON *cond = cJSON_GetObjectItem(frag, "inv:ConditionalInvocation");
+        if (cond && cJSON_IsObject(cond)) {
+          char cond_id[128];
+          snprintf(cond_id, sizeof(cond_id), "%s:cond%d", name, i);
+          insert_triple(db, block, cond_id, "rdf:type",
+                        "inv:ConditionalInvocation");
+          insert_triple(db, block, frag_id, "inv:ConditionalInvocation",
+                        cond_id);
+
+          cJSON *cond_inputs = cJSON_GetObjectItem(cond, "inv:Inputs");
+          if (cond_inputs && cJSON_IsArray(cond_inputs)) {
+            char *inputs_raw = cJSON_PrintUnformatted(cond_inputs);
+            insert_triple(db, block, cond_id, "inv:Inputs", inputs_raw);
+            free(inputs_raw);
+          }
+
+          const char *inv_name = get_value(cond, "inv:invocationName");
+          if (inv_name) {
+            LOG_INFO("\xF0\x9F\x93\x9B ConditionalInvocationName: %s\n",
+                     inv_name);
+            insert_triple(db, block, cond_id, "inv:invocationName", inv_name);
+            cJSON *cond_inputs = cJSON_GetObjectItem(cond, "inv:Inputs");
+            if (cond_inputs && cJSON_IsArray(cond_inputs)) {
+              char *raw = cJSON_PrintUnformatted(cond_inputs);
+              insert_triple(db, block, cond_id, "inv:Inputs", raw);
+              free(raw);
+            }
+          }
+
+          const char *output = get_value(cond, "inv:Output");
+          if (output) {
+            LOG_INFO("📤 ConditionalInvocation Output: %s\n", output);
+            insert_triple(db, block, cond_id, "inv:Output", output);
+
+            // 🩹 FIX: Make sure the destination place is registered
+            insert_triple(db, block, output, "rdf:type",
+                          "inv:DestinationPlace");
+            insert_triple(db, block, output, "inv:name", output);
+          } else {
+            LOG_WARN("⚠️ inv:Output missing from ConditionalInvocation\n");
+          }
+        }
+      }
+    }
+  }
+
+  // --- Contained Definitions (shorthand resolution logic) ---
+  cJSON *defs = cJSON_GetObjectItem(root, "inv:ContainsDefinition");
+  if (defs && cJSON_IsArray(defs)) {
+    for (int i = 0; i < cJSON_GetArraySize(defs); i++) {
+      cJSON *def = cJSON_GetArrayItem(defs, i);
+      if (!def)
+        continue;
+
+      // Simplified triple to store for now
+      char def_key[128];
+      snprintf(def_key, sizeof(def_key), "%s:def%d", name, i);
+
+      insert_triple(db, block, def_key, "rdf:type", "inv:ContainedDefinition");
+      insert_triple(db, block, name, "inv:ContainsDefinition", def_key);
+
+      cJSON *table = cJSON_GetObjectItem(def, "inv:ResolutionTable");
+      if (table && cJSON_IsObject(table)) {
+        char *table_str = cJSON_PrintUnformatted(table);
+        insert_resolution_table_triples(db, block, def_key, table_str);
+        free(table_str);
+      } else {
+        LOG_WARN("⚠️ No JSON for Resolution table %s\n", def_key);
+      }
+    }
+  }
+}
+
+void process_invocation(sqlite3 *db, const char *block, cJSON *root,
+                        const char *json, const char *name) {
+  LOG_INFO("📘 Invocation: name=%s\n", name);
+  insert_triple(db, block, name, "rdf:type", "inv:Invocation");
+  insert_triple(db, block, name, "inv:name", name);
+  insert_triple(db, block, name, "context", json);
+  cJSON *inputs = cJSON_GetObjectItem(root, "inv:Inputs");
+  if (inputs && cJSON_IsArray(inputs)) {
+    char *raw_inputs = cJSON_PrintUnformatted(inputs);
+    insert_triple(db, block, name, "inv:Inputs", raw_inputs);
+    free(raw_inputs);
+  }
+
+  // --- SourceList ---
+  cJSON *src_list = cJSON_GetObjectItem(root, "inv:SourceList");
+  if (src_list && cJSON_IsArray(src_list)) {
+    cJSON *src;
+    cJSON_ArrayForEach(src, src_list) {
+      const char *sname = get_value(src, "inv:name");
+      const char *val = get_value(src, "inv:hasContent");
+      if (!sname)
+        continue;
+
+      insert_triple(db, block, sname, "rdf:type", "inv:SourcePlace");
+      insert_triple(db, block, sname, "inv:name", sname);
+      if (val)
+        insert_triple(db, block, sname, "inv:hasContent", val);
+      insert_triple(db, block, sname, "inv:SourceList", sname);
+
+      LOG_INFO("🟢 Invocation SourcePlace: %s = %s\n", sname,
+               val ? val : "(null)");
+    }
+  }
+
+  // --- DestinationList ---
+  cJSON *dst_list = cJSON_GetObjectItem(root, "inv:DestinationList");
+  if (dst_list && cJSON_IsArray(dst_list)) {
+    cJSON *dst;
+    cJSON_ArrayForEach(dst, dst_list) {
+      const char *dname = get_value(dst, "inv:name");
+      if (!dname)
+        continue;
+
+      insert_triple(db, block, dname, "rdf:type", "inv:DestinationPlace");
+      insert_triple(db, block, dname, "inv:name", dname);
+      insert_triple(db, block, name, "inv:DestinationList", dname);
+
+      LOG_INFO("🔵 Invocation DestinationPlace: %s\n", dname);
+    }
+  }
+}
+
 void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
   DIR *dir = opendir(inv_dir);
   struct dirent *entry;
@@ -90,179 +340,16 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
       if (!name)
         name = entry->d_name; // fallback ID from file
 
-      if (is_type(root, "inv:Invocation")) {
-        matched = true;
-        LOG_INFO("\xF0\x9F\x93\x98 Invocation: name=%s\n", name);
-        insert_triple(db, block, name, "rdf:type", "inv:Invocation");
-        insert_triple(db, block, name, "inv:name", name);
-        insert_triple(db, block, name, "context", json);
-
-        cJSON *src_list = cJSON_GetObjectItem(root, "inv:SourceList");
-        if (src_list && cJSON_IsArray(src_list)) {
-          cJSON *src;
-          cJSON_ArrayForEach(src, src_list) {
-            const char *sname = get_value(src, "inv:name");
-            const char *val = get_value(src, "inv:hasContent");
-            if (!sname)
-              continue;
-            insert_triple(db, block, sname, "rdf:type", "inv:SourcePlace");
-            insert_triple(db, block, sname, "inv:name", sname);
-            if (val)
-              insert_triple(db, block, sname, "inv:hasContent", val);
-            insert_triple(db, block, sname, "inv:SourceList", sname);
-            LOG_INFO("\xF0\x9F\x9F\xA2 Invocation SourcePlace: %s = %s\n",
-                     sname, val ? val : "(null)");
-          }
-        }
-
-        cJSON *dst_list = cJSON_GetObjectItem(root, "inv:DestinationList");
-        if (dst_list && cJSON_IsArray(dst_list)) {
-          cJSON *dst;
-          cJSON_ArrayForEach(dst, dst_list) {
-            const char *dname = get_value(dst, "inv:name");
-            if (!dname)
-              continue;
-            insert_triple(db, block, dname, "rdf:type", "inv:DestinationPlace");
-            insert_triple(db, block, dname, "inv:name", dname);
-            insert_triple(db, block, name, "inv:DestinationList", dname);
-            LOG_INFO("\xF0\x9F\x94\xB5 Invocation DestinationPlace: %s\n",
-                     dname);
-          }
-        }
-      }
-
       if (is_type(root, "inv:Definition")) {
         matched = true;
-        const char *name = get_value(root, "inv:name");
-        if (!name) {
-          LOG_WARN("❌ Expression missing 'inv:name'\n");
-          cJSON_Delete(root);
-          free(json);
-          continue;
-        }
-
-        delete_expression_triples(db, block, name);
-        LOG_INFO("📘 Definition: name=%s\n", name);
-        insert_triple(db, block, name, "rdf:type", "inv:Definition");
-        insert_triple(db, block, name, "inv:name", name);
-        insert_triple(db, block, name, "context", json);
-
-        // --- Source_list ---
-        cJSON *src_list = cJSON_GetObjectItem(root, "inv:SourceList");
-        if (src_list && cJSON_IsArray(src_list)) {
-          for (int i = 0; i < cJSON_GetArraySize(src_list); i++) {
-            cJSON *src = cJSON_GetArrayItem(src_list, i);
-            const char *sname = get_value(src, "inv:name");
-            if (!sname) {
-              LOG_WARN("No name four for source %i of %s\n", i, sname);
-              continue;
-            }
-
-            LOG_INFO("🟢 [Expression] SourcePlace: name=%s\n", name);
-            insert_triple(db, block, sname, "rdf:type", "inv:SourcePlace");
-            insert_triple(db, block, sname, "inv:name", name);
-          }
-        }
-
-        // --- Destination_list ---
-        cJSON *dst_list = cJSON_GetObjectItem(root, "inv:DestinationList");
-        if (dst_list && cJSON_IsArray(dst_list)) {
-          for (int i = 0; i < cJSON_GetArraySize(dst_list); i++) {
-            cJSON *dst = cJSON_GetArrayItem(dst_list, i);
-            const char *name = get_value(dst, "inv:name");
-
-            if (name)
-              insert_triple(db, block, name, "rdf:type",
-                            "inv:DestinationPlace");
-          }
-        }
-
-        // --- Embedded PlaceOfResolution ---
-        cJSON *por = cJSON_GetObjectItem(root, "inv:PlaceOfResolution");
-        if (por && cJSON_IsObject(por)) {
-          LOG_INFO("🧠 [Definition] PlaceOfResolution for %s\n",
-                   name ? name : "(unnamed)");
-          char por_key[64];
-          snprintf(por_key, sizeof(por_key), "%s:por", name);
-          insert_triple(db, block, name, "inv:PlaceOfResolution", por_key);
-          insert_triple(db, block, por_key, "rdf:type",
-                        "inv:PlaceOfResolution");
-
-          cJSON *fragments =
-              cJSON_GetObjectItem(por, "inv:hasExpressionFragment");
-          if (fragments && cJSON_IsArray(fragments)) {
-            for (int i = 0; i < cJSON_GetArraySize(fragments); i++) {
-              cJSON *fragment = cJSON_GetArrayItem(fragments, i);
-              if (!fragment || !cJSON_IsObject(fragment))
-                continue;
-
-              LOG_INFO("🔩 ExpressionFragment %d in PlaceOfResolution\n", i);
-              char frag_name[32];
-              snprintf(frag_name, sizeof(frag_name), "%s:frag#%d", frag_name, i);
-              insert_triple(db, block, frag_name, "rdf:type",
-                            "inv:ExpressionFragment");
-              insert_triple(db, block, por_key, "inv:hasExpressionFragment",
-                            frag_name);
-
-              const char *destinationPlace =
-                  get_value(fragment, "inv:DestinationPlace");
-              const char *def = get_value(fragment, "inv:invokesDefinition");
-              const char *args = get_value(fragment, "inv:invocationArguments");
-
-              if (destinationPlace)
-                insert_triple(db, block, frag_name, "inv:DestinationPlace",
-                              destinationPlace);
-              if (def)
-                insert_triple(db, block, frag_name, "inv:invokesDefinition",
-                              def);
-              if (args)
-                insert_triple(db, block, frag_name, "inv:invocationArguments",
-                              args);
-
-              // Handle nested ConditionalInvocation
-              cJSON *cond_inv =
-                  cJSON_GetObjectItem(fragment, "inv:hasConditionalInvocation");
-              if (cond_inv && cJSON_IsObject(cond_inv)) {
-                LOG_INFO("🧠 ConditionalInvocation for fragment %d\n", i);
-                char cond_name[32];
-                snprintf(cond_name, sizeof(cond_name), "%s:cond%d", name, i);
-                insert_triple(db, block, cond_name, "rdf:type",
-                              "inv:ConditionalInvocation");
-                insert_triple(db, block, frag_name,
-                              "inv:hasConditionalInvocation", cond_name);
-
-                const char *invocationName =
-                    get_value(cond_inv, "inv:invocationName");
-                if (invocationName) {
-                    insert_triple(db, block, cond_name, "inv:invocationName",
-                                invocationName);
-                    LOG_INFO("📛 ConditionalInvocationName: %s\n", invocationName);
-                  }
-                cJSON *out_list =
-                    cJSON_GetObjectItem(cond_inv, "inv:hasDestinationNames");
-                if (out_list && cJSON_IsArray(out_list)) {
-                  for (int j = 0; j < cJSON_GetArraySize(out_list); j++) {
-                    cJSON *out = cJSON_GetArrayItem(out_list, j);
-                    const char *out_name = get_value(out, "inv:name");
-                    const char *out_content = get_value(out, "inv:content");
-
-                    if (out_name) {
-                      insert_triple(db, block, out_name, "rdf:type",
-                                    "inv:DestinationPlace");
-                      insert_triple(db, block, cond_name,
-                                    "inv:hasDestinationNames", out_name);
-                      insert_triple(db, block, out_name, "inv:name", out_name);
-                      if (out_content)
-                        insert_triple(db, block, out_name, "inv:content",
-                                      out_content);
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+        process_definition(db, block, root, json, name);
       }
+
+      if (is_type(root, "inv:Invocation")) {
+        matched = true;
+        process_invocation(db, block, root, json, name);
+      }
+
       if (!matched) {
         const char *type = get_value(root, "@type");
         if (type) {
