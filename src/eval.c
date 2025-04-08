@@ -11,6 +11,7 @@
 #include <unistd.h> // isatty, fileno
 
 #define MAX_ITERATIONS 2 // Or whatever feels safe for your app
+
 char *build_resolution_key(sqlite3 *db, const char *invocation_str) {
   if (!invocation_str)
     return NULL;
@@ -22,6 +23,8 @@ char *build_resolution_key(sqlite3 *db, const char *invocation_str) {
            (void *)invocation_str);
 
   char key[256] = {0};
+  char *var_id;
+  char *val;
 
   while (*p) {
     if (*p == '$') {
@@ -33,8 +36,8 @@ char *build_resolution_key(sqlite3 *db, const char *invocation_str) {
       }
       var[vi] = '\0';
 
-      const char *var_id = lookup_subject_by_name(db, var);
-      const char *val = lookup_object(db, var_id, "inv:hasContent");
+      var_id = lookup_subject_by_name(db, var);
+      val = lookup_object(db, var_id, "inv:hasContent");
 
       LOG_INFO("🔍 Building key — resolving var: %s", var);
       LOG_INFO("     var_id = %s", var_id ? var_id : "(null)");
@@ -58,6 +61,8 @@ char *build_resolution_key(sqlite3 *db, const char *invocation_str) {
   }
 
   LOG_INFO("build_resolution_key built key: %s\n", key);
+  free(val);
+  free(var_id);
   return strdup(key);
 }
 
@@ -66,21 +71,29 @@ int resolve_conditional_invocation(sqlite3 *db, const char *block,
   LOG_INFO("🧠 Attempting resolution from ConditionalInvocation in %s\n",
            expr_id);
 
-  const char *por = lookup_object(db, expr_id, "inv:PlaceOfResolution");
+  char *por = lookup_object(db, expr_id, "inv:PlaceOfResolution");
   if (!por)
     return 0;
 
-  const char *frag = lookup_object(db, por, "inv:hasExpressionFragment");
-  if (!frag)
+  char *frag = lookup_object(db, por, "inv:hasExpressionFragment");
+  if (!frag) {
+    free(por);
     return 0;
+  }
 
-  const char *cond = lookup_object(db, frag, "inv:ConditionalInvocation");
-  if (!cond)
+  char *cond = lookup_object(db, frag, "inv:ConditionalInvocation");
+  if (!cond) {
+    free(por);
+    free(frag);
     return 0;
+  }
 
-  const char *template = lookup_object(db, cond, "inv:invocationName");
+  char *template = lookup_object(db, cond, "inv:invocationName");
   if (!template) {
     LOG_WARN("⚠️ Missing invocationName template in ConditionalInvocation\n");
+    free(por);
+    free(frag);
+    free(cond);
     return 0;
   }
 
@@ -90,50 +103,77 @@ int resolve_conditional_invocation(sqlite3 *db, const char *block,
   char *key = build_resolution_key(db, template);
   if (!key) {
     LOG_WARN("⚠️ Could not build resolution key from template: %s\n", template);
+    free(por);
+    free(frag);
+    free(cond);
+    free(template);
     return 0;
   }
 
   LOG_INFO("🧩 Built resolution key from template: %s → %s\n", template, key);
 
-  const char *output_name = lookup_object(db, cond, "inv:Output");
+  char *output_name = lookup_object(db, cond, "inv:Output");
   if (!output_name) {
     LOG_WARN("⚠️ No Output defined in ConditionalInvocation\n");
+    free(por);
+    free(frag);
+    free(cond);
+    free(template);
     free(key);
     return 0;
   }
 
-  const char *output_id = lookup_subject_by_name(db, output_name);
+  char *output_id = lookup_subject_by_name(db, output_name);
   if (!output_id) {
     LOG_WARN("⚠️ Could not resolve output name to ID: %s\n", output_name);
+    free(por);
+    free(frag);
+    free(cond);
+    free(template);
     free(key);
     return 0;
   }
 
-  const char *def_id = lookup_object(db, expr_id, "inv:ContainsDefinition");
+  char *def_id = lookup_object(db, expr_id, "inv:ContainsDefinition");
   if (!def_id) {
     LOG_WARN("⚠️ Missing ContainsDefinition in %s\n", expr_id);
+    free(output_id);
+    free(por);
+    free(frag);
+    free(cond);
+    free(template);
     free(key);
     return 0;
   }
 
-  const char *result = lookup_object(db, def_id, key);
+  char *result = lookup_object(db, def_id, key);
   if (!result) {
     LOG_WARN("❌ Resolution table has no entry for key: %s\n", key);
+    free(output_id);
+    free(por);
+    free(frag);
+    free(cond);
+    free(template);
     free(key);
     return 0;
   }
 
   LOG_INFO("📥 Inserting resolution result %s into %s\n", result, output_id);
   insert_triple(db, block, output_id, "inv:hasContent", result);
+  free(result);
+  free(output_id);
+  free(por);
+  free(frag);
+  free(cond);
+  free(template);
   free(key);
   return 1;
 }
-
 int resolve_definition_output(sqlite3 *db, const char *block,
                               const char *definition_id) {
   LOG_INFO("resolve_definition_output for %s\n", definition_id);
 
-  const char *type = lookup_object(db, definition_id, "rdf:type");
+  char *type = lookup_object(db, definition_id, "rdf:type");
   LOG_INFO("📎 Found rdf:type = [%s] for definition [%s]\n",
            type ? type : "(null)", definition_id ? definition_id : "(null)");
 
@@ -141,140 +181,198 @@ int resolve_definition_output(sqlite3 *db, const char *block,
                 strcmp(type, "inv:ContainedDefinition") != 0)) {
     LOG_WARN("No valid type found for %s — got %s\n", definition_id,
              type ? type : "(null)");
+    free(type);
     return 0;
   }
 
-  const char *por = lookup_object(db, definition_id, "inv:PlaceOfResolution");
+  char *por = lookup_object(db, definition_id, "inv:PlaceOfResolution");
   if (!por) {
     LOG_WARN("No Place of Resolution found\n");
+    free(type);
     return 0;
   }
 
-  const char *frag = lookup_object(db, por, "inv:hasExpressionFragment");
+  char *frag = lookup_object(db, por, "inv:hasExpressionFragment");
   if (!frag) {
     LOG_WARN("No Expression fragment found\n");
+    free(type);
+    free(por);
     return 0;
   }
 
-  const char *cond = lookup_object(db, frag, "inv:ConditionalInvocation");
+  char *cond = lookup_object(db, frag, "inv:ConditionalInvocation");
   if (!cond) {
     LOG_WARN("⚠️ Missing conditional invocation for frag %s\n", frag);
+    free(type);
+    free(por);
+    free(frag);
     return 0;
   }
 
   LOG_INFO("📎 Fetched ConditionalInvocation: %s\n", cond);
 
-  const char *invocation_str =
-      lookup_object(db, cond, "inv:ResolvedInvocationName");
+  char *invocation_str = lookup_object(db, cond, "inv:ResolvedInvocationName");
   if (!invocation_str) {
     invocation_str = lookup_object(db, cond, "inv:invocationName");
     LOG_INFO("🧩 Fallback to template name: %s\n",
              invocation_str ? invocation_str : "(null)");
   }
 
-  const char *output_name = lookup_object(db, cond, "inv:Output");
+  char *output_name =
+      lookup_object(db, cond, "inv:Output"); // ← FIXED: now a char *
   if (!invocation_str || !output_name) {
     LOG_WARN("⚠️ Missing required fields in ConditionalInvocation %s\n", cond);
+    free(type);
+    free(por);
+    free(frag);
+    free(cond);
+    free(invocation_str);
+    free(output_name);
     return 0;
   }
 
   LOG_INFO("🔧 cond = %s, output_name = %s\n", cond, output_name);
 
-  const char *output_id = lookup_subject_by_name(db, output_name);
+  char *output_id = lookup_subject_by_name(db, output_name);
   if (!output_id) {
     LOG_WARN("⚠️ Could not resolve subject for output name: %s\n", output_name);
+    free(type);
+    free(por);
+    free(frag);
+    free(cond);
+    free(invocation_str);
+    free(output_name);
     return 0;
   }
 
   char *key = build_resolution_key(db, invocation_str);
   if (!key) {
     LOG_WARN("⚠️ Failed to build resolution key from: %s\n", invocation_str);
+    free(type);
+    free(por);
+    free(frag);
+    free(cond);
+    free(invocation_str);
+    free(output_name);
+    free(output_id);
     return 0;
   }
 
   LOG_INFO("🧪 Resolution lookup key: %s\n", key);
 
-  const char *def_node =
-      lookup_object(db, definition_id, "inv:ContainsDefinition");
-  const char *result = lookup_object(db, def_node, key);
+  char *def_node = lookup_object(db, definition_id, "inv:ContainsDefinition");
+  char *result = lookup_object(db, def_node, key);
 
   if (!result) {
     LOG_WARN("⚠️ Resolution table missing entry for key: %s\n", key);
+    free(type);
+    free(por);
+    free(frag);
+    free(cond);
+    free(invocation_str);
+    free(output_name);
+    free(output_id);
+    free(def_node);
     free(key);
     return 0;
   }
 
   LOG_INFO("📥 Writing resolution result %s into %s\n", result, output_id);
   insert_triple(db, block, output_id, "inv:hasContent", result);
+
+  // Clean up everything
+  free(type);
+  free(por);
+  free(frag);
+  free(cond);
+  free(invocation_str);
+  free(output_name);
+  free(output_id);
+  free(def_node);
   free(key);
+  free(result);
   return 1;
 }
-
 void eval_resolution_table(sqlite3 *db, const char *block,
                            const char *expr_id) {
   LOG_INFO("🔍 Resolution table eval for: %s at block %s\n", expr_id, block);
 
-  const char *por = lookup_object(db, expr_id, "inv:PlaceOfResolution");
+  char *por = lookup_object(db, expr_id, "inv:PlaceOfResolution");
   if (!por)
     return;
 
-  const char *frag = lookup_object(db, por, "inv:hasExpressionFragment");
-  if (!frag)
+  char *frag = lookup_object(db, por, "inv:hasExpressionFragment");
+  if (!frag) {
+    free(por);
     return;
+  }
 
-  const char *cond_inv = lookup_object(db, frag, "inv:ConditionalInvocation");
+  char *cond_inv = lookup_object(db, frag, "inv:ConditionalInvocation");
   if (!cond_inv) {
     LOG_WARN("❌ No ConditionalInvocation found for resolution.\n");
+    free(por);
+    free(frag);
     return;
   }
 
-  const char *destination_name = lookup_object(db, cond_inv, "inv:Output");
+  char *destination_name = lookup_object(db, cond_inv, "inv:Output");
   if (!destination_name) {
     LOG_WARN("❌ No Output defined in ConditionalInvocation.\n");
+    free(por);
+    free(frag);
+    free(cond_inv);
     return;
   }
 
-  const char *destination_place = lookup_subject_by_name(db, destination_name);
+  char *destination_place = lookup_subject_by_name(db, destination_name);
   if (!destination_place || *destination_place == '\0') {
     LOG_ERROR("❗ destination_place is NULL or empty — aborting insert!\n");
+    free(por);
+    free(frag);
+    free(cond_inv);
+    free(destination_name);
+    free(destination_place);
     return;
   }
 
-  const char *invocation_name =
-      lookup_object(db, cond_inv, "inv:invocationName");
+  char *invocation_name = lookup_object(db, cond_inv, "inv:invocationName");
   if (!invocation_name) {
     LOG_WARN("⚠️ Missing invocationName on ConditionalInvocation\n");
+    free(por);
+    free(frag);
+    free(cond_inv);
+    free(destination_name);
+    free(destination_place);
     return;
   }
 
-  // Construct the key by replacing $X with X's content
-  char *key;
-  key = build_resolution_key(db, invocation_name);
-  const char *p = invocation_name;
-  while (*p) {
-    if (*p == '$') {
-      p++;
-      char var[32] = {0};
-      int vi = 0;
-      while (*p && isalnum(*p))
-        var[vi++] = *p++;
-      var[vi] = '\0';
-
-      const char *input_id = lookup_subject_by_name(db, var);
-      const char *val = lookup_object(db, input_id, "inv:hasContent");
-      key[strlen(key)] = val ? val[0] : '_';
-    } else {
-      p++;
-    }
+  char *key = build_resolution_key(db, invocation_name);
+  if (!key) {
+    LOG_WARN("⚠️ Failed to build resolution key\n");
+    free(por);
+    free(frag);
+    free(cond_inv);
+    free(destination_name);
+    free(destination_place);
+    free(invocation_name);
+    return;
   }
 
   LOG_INFO("🧪 Lookup resolution for key %s in expr %s\n", key, expr_id);
 
-  const char *def_node = lookup_object(db, expr_id, "inv:ContainsDefinition");
-  const char *result = lookup_object(db, def_node, key);
+  char *def_node = lookup_object(db, expr_id, "inv:ContainsDefinition");
+  char *result = lookup_object(db, def_node, key);
+
   if (!result) {
     LOG_WARN("❌ Resolution table missing entry for key %s\n", key);
+    free(por);
+    free(frag);
+    free(cond_inv);
+    free(destination_name);
+    free(destination_place);
+    free(invocation_name);
     free(key);
+    free(def_node);
     return;
   }
 
@@ -282,10 +380,21 @@ void eval_resolution_table(sqlite3 *db, const char *block,
            result);
   insert_triple(db, block, destination_place, "inv:hasValue", result);
 
-  const char *check = lookup_object(db, destination_place, "inv:hasValue");
+  char *check = lookup_object(db, destination_place, "inv:hasValue");
   LOG_INFO("🔎 Confirmed in DB: %s hasValue %s\n", destination_place,
            check ? check : "(null)");
+
+  // Clean up everything
+  free(por);
+  free(frag);
+  free(cond_inv);
+  free(destination_name);
+  free(destination_place);
+  free(invocation_name);
   free(key);
+  free(def_node);
+  free(result);
+  free(check);
 }
 
 const char *get_input_value_from_invocation(sqlite3 *db, const char *expr_id,
@@ -323,7 +432,6 @@ const char *get_input_value_from_invocation(sqlite3 *db, const char *expr_id,
   cJSON_Delete(arr);
   return result;
 }
-
 int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
   LOG_INFO("🔗 Binding inputs for expression: %s\n", expr_id);
 
@@ -333,29 +441,39 @@ int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
     return 0;
   }
 
-  // Only Definitions get bound to Invocation input values
-  const char *type = lookup_object(db, expr_id, "rdf:type");
-  if (!type || strcmp(type, "inv:Definition") != 0)
+  char *type = lookup_object(db, expr_id, "rdf:type");
+  if (!type || strcmp(type, "inv:Definition") != 0) {
+    free(type);
+    free(values_json);
     return 0;
+  }
 
-  const char *def_name = lookup_object(db, expr_id, "inv:name");
-  if (!def_name)
+  char *def_name = lookup_object(db, expr_id, "inv:name");
+  if (!def_name) {
+    free(type);
+    free(values_json);
     return 0;
+  }
 
-  const char *inv_id = find_invocation_by_name(db, def_name);
+  char *inv_id = find_invocation_by_name(db, def_name);
   if (!inv_id) {
     LOG_WARN("⚠️ No matching Invocation found for Definition %s\n", def_name);
+    free(type);
+    free(def_name);
+    free(values_json);
     return 0;
   }
 
   cJSON *input_vals = cJSON_Parse(values_json);
   if (!input_vals || !cJSON_IsArray(input_vals)) {
     LOG_ERROR("❌ Failed to parse inv:Inputs array from invocation\n");
+    free(type);
+    free(def_name);
+    free(inv_id);
     free(values_json);
     return 0;
   }
 
-  // Now iterate the SourceList from the Definition
   sqlite3_stmt *stmt;
   const char *sql = "SELECT object FROM triples WHERE subject = ? AND "
                     "predicate = 'inv:SourceList'";
@@ -363,6 +481,9 @@ int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
     LOG_ERROR("❌ Failed to prepare SourceList lookup: %s\n",
               sqlite3_errmsg(db));
     cJSON_Delete(input_vals);
+    free(type);
+    free(def_name);
+    free(inv_id);
     free(values_json);
     return 0;
   }
@@ -374,20 +495,26 @@ int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
 
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     const char *source_id = (const char *)sqlite3_column_text(stmt, 0);
-    const char *name = lookup_object(db, source_id, "inv:name");
+    char *name = lookup_object(db, source_id, "inv:name");
 
     cJSON *val_item = cJSON_GetArrayItem(input_vals, index++);
-    if (!name || !val_item || !cJSON_IsString(val_item))
+    if (!name || !val_item || !cJSON_IsString(val_item)) {
+      free(name);
       continue;
+    }
 
     const char *value = val_item->valuestring;
     LOG_INFO("📥 Binding %s = %s into %s\n", name, value, source_id);
     insert_triple(db, block, source_id, "inv:hasContent", value);
     side_effect = 1;
+    free(name);
   }
 
   sqlite3_finalize(stmt);
   cJSON_Delete(input_vals);
+  free(type);
+  free(def_name);
+  free(inv_id);
   free(values_json);
   return side_effect;
 }
@@ -404,14 +531,14 @@ int cycle(sqlite3 *db, const char *block, const char *expr_id) {
   }
 
   // Step 1.5: Evaluate ConditionalInvocation dynamic names
-  const char *por = lookup_object(db, expr_id, "inv:PlaceOfResolution");
+  char *por = lookup_object(db, expr_id, "inv:PlaceOfResolution");
   if (por) {
-    const char *frag = lookup_object(db, por, "inv:hasExpressionFragment");
+    char *frag = lookup_object(db, por, "inv:hasExpressionFragment");
     if (frag) {
-      const char *cond = lookup_object(db, frag, "inv:ConditionalInvocation");
+      char *cond = lookup_object(db, frag, "inv:ConditionalInvocation");
       LOG_INFO("📍 Fetched ConditionalInvocation: %s\n", cond);
       if (cond) {
-        const char *template = lookup_object(db, cond, "inv:invocationName");
+        char *template = lookup_object(db, cond, "inv:invocationName");
         if (template && strchr(template, '$')) {
           LOG_INFO("🔧 template from %s is: %s\n", cond, template);
           char *resolved = build_resolution_key(db, template);
@@ -424,9 +551,15 @@ int cycle(sqlite3 *db, const char *block, const char *expr_id) {
           } else {
             LOG_WARN("⚠️ Failed to build invocationName for cond = %s\n", cond);
           }
+          free(template);
+        } else {
+          free(template);
         }
+        free(cond);
       }
+      free(frag);
     }
+    free(por);
   }
 
   // Step 2: Propagate content along destination_list edges
@@ -444,7 +577,7 @@ int cycle(sqlite3 *db, const char *block, const char *expr_id) {
 
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     const char *dest_id = (const char *)sqlite3_column_text(stmt, 0);
-    const char *dest_name = lookup_object(db, dest_id, "inv:name");
+    char *dest_name = lookup_object(db, dest_id, "inv:name");
 
     if (!dest_name) {
       LOG_WARN("⚠️ DestinationPlace %s has no name\n", dest_id);
@@ -456,6 +589,7 @@ int cycle(sqlite3 *db, const char *block, const char *expr_id) {
                           "predicate = 'inv:name' AND object = ?";
     if (sqlite3_prepare_v2(db, src_sql, -1, &src_stmt, NULL) != SQLITE_OK) {
       LOG_ERROR("Failed to prepare source match query.");
+      free(dest_name);
       continue;
     }
 
@@ -464,7 +598,7 @@ int cycle(sqlite3 *db, const char *block, const char *expr_id) {
 
     if (sqlite3_step(src_stmt) == SQLITE_ROW) {
       const char *source_id = (const char *)sqlite3_column_text(src_stmt, 0);
-      const char *content = lookup_object(db, source_id, "inv:hasContent");
+      char *content = lookup_object(db, source_id, "inv:hasContent");
 
       if (content) {
         LOG_INFO("📤 %s → %s : %s\n", source_id, dest_id, content);
@@ -475,6 +609,8 @@ int cycle(sqlite3 *db, const char *block, const char *expr_id) {
         delete_triple(db, dest_id, "inv:hasContent");
         side_effect = 1;
       }
+
+      free(content);
     } else {
       LOG_WARN(
           "⚠️ No matching SourcePlace found for DestinationPlace name: %s\n",
@@ -482,19 +618,23 @@ int cycle(sqlite3 *db, const char *block, const char *expr_id) {
     }
 
     sqlite3_finalize(src_stmt);
+    free(dest_name);
   }
 
   sqlite3_finalize(stmt);
 
-  int resolved_conditional_invocation = resolve_conditional_invocation(db, block, expr_id);
+  // Step 2.5: Conditional resolution
+  int resolved_conditional_invocation =
+      resolve_conditional_invocation(db, block, expr_id);
   side_effect |= resolved_conditional_invocation;
-  // Step 3: Resolution table output
-  const char *def_id = lookup_object(db, expr_id, "inv:ContainsDefinition");
+
   // Step 3: Resolution table output — only if ConditionalInvocation didn't run
+  char *def_id = lookup_object(db, expr_id, "inv:ContainsDefinition");
   if (!resolved_conditional_invocation && def_id) {
     LOG_INFO("📎 Passing def_id into resolve_definition_output: %s\n", def_id);
     side_effect |= resolve_definition_output(db, block, def_id);
   }
+  free(def_id);
 
   return side_effect;
 }
