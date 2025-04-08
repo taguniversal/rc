@@ -43,7 +43,7 @@ const char *lookup_value_by_name(sqlite3 *db, const char *expr_id,
 
   const char *value = lookup_object(db, source_id, "inv:hasContent");
   free((void *)source_id);
-  return value;
+  return strdup(value);
 }
 
 const char *lookup_subject_by_name(sqlite3 *db, const char *name) {
@@ -117,7 +117,7 @@ const char *lookup_resolution(sqlite3 *db, const char *expr_id,
     if (result) {
       LOG_INFO("✅ Found resolution: %s => %s\n", key, result);
       sqlite3_finalize(stmt);
-      return result;
+      return strdup(result);
     } else {
       LOG_WARN("🛑 No match for key %s in def %s\n", key, def_id);
     }
@@ -168,7 +168,7 @@ const char *find_invocation_by_name(sqlite3 *db, const char *def_name) {
     }
   
     sqlite3_finalize(stmt);
-    return result;
+    return strdup(result);
   }
   
 
@@ -196,7 +196,7 @@ const char *lookup_object(sqlite3 *db, const char *subject,
   }
 
   sqlite3_finalize(stmt);
-  return found;
+  return strdup(found);
 }
 
 void delete_expression_triples(sqlite3 *db, const char *psi,

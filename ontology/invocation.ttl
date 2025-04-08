@@ -160,6 +160,10 @@ inv:invocationName a rdf:Property ;
     rdfs:label "invocation name" ;
     rdfs:comment "The dynamically formed name of the conditional invocation, based on destination places." .
 
+inv:ResolvedInvocationName a rdf:Property ;
+  rdfs:label "Resolved Invocation Name" ;
+  rdfs:comment "The fully substituted invocation name derived from variable inputs like $A$B → 10. Used internally for resolution lookup without overwriting the original template." .
+
 inv:ResolutionMapping a rdfs:Class ;
     rdfs:label "Resolution Mapping" ;
     rdfs:comment "A compact mapping of symbolic inputs to outputs, used in conditional resolution scenarios." .
