@@ -1,0 +1,35 @@
+{
+  "@context": {
+    "inv": "https://digitalblockchain.io/ontology/definition#"
+  },
+  "@type": "inv:Definition",
+  "inv:name": "NOT",
+
+  "inv:IO": {
+    "inputs": ["A"],
+    "outputs": ["Out0"]
+  },
+
+  "inv:PlaceOfResolution": {
+    "inv:hasExpressionFragment": [
+      {
+        "inv:ConditionalInvocation": {
+          "inv:invocationName": "$A",
+          "inv:Inputs": ["A"],
+          "inv:Output": "Out0"
+        }
+      }
+    ]
+  },
+
+  "inv:ContainsDefinition": [
+    {
+      "inv:Inputs": ["A"],
+      "inv:Outputs": ["Out0"],
+      "inv:ResolutionTable": {
+        "0": "1",
+        "1": "0"
+      }
+    }
+  ]
+}

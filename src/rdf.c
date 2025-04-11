@@ -12,96 +12,67 @@
 #define OSC_PORT_RECV 4243
 #define BUFFER_SIZE 1024
 #define IPV6_ADDR "fc00::1"
+
 // Caller is responsible for freeing the returned string.
-char *lookup_value_by_name(sqlite3 *db, const char *expr_id, const char *name) {
-    sqlite3_stmt *stmt;
-    const char *sql =
-        "SELECT subject FROM triples WHERE subject IN ("
-        "SELECT object FROM triples WHERE subject = ? AND predicate = 'inv:source_list') "
-        "AND predicate = 'inv:name' AND object = ?";
-  
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-      LOG_ERROR("Failed to prepare lookup_value_by_name query.");
-      return NULL;
-    }
-  
-    sqlite3_bind_text(stmt, 1, expr_id, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, name, -1, SQLITE_STATIC);
-  
-    char *source_id = NULL;
-    char *result = NULL;
-  
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-      const char *text = (const char *)sqlite3_column_text(stmt, 0);
-      if (text) {
-        source_id = strdup(text); // Take ownership
-      }
-    }
-  
-    sqlite3_finalize(stmt);
-  
-    if (source_id) {
-      char *value = lookup_object(db, source_id, "inv:hasContent"); // Also malloc'd
-      if (value) {
-        result = value; // Pass it through
-      }
-      free(source_id);
-    }
-  
-    return result; // Caller will free this
-  }
-  
-// Caller is responsible for freeing the returned string.
-char *lookup_subject_by_name(sqlite3 *db, const char *name) {
-    sqlite3_stmt *stmt;
-    const char *sql =
-        "SELECT subject FROM triples WHERE predicate = 'inv:name' AND object = ?";
-  
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-      LOG_ERROR("Failed to prepare lookup_subject_by_name query.");
-      return NULL;
-    }
-  
-    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
-  
-    char *subject = NULL;
-  
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-      const char *text = (const char *)sqlite3_column_text(stmt, 0);
-      if (text) {
-        subject = strdup(text); // Caller must free
-      }
-    }
-  
-    sqlite3_finalize(stmt);
-    return subject;
-  }
-  
-int lookup_destinations_for_name(sqlite3 *db, const char *name,
-                                 char dests[][128], int max_dests) {
+char *lookup_subject_by_name(sqlite3 *db, const char *block, const char *name) {
   sqlite3_stmt *stmt;
-  const char *sql = "SELECT DISTINCT s.subject FROM triples s \
-                   WHERE s.predicate = 'inv:name' AND s.object = ?;";
+  const char *sql = "SELECT subject FROM triples WHERE psi = ? AND predicate = "
+                    "'inv:name' AND object = ?";
+
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    LOG_ERROR("Failed to prepare lookup_subject_by_name query.");
+    return NULL;
+  }
+
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, name, -1, SQLITE_STATIC);
+
+  char *subject = NULL;
+
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char *text = (const char *)sqlite3_column_text(stmt, 0);
+    if (text) {
+      subject = strdup(text); // Caller must free
+    }
+  }
+
+  sqlite3_finalize(stmt);
+  return subject;
+}
+
+int lookup_destinations_for_name(sqlite3 *db, const char *block,
+                                 const char *name, char dests[][128],
+                                 int max_dests) {
+  sqlite3_stmt *stmt;
+  const char *sql =
+      "SELECT DISTINCT s.subject FROM triples s "
+      "WHERE s.psi = ? AND s.predicate = 'inv:name' AND s.object = ?;";
   int count = 0;
 
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
     return 0;
-  sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, name, -1, SQLITE_STATIC);
 
   while (sqlite3_step(stmt) == SQLITE_ROW && count < max_dests) {
     const char *subject = (const char *)sqlite3_column_text(stmt, 0);
 
-    // Verify it's a DestinationPlace
+    // Verify it's a DestinationPlace within the same block
     sqlite3_stmt *stmt2;
     const char *check_type =
-        "SELECT 1 FROM triples WHERE subject = ? AND predicate = 'rdf:type' "
-        "AND object = 'inv:DestinationPlace';";
+        "SELECT 1 FROM triples WHERE psi = ? AND subject = ? "
+        "AND predicate = 'rdf:type' AND object = 'inv:DestinationPlace';";
+
     if (sqlite3_prepare_v2(db, check_type, -1, &stmt2, NULL) == SQLITE_OK) {
-      sqlite3_bind_text(stmt2, 1, subject, -1, SQLITE_STATIC);
+      sqlite3_bind_text(stmt2, 1, block, -1, SQLITE_STATIC);
+      sqlite3_bind_text(stmt2, 2, subject, -1, SQLITE_STATIC);
+
       if (sqlite3_step(stmt2) == SQLITE_ROW) {
         strncpy(dests[count], subject, 128);
         count++;
       }
+
       sqlite3_finalize(stmt2);
     }
   }
@@ -111,78 +82,87 @@ int lookup_destinations_for_name(sqlite3 *db, const char *name,
 }
 
 // Caller is responsible for freeing the returned string.
-char *lookup_resolution(sqlite3 *db, const char *expr_id, const char *key) {
-    LOG_INFO("🔍 Starting resolution lookup in %s for key %s\n", expr_id, key);
-  
-    sqlite3_stmt *stmt;
-    const char *sql =
-        "SELECT object FROM triples WHERE subject = ? AND predicate = 'inv:ContainsDefinition'";
-  
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-      LOG_ERROR("❌ Failed to query ContainsDefinition: %s\n",
-                sqlite3_errmsg(db));
-      return NULL;
-    }
-  
-    sqlite3_bind_text(stmt, 1, expr_id, -1, SQLITE_STATIC);
-  
-    char *result = NULL;
-  
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-      const char *def_id = (const char *)sqlite3_column_text(stmt, 0);
-      if (!def_id) continue;
-  
-      LOG_INFO("🔍 Found contained definition: %s\n", def_id);
-  
-      result = lookup_object(db, def_id, key);  // Already strdup’d
-  
-      if (result) {
-        LOG_INFO("✅ Found resolution: %s => %s\n", key, result);
-        break;  // Stop after the first successful match
-      } else {
-        LOG_WARN("🛑 No match for key %s in def %s\n", key, def_id);
-      }
-    }
-  
-    sqlite3_finalize(stmt);
-    return result;  // Caller must free
+/*
+char *lookup_resolution(sqlite3 *db, const char *block, const char *expr_id,
+const char *key) { LOG_INFO("🔍 Starting resolution lookup in %s for key %s\n",
+expr_id, key);
+
+  sqlite3_stmt *stmt;
+  const char *sql = "SELECT object FROM triples WHERE psi = ? AND subject = ? "
+                    "AND predicate = 'inv:ContainsDefinition'";
+
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    LOG_ERROR("❌ Failed to query ContainsDefinition: %s\n",
+              sqlite3_errmsg(db));
+    return NULL;
   }
-  
+
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, expr_id, -1, SQLITE_STATIC);
+
+  char *result = NULL;
+
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char *def_id = (const char *)sqlite3_column_text(stmt, 0);
+    if (!def_id)
+      continue;
+
+    LOG_INFO("🔍 Found contained definition: %s\n", def_id);
+
+    // You might also want to pass the block into lookup_object to scope that
+too result = lookup_object(db, def_id, key); // Already strdup’d
+
+    if (result) {
+      LOG_INFO("✅ Found resolution: %s => %s\n", key, result);
+      break;
+    } else {
+      LOG_WARN("🛑 No match for key %s in def %s\n", key, def_id);
+    }
+  }
+
+  sqlite3_finalize(stmt);
+  return result; // Caller must free
+}
+*/
 
 // Caller is responsible for freeing the returned string.
-char *find_invocation_by_name(sqlite3 *db, const char *def_name) {
-    sqlite3_stmt *stmt;
-    const char *sql =
-        "SELECT subject FROM triples WHERE predicate = 'inv:name' "
-        "AND object = ? AND subject IN ("
-        "SELECT subject FROM triples WHERE predicate = 'rdf:type' "
-        "AND object = 'inv:Invocation') LIMIT 1";
-  
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-      LOG_ERROR("❌ Failed to prepare find_invocation_by_name query: %s\n",
-                sqlite3_errmsg(db));
-      return NULL;
-    }
-  
-    sqlite3_bind_text(stmt, 1, def_name, -1, SQLITE_STATIC);
-  
-    char *result = NULL;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-      const char *text = (const char *)sqlite3_column_text(stmt, 0);
-      if (text) {
-        result = strdup(text); // Caller must free
-      }
-    }
-  
-    sqlite3_finalize(stmt);
-    return result;
-  }
-  
-char *lookup_raw_value(sqlite3 *db, const char *subject,
-                       const char *predicate) {
+char *find_invocation_by_name(sqlite3 *db, const char *block,
+                              const char *def_name) {
   sqlite3_stmt *stmt;
   const char *sql =
-      "SELECT object FROM triples WHERE subject = ? AND predicate = ? LIMIT 1";
+      "SELECT subject FROM triples WHERE psi = ? AND predicate = 'inv:name' "
+      "AND object = ? AND subject IN ("
+      "SELECT subject FROM triples WHERE psi = ? AND predicate = 'rdf:type' "
+      "AND object = 'inv:Invocation') LIMIT 1";
+
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    LOG_ERROR("❌ Failed to prepare find_invocation_by_name query: %s\n",
+              sqlite3_errmsg(db));
+    return NULL;
+  }
+
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, def_name, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 3, block, -1,
+                    SQLITE_STATIC); // psi for inner subquery
+
+  char *result = NULL;
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char *text = (const char *)sqlite3_column_text(stmt, 0);
+    if (text) {
+      result = strdup(text); // Caller must free
+    }
+  }
+
+  sqlite3_finalize(stmt);
+  return result;
+}
+
+char *lookup_raw_value(sqlite3 *db, const char *block, const char *subject,
+                       const char *predicate) {
+  sqlite3_stmt *stmt;
+  const char *sql = "SELECT object FROM triples WHERE psi = ? AND subject = ? "
+                    "AND predicate = ? LIMIT 1";
 
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
     LOG_ERROR("❌ Failed to prepare lookup_raw_value query: %s\n",
@@ -190,34 +170,35 @@ char *lookup_raw_value(sqlite3 *db, const char *subject,
     return NULL;
   }
 
-  sqlite3_bind_text(stmt, 1, subject, -1, SQLITE_STATIC);
-  sqlite3_bind_text(stmt, 2, predicate, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, subject, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 3, predicate, -1, SQLITE_STATIC);
 
   char *result = NULL;
   if (sqlite3_step(stmt) == SQLITE_ROW) {
     const char *val = (const char *)sqlite3_column_text(stmt, 0);
     if (val)
-      result = strdup(val);
+      result = strdup(val); // strdup once is enough here
   }
 
   sqlite3_finalize(stmt);
-  return strdup(result);
+  return result;
 }
 
 // Caller is responsible for freeing the returned string.
-char *lookup_object(sqlite3 *db, const char *subject, const char *predicate) {
+char *lookup_object(sqlite3 *db, const char *block, const char *subject, const char *predicate) {
   sqlite3_stmt *stmt;
-  LOG_INFO("RDF lookup_object. Subject: %s, Predicate: %s\n", subject,
-           predicate);
+  LOG_INFO("RDF lookup_object. Subject: %s, Predicate: %s\n", subject, predicate);
 
   const char *sql =
-      "SELECT object FROM triples WHERE subject = ? AND predicate = ? LIMIT 1;";
+      "SELECT object FROM triples WHERE psi = ? AND subject = ? AND predicate = ? LIMIT 1;";
 
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
     return NULL;
 
-  sqlite3_bind_text(stmt, 1, subject, -1, SQLITE_STATIC);
-  sqlite3_bind_text(stmt, 2, predicate, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, subject, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 3, predicate, -1, SQLITE_STATIC);
 
   char *copy = NULL;
   if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -230,6 +211,7 @@ char *lookup_object(sqlite3 *db, const char *subject, const char *predicate) {
   sqlite3_finalize(stmt);
   return copy;
 }
+
 
 void delete_expression_triples(sqlite3 *db, const char *psi,
                                const char *expr_id) {
@@ -279,13 +261,16 @@ void insert_triple(sqlite3 *db, const char *psi, const char *subject,
   }
 }
 
-void delete_triple(sqlite3 *db, const char *subject, const char *predicate) {
+void delete_triple(sqlite3 *db, const char *psi, const char *subject,
+                   const char *predicate) {
   sqlite3_stmt *stmt;
-  const char *sql = "DELETE FROM triples WHERE subject = ? AND predicate = ?;";
+  const char *sql =
+      "DELETE FROM triples WHERE psi = ? AND subject = ? AND predicate = ?;";
 
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
-    sqlite3_bind_text(stmt, 1, subject, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, predicate, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 1, psi, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, subject, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, predicate, -1, SQLITE_STATIC);
 
     int rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {

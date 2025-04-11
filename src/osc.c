@@ -297,7 +297,7 @@ void process_osc_response(sqlite3* db, char *buffer, const char* block, int len)
     LOG_INFO("Found source %s\n", name);
 
     char dests[10][128];  // Support up to 10 fan-out targets
-    int num = lookup_destinations_for_name(db, name, dests, 10);
+    int num = lookup_destinations_for_name(db, block, name, dests, 10);
     if (num == 0) return;
 
     float v = tosc_getNextFloat(&osc);

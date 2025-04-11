@@ -1,0 +1,8 @@
+{
+  "@context": {
+    "inv": "https://digitalblockchain.io/ontology/invocation#"
+  },
+  "@type": "inv:Invocation",
+  "inv:name": "NOR",
+  "inv:Inputs": ["1", "0"]
+}
