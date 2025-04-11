@@ -243,8 +243,8 @@ void insert_triple(sqlite3 *db, const char *psi, const char *subject,
   const char *sql = "INSERT OR IGNORE INTO triples (psi, subject, predicate, "
                     "object) VALUES (?, ?, ?, ?);";
 
-  LOG_INFO("insert_triple start, subject: %s, predicate: %s, object: %s\n",
-           subject, predicate, object);
+  LOG_INFO("insert_triple start, subject: %s, predicate: %s, object: %s, psi:%s\n",
+           subject, predicate, object, psi);
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
     sqlite3_bind_text(stmt, 1, psi, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 2, subject, -1, SQLITE_STATIC);
@@ -267,6 +267,8 @@ void delete_triple(sqlite3 *db, const char *psi, const char *subject,
   const char *sql =
       "DELETE FROM triples WHERE psi = ? AND subject = ? AND predicate = ?;";
 
+  LOG_INFO("delete_triple start, subject: %s, predicate: %s, psi: %s\n",subject, predicate, psi);
+ 
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
     sqlite3_bind_text(stmt, 1, psi, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 2, subject, -1, SQLITE_STATIC);

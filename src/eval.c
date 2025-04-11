@@ -12,7 +12,8 @@
 
 #define MAX_ITERATIONS 2 // Or whatever feels safe for your app
 
-char *build_resolution_key(sqlite3 *db, const char* block, const char *invocation_str) {
+char *build_resolution_key(sqlite3 *db, const char *block,
+                           const char *invocation_str) {
   if (!invocation_str)
     return NULL;
 
@@ -68,6 +69,7 @@ char *build_resolution_key(sqlite3 *db, const char* block, const char *invocatio
 
 int resolve_conditional_invocation(sqlite3 *db, const char *block,
                                    const char *expr_id) {
+  int side_effect = 0;
   LOG_INFO("🧠 Attempting resolution from ConditionalInvocation in %s\n",
            expr_id);
 
@@ -158,8 +160,14 @@ int resolve_conditional_invocation(sqlite3 *db, const char *block,
     return 0;
   }
 
-  LOG_INFO("📥 Inserting resolution result %s into %s\n", result, output_id);
-  insert_triple(db, block, output_id, "inv:hasContent", result);
+  char *existing = lookup_object(db, block, output_id, "inv:hasContent");
+  if (!existing || strcmp(existing, result) != 0) {
+    LOG_INFO("📥 resolve_conditional - writing resolution result %s into %s\n", result, output_id);
+    insert_triple(db, block, output_id, "inv:hasContent", result);
+    side_effect = 1;
+  }
+  free(existing);
+
   free(result);
   free(output_id);
   free(por);
@@ -167,11 +175,12 @@ int resolve_conditional_invocation(sqlite3 *db, const char *block,
   free(cond);
   free(template);
   free(key);
-  return 1;
+  return side_effect;
 }
 
 int resolve_definition_output(sqlite3 *db, const char *block,
                               const char *definition_id) {
+  int side_effect = 0;
   LOG_INFO("resolve_definition_output for %s\n", definition_id);
 
   char *type = lookup_object(db, block, definition_id, "rdf:type");
@@ -201,6 +210,34 @@ int resolve_definition_output(sqlite3 *db, const char *block,
     return 0;
   }
 
+  // Check if a ConditionalInvocation is present at all
+  sqlite3_stmt *check_stmt;
+  const char *check_sql = "SELECT 1 FROM triples WHERE psi = ? AND subject = ? "
+                          "AND predicate = 'inv:ConditionalInvocation' LIMIT 1";
+
+  if (sqlite3_prepare_v2(db, check_sql, -1, &check_stmt, NULL) != SQLITE_OK) {
+    LOG_ERROR("❌ Failed to prepare ConditionalInvocation existence check\n");
+    free(type);
+    free(por);
+    free(frag);
+    return 0;
+  }
+
+  sqlite3_bind_text(check_stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(check_stmt, 2, frag, -1, SQLITE_STATIC);
+
+  int has_conditional = sqlite3_step(check_stmt) == SQLITE_ROW;
+  sqlite3_finalize(check_stmt);
+
+  if (!has_conditional) {
+    LOG_INFO(
+        "ℹ️ No ConditionalInvocation present — skipping resolution output\n");
+    free(type);
+    free(por);
+    free(frag);
+    return 0;
+  }
+
   char *cond = lookup_object(db, block, frag, "inv:ConditionalInvocation");
   if (!cond) {
     LOG_WARN("⚠️ Missing conditional invocation for frag %s\n", frag);
@@ -210,9 +247,12 @@ int resolve_definition_output(sqlite3 *db, const char *block,
     return 0;
   }
 
+  LOG_INFO("🧠 Attempting resolution from ConditionalInvocation in %s\n",
+           definition_id);
   LOG_INFO("📎 Fetched ConditionalInvocation: %s\n", cond);
 
-  char *invocation_str = lookup_object(db, block, cond, "inv:ResolvedInvocationName");
+  char *invocation_str =
+      lookup_object(db, block, cond, "inv:ResolvedInvocationName");
   if (!invocation_str) {
     invocation_str = lookup_object(db, block, cond, "inv:invocationName");
     LOG_INFO("🧩 Fallback to template name: %s\n",
@@ -261,7 +301,8 @@ int resolve_definition_output(sqlite3 *db, const char *block,
 
   LOG_INFO("🧪 Resolution lookup key: %s\n", key);
 
-  char *def_node = lookup_object(db, block, definition_id, "inv:ContainsDefinition");
+  char *def_node =
+      lookup_object(db, block, definition_id, "inv:ContainsDefinition");
   char *result = lookup_object(db, block, def_node, key);
 
   if (!result) {
@@ -278,8 +319,13 @@ int resolve_definition_output(sqlite3 *db, const char *block,
     return 0;
   }
 
-  LOG_INFO("📥 Writing resolution result %s into %s\n", result, output_id);
-  insert_triple(db, block, output_id, "inv:hasContent", result);
+  char *existing = lookup_object(db, block, output_id, "inv:hasContent");
+  if (!existing || strcmp(existing, result) != 0) {
+    LOG_INFO("📥 Inserting resolution result %s into %s\n", result, output_id);
+    insert_triple(db, block, output_id, "inv:hasContent", result);
+    side_effect = 1;
+  }
+  free(existing);
 
   // Clean up everything
   free(type);
@@ -292,8 +338,9 @@ int resolve_definition_output(sqlite3 *db, const char *block,
   free(def_node);
   free(key);
   free(result);
-  return 1;
+  return side_effect;
 }
+
 void eval_resolution_table(sqlite3 *db, const char *block,
                            const char *expr_id) {
   LOG_INFO("🔍 Resolution table eval for: %s at block %s\n", expr_id, block);
@@ -336,7 +383,8 @@ void eval_resolution_table(sqlite3 *db, const char *block,
     return;
   }
 
-  char *invocation_name = lookup_object(db, block, cond_inv, "inv:invocationName");
+  char *invocation_name =
+      lookup_object(db, block, cond_inv, "inv:invocationName");
   if (!invocation_name) {
     LOG_WARN("⚠️ Missing invocationName on ConditionalInvocation\n");
     free(por);
@@ -433,6 +481,7 @@ const char *get_input_value_from_invocation(sqlite3 *db, const char *expr_id,
   cJSON_Delete(arr);
   return result;
 }
+
 int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
   LOG_INFO("🔗 Binding inputs for expression: %s\n", expr_id);
 
@@ -476,8 +525,8 @@ int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
   }
 
   sqlite3_stmt *stmt;
-  const char *sql = "SELECT object FROM triples WHERE subject = ? AND "
-                    "predicate = 'inv:SourceList'";
+  const char *sql = "SELECT object FROM triples WHERE psi = ? AND subject = ? "
+                    "AND predicate = 'inv:SourceList'";
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
     LOG_ERROR("❌ Failed to prepare SourceList lookup: %s\n",
               sqlite3_errmsg(db));
@@ -489,7 +538,8 @@ int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
     return 0;
   }
 
-  sqlite3_bind_text(stmt, 1, expr_id, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, expr_id, -1, SQLITE_STATIC);
 
   int index = 0;
   int side_effect = 0;
@@ -505,9 +555,15 @@ int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
     }
 
     const char *value = val_item->valuestring;
-    LOG_INFO("📥 Binding %s = %s into %s\n", name, value, source_id);
-    insert_triple(db, block, source_id, "inv:hasContent", value);
-    side_effect = 1;
+
+    char *existing_value =
+        lookup_object(db, block, source_id, "inv:hasContent");
+    if (!existing_value || strcmp(existing_value, value) != 0) {
+      LOG_INFO("📅 Binding %s = %s into %s\n", name, value, source_id);
+      insert_triple(db, block, source_id, "inv:hasContent", value);
+      side_effect = 1;
+    }
+    free(existing_value);
     free(name);
   }
 
@@ -519,6 +575,7 @@ int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
   free(values_json);
   return side_effect;
 }
+
 int cycle(sqlite3 *db, const char *block, const char *expr_id) {
   LOG_INFO("🔁 Cycle pass for expression: %s\n", expr_id);
   int side_effect = 0;
@@ -536,27 +593,52 @@ int cycle(sqlite3 *db, const char *block, const char *expr_id) {
   if (por) {
     char *frag = lookup_object(db, block, por, "inv:hasExpressionFragment");
     if (frag) {
-      char *cond = lookup_object(db, block, frag, "inv:ConditionalInvocation");
-      LOG_INFO("📍 Fetched ConditionalInvocation: %s\n", cond);
-      if (cond) {
-        char *template = lookup_object(db, block, cond, "inv:invocationName");
-        if (template && strchr(template, '$')) {
-          LOG_INFO("🔧 template from %s is: %s\n", cond, template);
-          char *resolved = build_resolution_key(db, block, template);
-          if (resolved) {
-            LOG_INFO("🧩 Resolved dynamic invocationName = %s\n", resolved);
-            insert_triple(db, block, cond, "inv:ResolvedInvocationName",
-                          resolved);
-            free(resolved);
-            side_effect = 1;
-          } else {
-            LOG_WARN("⚠️ Failed to build invocationName for cond = %s\n", cond);
+      // Check if a ConditionalInvocation exists at all
+      sqlite3_stmt *check_stmt;
+      const char *check_sql =
+          "SELECT 1 FROM triples WHERE psi = ? AND subject = ? "
+          "AND predicate = 'inv:ConditionalInvocation' LIMIT 1";
+
+      if (sqlite3_prepare_v2(db, check_sql, -1, &check_stmt, NULL) ==
+          SQLITE_OK) {
+        sqlite3_bind_text(check_stmt, 1, block, -1, SQLITE_STATIC);
+        sqlite3_bind_text(check_stmt, 2, frag, -1, SQLITE_STATIC);
+
+        int has_conditional = sqlite3_step(check_stmt) == SQLITE_ROW;
+        sqlite3_finalize(check_stmt);
+
+        if (has_conditional) {
+          char *cond =
+              lookup_object(db, block, frag, "inv:ConditionalInvocation");
+          if (cond) {
+            LOG_INFO("📍 Fetched ConditionalInvocation: %s\n", cond);
+            char *template =
+                lookup_object(db, block, cond, "inv:invocationName");
+            if (template && strchr(template, '$')) {
+              LOG_INFO("🔧 template from %s is: %s\n", cond, template);
+              char *resolved = build_resolution_key(db, block, template);
+              if (resolved) {
+                LOG_INFO("🧩 Resolved dynamic invocationName = %s\n", resolved);
+                insert_triple(db, block, cond, "inv:ResolvedInvocationName",
+                              resolved);
+                free(resolved);
+                side_effect = 1;
+              } else {
+                LOG_WARN("⚠️ Failed to build invocationName for cond = %s\n",
+                         cond);
+              }
+              free(template);
+            } else {
+              free(template);
+            }
+            free(cond);
           }
-          free(template);
         } else {
-          free(template);
+          LOG_INFO("ℹ️ No ConditionalInvocation present in frag %s\n", frag);
         }
-        free(cond);
+      } else {
+        LOG_ERROR(
+            "❌ Failed to prepare ConditionalInvocation presence check.\n");
       }
       free(frag);
     }
