@@ -348,6 +348,126 @@ void process_invocation(sqlite3 *db, const char *block, cJSON *root,
   }
 }
 
+void replace_template_vars(cJSON *node, int i, int from, int to, cJSON *edge) {
+  if (!node) return;
+
+  // Recurse on arrays/objects
+  if (cJSON_IsArray(node)) {
+    for (cJSON *item = node->child; item; item = item->next)
+      replace_template_vars(item, i, from, to, edge);
+    return;
+  }
+
+  if (cJSON_IsObject(node)) {
+    for (cJSON *item = node->child; item; item = item->next)
+      replace_template_vars(item, i, from, to, edge);
+    return;
+  }
+
+  // Only act on string values
+  if (!cJSON_IsString(node)) return;
+
+  const char *val = node->valuestring;
+  if (!strchr(val, '$')) return;  // Fast path
+
+  // Replace templates like "$i", "$i+1", "$i-1"
+  char buf[128];
+  const char *p = val;
+  char *w = buf;
+
+  while (*p) {
+    if (p[0] == '$' && p[1] == 'i') {
+      int offset = 0;
+      p += 2;
+
+      // Optional + or - offset
+      if (*p == '+' || *p == '-') {
+        char *endptr;
+        offset = strtol(p, &endptr, 10);
+        p = endptr;
+      }
+
+      int actual = i + offset;
+      int range_size = (to - from + 1);
+
+      // 🌀 Wraparound
+      while (actual < from) actual += range_size;
+      while (actual > to) actual -= range_size;
+
+      w += sprintf(w, "CA:%d", actual);
+    } else {
+      *w++ = *p++;
+    }
+  }
+  *w = '\0';
+
+  cJSON_SetValuestring(node, buf);
+}
+
+
+void process_expression_fragment(sqlite3 *db, const char *block, cJSON *frag, const char *scoped_prefix) {
+  char frag_id[128];
+  snprintf(frag_id, sizeof(frag_id), "%s", scoped_prefix);
+
+  insert_triple(db, block, frag_id, "rdf:type", "inv:ExpressionFragment");
+
+  cJSON *cond = cJSON_GetObjectItem(frag, "inv:ConditionalInvocation");
+  if (cond && cJSON_IsObject(cond)) {
+    char cond_id[128];
+    snprintf(cond_id, sizeof(cond_id), "%s:cond", scoped_prefix);
+    insert_triple(db, block, cond_id, "rdf:type", "inv:ConditionalInvocation");
+    insert_triple(db, block, frag_id, "inv:ConditionalInvocation", cond_id);
+
+    const char *inv_name = get_value(cond, "inv:invocationName");
+    if (inv_name) {
+      insert_triple(db, block, cond_id, "inv:invocationName", inv_name);
+    }
+
+    const char *output = get_value(cond, "inv:Output");
+    if (output) {
+      insert_triple(db, block, cond_id, "inv:Output", output);
+      insert_triple(db, block, output, "rdf:type", "inv:DestinationPlace");
+      insert_triple(db, block, output, "inv:name", output);
+    }
+
+    cJSON *inputs = cJSON_GetObjectItem(cond, "inv:Inputs");
+    if (inputs && cJSON_IsArray(inputs)) {
+      char *raw = cJSON_PrintUnformatted(inputs);
+      insert_triple(db, block, cond_id, "inv:Inputs", raw);
+      free(raw);
+    }
+  } else {
+    LOG_INFO("ℹ️ Fragment %s has no ConditionalInvocation — skipping.\n", scoped_prefix);
+  }
+}
+
+void unroll_arrayed_expression(sqlite3 *db, const char *block, cJSON *root, const char *prefix) {
+  cJSON *range = cJSON_GetObjectItem(root, "inv:range");
+  cJSON *body = cJSON_GetObjectItem(root, "inv:body");
+  cJSON *edge = cJSON_GetObjectItem(root, "inv:edgeBehavior");
+
+  int from = cJSON_GetObjectItem(range, "inv:from")->valueint;
+  int to = cJSON_GetObjectItem(range, "inv:to")->valueint;
+
+  for (int i = from; i <= to; i++) {
+    char index_expr[64];
+    snprintf(index_expr, sizeof(index_expr), "%s:%d", prefix, i);
+
+    // Clone body template
+    cJSON *instance = cJSON_Duplicate(body, 1);
+
+    // Replace all `$i`, `$i-1`, `$i+1`, etc.
+    replace_template_vars(instance, i, from, to, edge);
+
+    // Inject into database using same loader as ExpressionFragment
+    LOG_INFO("🧬 Injecting fragment instance %s\n", index_expr);
+    process_expression_fragment(db, block, instance, index_expr);
+
+    cJSON_Delete(instance);
+  }
+}
+
+
 void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
   DIR *dir = opendir(inv_dir);
   struct dirent *entry;
@@ -388,6 +508,13 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
         matched = true;
         process_invocation(db, block, root, json, name);
       }
+
+      if (is_type(root, "inv:ArrayedExpression")) {
+        matched = true;
+        LOG_INFO("📐 Unrolling ArrayedExpression from %s\n", entry->d_name);
+        unroll_arrayed_expression(db, block, root, name);  // <- you'll define this
+      }
+      
 
       if (!matched) {
         const char *type = get_value(root, "@type");

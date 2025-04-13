@@ -1,0 +1,15 @@
+{
+    "@type": "inv:ArrayedExpression",
+    "inv:name": "rule_30_row",
+    "inv:range": { "inv:from": 0, "inv:to": 127 },
+    "inv:edgeBehavior": { "underflow": "wrap", "overflow": "wrap" },
+    "inv:body": {
+      "@type": "inv:ExpressionFragment",
+      "inv:ConditionalInvocation": {
+        "inv:invocationName": "$i-1$i$i+1",
+        "inv:Inputs": ["$i-1", "$i", "$i+1"],
+        "inv:Output": "out_$i"
+      }
+    }
+  }
+  

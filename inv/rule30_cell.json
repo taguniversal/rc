@@ -1,0 +1,35 @@
+{
+    "@type": "inv:Definition",
+    "inv:name": "Rule30Cell",
+    "inv:IO": {
+      "inputs": ["L", "C", "R"],
+      "outputs": ["Out"]
+    },
+    "inv:PlaceOfResolution": {
+      "inv:hasExpressionFragment": [
+        {
+          "@type": "inv:ConditionalInvocation",
+          "inv:invocationName": "$L$C$R",
+          "inv:Inputs": ["L", "C", "R"],
+          "inv:Output": "Out"
+        }
+      ]
+    },
+    "inv:ContainsDefinition": [
+      {
+        "inv:Inputs": ["L", "C", "R"],
+        "inv:Outputs": ["Out"],
+        "inv:ResolutionTable": {
+          "111": "0",
+          "110": "0",
+          "101": "0",
+          "100": "1",
+          "011": "1",
+          "010": "1",
+          "001": "1",
+          "000": "0"
+        }
+      }
+    ]
+  }
+  
