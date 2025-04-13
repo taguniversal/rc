@@ -1,6 +1,7 @@
 #include "cJSON.h"
 #include "log.h"
 #include "rdf.h"
+#include "util.h"
 #include "sqlite3.h"
 #include <dirent.h>
 #include <stdbool.h>
@@ -8,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
 
 char *load_file(const char *filename) {
   FILE *file = fopen(filename, "rb");
@@ -112,9 +114,14 @@ void process_definition(sqlite3 *db, const char *block, cJSON *root,
       const char *sname = get_value(src, "inv:name");
       if (!sname)
         continue;
-      LOG_INFO("\xF0\x9F\x9F\xA2 [Expression] SourcePlace: name=%s\n", sname);
-      insert_triple(db, block, sname, "rdf:type", "inv:SourcePlace");
-      insert_triple(db, block, sname, "inv:name", sname);
+
+      char *scoped_sname = prefix_name(name, sname);
+      LOG_INFO("\xF0\x9F\x9F\xA2 [Expression] SourcePlace: name=%s\n",
+               scoped_sname);
+      insert_triple(db, block, scoped_sname, "rdf:type", "inv:SourcePlace");
+      insert_triple(db, block, scoped_sname, "inv:name",
+                    scoped_sname); // important!
+      free(scoped_sname);
     }
   }
 
@@ -126,10 +133,14 @@ void process_definition(sqlite3 *db, const char *block, cJSON *root,
       const char *dname = get_value(dst, "inv:name");
       if (!dname)
         continue;
+      char *scoped_dname = prefix_name(name, dname);
       LOG_INFO("\xF0\x9F\x94\xB5 [Expression] DestinationPlace: name=%s\n",
-               dname);
-      insert_triple(db, block, dname, "rdf:type", "inv:DestinationPlace");
-      insert_triple(db, block, dname, "inv:name", dname);
+               scoped_dname);
+      insert_triple(db, block, scoped_dname, "rdf:type",
+                    "inv:DestinationPlace");
+      insert_triple(db, block, scoped_dname, "inv:name",
+                    scoped_dname); // important!
+      free(scoped_dname);
     }
   }
 
@@ -143,9 +154,13 @@ void process_definition(sqlite3 *db, const char *block, cJSON *root,
         if (!cJSON_IsString(iname))
           continue;
         const char *sname = iname->valuestring;
-        insert_triple(db, block, sname, "rdf:type", "inv:SourcePlace");
-        insert_triple(db, block, sname, "inv:name", sname);
-        insert_triple(db, block, name, "inv:SourceList", sname);
+        char *scoped_input_name = prefix_name(name, sname);
+        insert_triple(db, block, scoped_input_name, "rdf:type",
+                      "inv:SourcePlace");
+        insert_triple(db, block, scoped_input_name, "inv:name",
+                      scoped_input_name);
+        insert_triple(db, block, name, "inv:SourceList", scoped_input_name);
+        LOG_INFO("📎 [%s] Bound input signal: %s\n", name, scoped_input_name);
       }
     }
 
@@ -156,9 +171,13 @@ void process_definition(sqlite3 *db, const char *block, cJSON *root,
         if (!cJSON_IsString(oname))
           continue;
         const char *dname = oname->valuestring;
-        insert_triple(db, block, dname, "rdf:type", "inv:DestinationPlace");
-        insert_triple(db, block, dname, "inv:name", dname);
-        insert_triple(db, block, name, "inv:DestinationList", dname);
+        char *scoped_oputput_name = prefix_name(name, dname);
+        insert_triple(db, block, scoped_oputput_name, "rdf:type",
+                      "inv:DestinationPlace");
+        insert_triple(db, block, scoped_oputput_name, "inv:name",
+                      scoped_oputput_name);
+        insert_triple(db, block, name, "inv:DestinationList", scoped_oputput_name);
+        LOG_INFO("📎 [%s] Bound output signal: %s\n", name, scoped_oputput_name);
       }
     }
   }
@@ -195,9 +214,22 @@ void process_definition(sqlite3 *db, const char *block, cJSON *root,
 
           cJSON *cond_inputs = cJSON_GetObjectItem(cond, "inv:Inputs");
           if (cond_inputs && cJSON_IsArray(cond_inputs)) {
-            char *inputs_raw = cJSON_PrintUnformatted(cond_inputs);
-            insert_triple(db, block, cond_id, "inv:Inputs", inputs_raw);
-            free(inputs_raw);
+            cJSON *scoped_array = cJSON_CreateArray();
+
+            cJSON *val;
+            cJSON_ArrayForEach(val, cond_inputs) {
+              if (!cJSON_IsString(val))
+                continue;
+              const char *v = val->valuestring;
+              char *scoped = prefix_name(name, v);
+              cJSON_AddItemToArray(scoped_array, cJSON_CreateString(scoped));
+              free(scoped);
+            }
+
+            char *raw = cJSON_PrintUnformatted(scoped_array);
+            insert_triple(db, block, cond_id, "inv:Inputs", raw);
+            free(raw);
+            cJSON_Delete(scoped_array);
           }
 
           const char *inv_name = get_value(cond, "inv:invocationName");
@@ -205,23 +237,30 @@ void process_definition(sqlite3 *db, const char *block, cJSON *root,
             LOG_INFO("\xF0\x9F\x93\x9B ConditionalInvocationName: %s\n",
                      inv_name);
             insert_triple(db, block, cond_id, "inv:invocationName", inv_name);
-            cJSON *cond_inputs = cJSON_GetObjectItem(cond, "inv:Inputs");
+          /*  cJSON *cond_inputs = cJSON_GetObjectItem(cond, "inv:Inputs");
             if (cond_inputs && cJSON_IsArray(cond_inputs)) {
               char *raw = cJSON_PrintUnformatted(cond_inputs);
               insert_triple(db, block, cond_id, "inv:Inputs", raw);
               free(raw);
             }
+            */
           }
 
           const char *output = get_value(cond, "inv:Output");
           if (output) {
             LOG_INFO("📤 ConditionalInvocation Output: %s\n", output);
-            insert_triple(db, block, cond_id, "inv:Output", output);
+            char *scoped_output = prefix_name(name, output);
+            insert_triple(db, block, cond_id, "inv:Output", scoped_output);
+            insert_triple(db, block, scoped_output, "rdf:type",
+                          "inv:DestinationPlace");
+            insert_triple(db, block, scoped_output, "inv:name", scoped_output);
+            free(scoped_output);
 
             // 🩹 FIX: Make sure the destination place is registered
-            insert_triple(db, block, output, "rdf:type",
+         /*  insert_triple(db, block, output, "rdf:type",
                           "inv:DestinationPlace");
             insert_triple(db, block, output, "inv:name", output);
+            */
           } else {
             LOG_WARN("⚠️ inv:Output missing from ConditionalInvocation\n");
           }

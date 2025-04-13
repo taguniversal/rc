@@ -21,7 +21,7 @@
         {
           "@type": "inv:Invocation",
           "inv:invocationName": "NOT",
-          "inv:Inputs": ["Temp0"],
+          "inv:Inputs": ["A","B"],
           "inv:Output": "Out0"
         }
       ]
