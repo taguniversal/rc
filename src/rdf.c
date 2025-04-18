@@ -1,6 +1,7 @@
 #include "rdf.h"
 #include "cJSON.h"
 #include "log.h"
+#include "mkrand.h"
 #include <dirent.h>
 #include <sqlite3.h>
 #include <stdio.h>
@@ -12,6 +13,71 @@
 #define OSC_PORT_RECV 4243
 #define BUFFER_SIZE 1024
 #define IPV6_ADDR "fc00::1"
+
+// Returns 1 if found, 0 if not found
+int lookup_definition_io_list(
+    sqlite3 *db, const char *block, const char *def_name,
+    const char
+        *direction_predicate, // "inv:SourceList" or "inv:DestinationList"
+    char list[][128], int max_items) {
+  sqlite3_stmt *stmt;
+  const char *sql =
+      "SELECT s.subject FROM triples s "
+      "WHERE s.psi = ? AND s.predicate = 'inv:name' AND s.object = ?";
+
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    LOG_ERROR("❌ Failed to prepare definition lookup: %s", sqlite3_errmsg(db));
+    return 0;
+  }
+
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, def_name, -1, SQLITE_STATIC);
+
+  int found = 0;
+  while (sqlite3_step(stmt) == SQLITE_ROW && !found) {
+    const char *subject = (const char *)sqlite3_column_text(stmt, 0);
+
+    // Confirm it's a Definition
+    sqlite3_stmt *check;
+    const char *check_sql =
+        "SELECT 1 FROM triples WHERE psi = ? AND subject = ? AND predicate = "
+        "'rdf:type' AND object = 'inv:Definition'";
+
+    if (sqlite3_prepare_v2(db, check_sql, -1, &check, NULL) == SQLITE_OK) {
+      sqlite3_bind_text(check, 1, block, -1, SQLITE_STATIC);
+      sqlite3_bind_text(check, 2, subject, -1, SQLITE_STATIC);
+
+      if (sqlite3_step(check) == SQLITE_ROW) {
+        sqlite3_finalize(check);
+
+        // Now pull the SourceList or DestinationList
+        sqlite3_stmt *io_stmt;
+        const char *io_sql = "SELECT object FROM triples WHERE psi = ? AND "
+                             "subject = ? AND predicate = ?";
+
+        if (sqlite3_prepare_v2(db, io_sql, -1, &io_stmt, NULL) == SQLITE_OK) {
+          sqlite3_bind_text(io_stmt, 1, block, -1, SQLITE_STATIC);
+          sqlite3_bind_text(io_stmt, 2, subject, -1, SQLITE_STATIC);
+          sqlite3_bind_text(io_stmt, 3, direction_predicate, -1, SQLITE_STATIC);
+
+          int count = 0;
+          while (sqlite3_step(io_stmt) == SQLITE_ROW && count < max_items) {
+            const char *place = (const char *)sqlite3_column_text(io_stmt, 0);
+            strncpy(list[count++], place, 128);
+          }
+
+          found = 1;
+          sqlite3_finalize(io_stmt);
+        }
+      } else {
+        sqlite3_finalize(check);
+      }
+    }
+  }
+
+  sqlite3_finalize(stmt);
+  return found;
+}
 
 // Caller is responsible for freeing the returned string.
 char *lookup_subject_by_name(sqlite3 *db, const char *block, const char *name) {
@@ -81,83 +147,6 @@ int lookup_destinations_for_name(sqlite3 *db, const char *block,
   return count;
 }
 
-// Caller is responsible for freeing the returned string.
-/*
-char *lookup_resolution(sqlite3 *db, const char *block, const char *expr_id,
-const char *key) { LOG_INFO("🔍 Starting resolution lookup in %s for key %s\n",
-expr_id, key);
-
-  sqlite3_stmt *stmt;
-  const char *sql = "SELECT object FROM triples WHERE psi = ? AND subject = ? "
-                    "AND predicate = 'inv:ContainsDefinition'";
-
-  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-    LOG_ERROR("❌ Failed to query ContainsDefinition: %s\n",
-              sqlite3_errmsg(db));
-    return NULL;
-  }
-
-  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
-  sqlite3_bind_text(stmt, 2, expr_id, -1, SQLITE_STATIC);
-
-  char *result = NULL;
-
-  while (sqlite3_step(stmt) == SQLITE_ROW) {
-    const char *def_id = (const char *)sqlite3_column_text(stmt, 0);
-    if (!def_id)
-      continue;
-
-    LOG_INFO("🔍 Found contained definition: %s\n", def_id);
-
-    // You might also want to pass the block into lookup_object to scope that
-too result = lookup_object(db, def_id, key); // Already strdup’d
-
-    if (result) {
-      LOG_INFO("✅ Found resolution: %s => %s\n", key, result);
-      break;
-    } else {
-      LOG_WARN("🛑 No match for key %s in def %s\n", key, def_id);
-    }
-  }
-
-  sqlite3_finalize(stmt);
-  return result; // Caller must free
-}
-*/
-
-// Caller is responsible for freeing the returned string.
-char *find_invocation_by_name(sqlite3 *db, const char *block,
-                              const char *def_name) {
-  sqlite3_stmt *stmt;
-  const char *sql =
-      "SELECT subject FROM triples WHERE psi = ? AND predicate = 'inv:name' "
-      "AND object = ? AND subject IN ("
-      "SELECT subject FROM triples WHERE psi = ? AND predicate = 'rdf:type' "
-      "AND object = 'inv:Invocation') LIMIT 1";
-
-  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-    LOG_ERROR("❌ Failed to prepare find_invocation_by_name query: %s\n",
-              sqlite3_errmsg(db));
-    return NULL;
-  }
-
-  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
-  sqlite3_bind_text(stmt, 2, def_name, -1, SQLITE_STATIC);
-  sqlite3_bind_text(stmt, 3, block, -1,
-                    SQLITE_STATIC); // psi for inner subquery
-
-  char *result = NULL;
-  if (sqlite3_step(stmt) == SQLITE_ROW) {
-    const char *text = (const char *)sqlite3_column_text(stmt, 0);
-    if (text) {
-      result = strdup(text); // Caller must free
-    }
-  }
-
-  sqlite3_finalize(stmt);
-  return result;
-}
-
 char *lookup_raw_value(sqlite3 *db, const char *block, const char *subject,
                        const char *predicate) {
   sqlite3_stmt *stmt;
@@ -186,12 +175,14 @@ char *lookup_raw_value(sqlite3 *db, const char *block, const char *subject,
 }
 
 // Caller is responsible for freeing the returned string.
-char *lookup_object(sqlite3 *db, const char *block, const char *subject, const char *predicate) {
+char *lookup_object(sqlite3 *db, const char *block, const char *subject,
+                    const char *predicate) {
   sqlite3_stmt *stmt;
-  LOG_INFO("RDF lookup_object. Subject: %s, Predicate: %s\n", subject, predicate);
+  LOG_INFO("RDF lookup_object. Subject: %s, Predicate: %s\n", subject,
+           predicate);
 
-  const char *sql =
-      "SELECT object FROM triples WHERE psi = ? AND subject = ? AND predicate = ? LIMIT 1;";
+  const char *sql = "SELECT object FROM triples WHERE psi = ? AND subject = ? "
+                    "AND predicate = ? LIMIT 1;";
 
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
     return NULL;
@@ -211,7 +202,6 @@ char *lookup_object(sqlite3 *db, const char *block, const char *subject, const c
   sqlite3_finalize(stmt);
   return copy;
 }
-
 
 void delete_expression_triples(sqlite3 *db, const char *psi,
                                const char *expr_id) {
@@ -238,27 +228,68 @@ void delete_expression_triples(sqlite3 *db, const char *psi,
 }
 
 void insert_triple(sqlite3 *db, const char *psi, const char *subject,
-                   const char *predicate, const char *object) {
+                   const char *pred, const char *value) {
   sqlite3_stmt *stmt;
-  const char *sql = "INSERT OR IGNORE INTO triples (psi, subject, predicate, "
-                    "object) VALUES (?, ?, ?, ?);";
 
-  LOG_INFO("insert_triple start, subject: %s, predicate: %s, object: %s, psi:%s\n",
-           subject, predicate, object, psi);
-  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
-    sqlite3_bind_text(stmt, 1, psi, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, subject, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 3, predicate, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 4, object, -1, SQLITE_STATIC);
+  const char *sql = "REPLACE INTO triples (psi, subject, predicate, object) "
+                    "VALUES (?, ?, ?, ?);";
 
-    int rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE && rc != SQLITE_CONSTRAINT) {
-      LOG_ERROR("❌ SQLite Error (step): %s\n", sqlite3_errmsg(db));
-    }
-    sqlite3_finalize(stmt);
-  } else {
-    LOG_ERROR("❌ SQLite Error (prepare): %s\n", sqlite3_errmsg(db));
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    LOG_ERROR("❌ Failed to prepare insert_triple\n");
+    return;
   }
+
+  sqlite3_bind_text(stmt, 1, psi, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, subject, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 3, pred, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 4, value, -1, SQLITE_STATIC);
+
+  if (sqlite3_step(stmt) != SQLITE_DONE) {
+    LOG_ERROR("❌ Failed to execute insert_triple\n");
+  }
+
+  sqlite3_finalize(stmt);
+}
+
+int has_triple(sqlite3 *db, const char *block, const char *subj,
+               const char *pred, const char *obj) {
+  sqlite3_stmt *stmt;
+  const char *sql = "SELECT 1 FROM triples WHERE psi = ? AND subject = ? AND "
+                    "predicate = ? AND object = ? LIMIT 1";
+
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    return 0;
+  }
+
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, subj, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 3, pred, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 4, obj, -1, SQLITE_STATIC);
+
+  int exists = (sqlite3_step(stmt) == SQLITE_ROW);
+  sqlite3_finalize(stmt);
+  return exists;
+}
+
+int has_predicate(sqlite3 *db, const char *block, const char *subj,
+                  const char *pred) {
+  sqlite3_stmt *stmt;
+  const char *sql = "SELECT 1 FROM triples WHERE psi = ? AND subject = ? AND "
+                    "predicate = ? LIMIT 1";
+
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    LOG_ERROR("❌ has_predicate: Failed to prepare statement: %s\n",
+              sqlite3_errmsg(db));
+    return 0;
+  }
+
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, subj, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 3, pred, -1, SQLITE_STATIC);
+
+  int found = (sqlite3_step(stmt) == SQLITE_ROW);
+  sqlite3_finalize(stmt);
+  return found;
 }
 
 void delete_triple(sqlite3 *db, const char *psi, const char *subject,
@@ -267,8 +298,9 @@ void delete_triple(sqlite3 *db, const char *psi, const char *subject,
   const char *sql =
       "DELETE FROM triples WHERE psi = ? AND subject = ? AND predicate = ?;";
 
-  LOG_INFO("delete_triple start, subject: %s, predicate: %s, psi: %s\n",subject, predicate, psi);
- 
+  LOG_INFO("delete_triple start, subject: %s, predicate: %s, psi: %s\n",
+           subject, predicate, psi);
+
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
     sqlite3_bind_text(stmt, 1, psi, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 2, subject, -1, SQLITE_STATIC);
@@ -287,145 +319,3 @@ void delete_triple(sqlite3 *db, const char *psi, const char *subject,
   }
 }
 
-static void load_jsonld_file(const char *path, sqlite3 *db, const char *psi) {
-  FILE *f = fopen(path, "rb");
-  if (!f)
-    return;
-
-  fseek(f, 0, SEEK_END);
-  long len = ftell(f);
-  rewind(f);
-
-  char *data = malloc(len + 1);
-  fread(data, 1, len, f);
-  data[len] = '\0';
-  fclose(f);
-
-  cJSON *json = cJSON_Parse(data);
-  free(data);
-  if (!json)
-    return;
-
-  // 🔤 Use filename (without .json) as subject name
-  const char *filename = strrchr(path, '/');
-  filename = filename ? filename + 1 : path;
-
-  char subject[256];
-  strncpy(subject, filename, sizeof(subject));
-  subject[sizeof(subject) - 1] = '\0';
-  char *dot = strrchr(subject, '.');
-  if (dot)
-    *dot = '\0'; // Strip .json
-
-  // 🏷️ Process @type
-  cJSON *types = cJSON_GetObjectItem(json, "@type");
-  if (cJSON_IsArray(types)) {
-    cJSON *t;
-    cJSON_ArrayForEach(t, types) {
-      insert_triple(db, psi, subject, "rdf:type", t->valuestring);
-    }
-  } else if (cJSON_IsString(types)) {
-    insert_triple(db, psi, subject, "rdf:type", types->valuestring);
-  }
-
-  // 🧠 Main loader logic
-  cJSON *item = NULL;
-  cJSON_ArrayForEach(item, json) {
-    if (strcmp(item->string, "@type") == 0)
-      continue;
-
-    // Handle I/O shortcut
-    if (strcmp(item->string, "inv:IO") == 0 && cJSON_IsObject(item)) {
-      cJSON *inputs = cJSON_GetObjectItem(item, "inputs");
-      if (inputs && cJSON_IsArray(inputs)) {
-        cJSON *name = NULL;
-        cJSON_ArrayForEach(name, inputs) {
-          if (!cJSON_IsString(name))
-            continue;
-          const char *pname = name->valuestring;
-          insert_triple(db, psi, pname, "rdf:type", "inv:SourcePlace");
-          insert_triple(db, psi, pname, "inv:name", pname);
-          insert_triple(db, psi, subject, "inv:SourceList", pname);
-        }
-      }
-
-      cJSON *outputs = cJSON_GetObjectItem(item, "inv:Outputs");
-      if (outputs && cJSON_IsArray(outputs)) {
-        cJSON *name = NULL;
-        cJSON_ArrayForEach(name, outputs) {
-          if (!cJSON_IsString(name))
-            continue;
-          const char *pname = name->valuestring;
-          insert_triple(db, psi, pname, "rdf:type", "inv:DestinationPlace");
-          insert_triple(db, psi, pname, "inv:name", pname);
-          insert_triple(db, psi, subject, "inv:DestinationList", pname);
-        }
-      }
-
-      continue; // Skip this item
-    }
-
-    // Generic field handler
-    if (cJSON_IsString(item)) {
-      insert_triple(db, psi, subject, item->string, item->valuestring);
-    }
-  }
-
-  cJSON_Delete(json);
-}
-
-int load_rdf_from_dir(const char *dirname, sqlite3 *db, const char *psi) {
-  DIR *dir = opendir(dirname);
-  if (!dir)
-    return -1;
-
-  struct dirent *entry;
-  while ((entry = readdir(dir)) != NULL) {
-    if (strstr(entry->d_name, ".json")) {
-      char fullpath[512];
-      snprintf(fullpath, sizeof(fullpath), "%s/%s", dirname, entry->d_name);
-      load_jsonld_file(fullpath, db, psi);
-    }
-  }
-
-  closedir(dir);
-  return 0;
-}
-cJSON *query_time_series(sqlite3 *db, const char *subject,
-                         const char *predicate) {
-  const char *sql =
-      "SELECT t1.object, t2.object FROM triples t1 "
-      "JOIN triples t2 ON t1.psi = t2.psi "
-      "WHERE t1.subject = ? AND t1.predicate = ? "
-      "AND t2.predicate = 'timestamp' AND t2.subject = t1.subject "
-      "ORDER BY t2.object ASC "
-      "LIMIT 100;";
-
-  sqlite3_stmt *stmt;
-  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-    fprintf(stderr, "❌ Failed to prepare query: %s\n", sqlite3_errmsg(db));
-    return NULL;
-  }
-
-  sqlite3_bind_text(stmt, 1, subject, -1, SQLITE_STATIC);
-  sqlite3_bind_text(stmt, 2, predicate, -1, SQLITE_STATIC);
-  printf("🔍 Looking for subject = %s, predicate = %s\n", subject, predicate);
-
-  cJSON *series = cJSON_CreateArray();
-  while (sqlite3_step(stmt) == SQLITE_ROW) {
-    const char *value = (const char *)sqlite3_column_text(stmt, 0);
-    const char *timestamp = (const char *)sqlite3_column_text(stmt, 1);
-
-    if (value && timestamp) {
-      cJSON *point = cJSON_CreateObject();
-      cJSON_AddStringToObject(point, "value", value);
-      cJSON_AddStringToObject(point, "timestamp", timestamp);
-      cJSON_AddItemToArray(series, point);
-    }
-  }
-
-  sqlite3_finalize(stmt);
-
-  printf("📈 Time Series JSON: %s\n", cJSON_Print(series));
-  return series;
-}

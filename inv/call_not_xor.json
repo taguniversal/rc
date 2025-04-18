@@ -1,0 +1,9 @@
+{
+    "@type": "inv:Invocation",
+    "inv:name": "XOR",
+    "inv:IO": {
+        "inputs": ["$NOT:Out0", "1"],
+        "outputs": ["XOR:Out0"]
+    }
+  }
+  

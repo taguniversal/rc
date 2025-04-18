@@ -41,7 +41,8 @@ const char* default_schema =
   "psi TEXT,"
   "subject TEXT,"
   "predicate TEXT,"
-  "object TEXT"
+  "object TEXT,"
+  "PRIMARY KEY (psi, subject, predicate)"
   ");";
 
 
@@ -187,27 +188,6 @@ int main(int argc, char *argv[]) {
             return 0;
         }
 
-        if (strcmp(argv[1], "--dump-series") == 0 && argc == 4) {
-            const char *subject = argv[2];
-            const char *predicate = argv[3];
-            printf("📊 Dumping time series for subject: %s, predicate: %s\n", subject, predicate);
-
-            cJSON *series = query_time_series(db, subject, predicate);
-            if (series) {
-                char *json_str = cJSON_Print(series);
-                if (json_str) {
-                    printf("%s\n", json_str);
-                    free(json_str);
-                }
-                cJSON_Delete(series);
-            } else {
-                printf("❌ Failed to generate time series data.\n");
-            }
-
-            sqlite3_close(db);
-            if (block) free(block);
-            return 0;
-        }
 
         if (strcmp(argv[1], "--osc") == 0 && argc >= 3) {
             const char* json_input = argv[2];

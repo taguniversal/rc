@@ -33,3 +33,4 @@ build.mln
 venv
 state/db.sqlite3
 tree.txt
+out-20*.txt

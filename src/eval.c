@@ -14,6 +14,77 @@
 
 #define MAX_ITERATIONS 5 // Or whatever feels safe for your app
 
+int is_place_null(sqlite3 *db, const char *block, const char *place_id) {
+  return !has_predicate(db, block, place_id, "inv:hasContent");
+}
+
+int check_invocation_boundary_complete(
+    sqlite3 *db, const char *block, const char *expr_id,
+    const char *direction // must be "inv:Input" or "inv:Output"
+) {
+  LOG_INFO("🔍 Checking boundary completeness for %s (%s)\n", expr_id,
+           direction);
+
+  // Validate direction
+  if (strcmp(direction, "inv:Input") != 0 &&
+      strcmp(direction, "inv:Output") != 0) {
+    LOG_ERROR("❌ Invalid direction parameter: %s. Must be 'inv:Input' or "
+              "'inv:Output'\n",
+              direction);
+    return -1;
+  }
+
+  // Ensure expr_id is an inv:Invocation
+  char *type = lookup_object(db, block, expr_id, "rdf:type");
+  if (!type || strcmp(type, "inv:Invocation") != 0) {
+    LOG_ERROR("❌ %s is not an inv:Invocation (type = %s)\n", expr_id,
+              type ? type : "(null)");
+    free(type);
+    return -1;
+  }
+  free(type);
+
+  // Get the invocation name (used to find the matching Definition)
+  char *def_name = lookup_object(db, block, expr_id, "inv:name");
+  if (!def_name) {
+    LOG_ERROR("❌ Could not find inv:name for invocation %s\n", expr_id);
+    return -1;
+  }
+
+  // Translate "inv:Input"/"inv:Output" to RDF predicate
+  const char *predicate = strcmp(direction, "inv:Input") == 0
+                              ? "inv:DestinationList"
+                              : "inv:SourceList";
+
+  // Get the appropriate list of signal IDs
+  char list[32][128]; // or larger if needed
+  int count =
+      lookup_definition_io_list(db, block, def_name, predicate, list, 32);
+
+  free(def_name);
+
+  if (count < 0) {
+    LOG_ERROR("❌ Failed to retrieve I/O list from definition\n");
+    return -1;
+  }
+
+  int all_present = 1;
+  for (int i = 0; i < count; ++i) {
+    const char *place = list[i];
+    char *content = lookup_object(db, block, place, "inv:hasContent");
+
+    if (!content) {
+      LOG_INFO("🕳️  Missing content at %s → NOT COMPLETE\n", place);
+      all_present = 0;
+    } else {
+      LOG_INFO("✅ Place %s has content: %s\n", place, content);
+      free(content);
+    }
+  }
+
+  return all_present;
+}
+
 char *build_resolution_key(sqlite3 *db, const char *block,
                            const char *definition_name,
                            const char *invocation_str) {
@@ -41,16 +112,27 @@ char *build_resolution_key(sqlite3 *db, const char *block,
       char *scoped_var_id = prefix_name(definition_name, var);
       char *val = lookup_object(db, block, scoped_var_id, "inv:hasContent");
 
+      // 🔁 If val is a scoped ID (e.g., NOT:Out0), resolve it further
+      if (val && strchr(val, ':')) {
+        char *indirect = lookup_object(db, block, val, "inv:hasContent");
+        if (indirect) {
+          free(val);
+          val = indirect;
+        }
+      }
+
       LOG_INFO("🔍 Building key — resolving var: %s", var);
       LOG_INFO("     var_id = %s", scoped_var_id ? scoped_var_id : "(null)");
       LOG_INFO("     val    = %s", val ? val : "(null)");
 
-      size_t len = strlen(key);
-      key[len] = val ? val[0] : '_';
-      key[len + 1] = '\0';
+      if (val) {
+        strncat(key, val, sizeof(key) - strlen(key) - 1);
+      } else {
+        strncat(key, "_", sizeof(key) - strlen(key) - 1);
+      }
 
       free(scoped_var_id);
-      free(val);
+      free(val); // Always free val, which might be original or indirect
     } else {
       LOG_INFO("⏭️ Skipping non-$ char: %c", *p);
       p++;
@@ -71,7 +153,14 @@ char *build_resolution_key(sqlite3 *db, const char *block,
 }
 
 int resolve_conditional_invocation(sqlite3 *db, const char *block,
-                                   const char *expr_id) {
+                                   const char *def_id, const char *expr_id) {
+
+  if (!check_invocation_boundary_complete(db, block, expr_id, "inv:Input")) {
+    LOG_INFO("⛔ Input boundary not complete — skipping resolution for %s\n",
+             expr_id);
+    return 0;
+  }
+
   int side_effect = 0;
   LOG_INFO("🧠 Attempting resolution from ConditionalInvocation in %s\n",
            expr_id);
@@ -92,6 +181,7 @@ int resolve_conditional_invocation(sqlite3 *db, const char *block,
     free(frag);
     return 0;
   }
+  LOG_INFO("Resolving resolution key for conditional invocaton %s\n", cond);
 
   char *template = lookup_object(db, block, cond, "inv:invocationName");
   if (!template) {
@@ -139,7 +229,7 @@ int resolve_conditional_invocation(sqlite3 *db, const char *block,
     return 0;
   }
 
-  char *def_id = lookup_object(db, block, expr_id, "inv:ContainsDefinition");
+  char *contained_def_id = lookup_object(db, block, expr_id, "inv:ContainsDefinition");
   if (!def_id) {
     LOG_WARN("⚠️ Missing ContainsDefinition in %s\n", expr_id);
     free(output_id);
@@ -151,7 +241,7 @@ int resolve_conditional_invocation(sqlite3 *db, const char *block,
     return 0;
   }
 
-  char *result = lookup_object(db, block, def_id, key);
+  char *result = lookup_object(db, block, contained_def_id, key);
   if (!result) {
     LOG_WARN("❌ Resolution table has no entry for key: %s\n", key);
     free(output_id);
@@ -385,32 +475,51 @@ const char *get_input_value_from_invocation(sqlite3 *db, const char *expr_id,
 int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
   LOG_INFO("🔗 Binding inputs for expression: %s\n", expr_id);
 
-  char *values_json = lookup_raw_value(db, block, expr_id, "inv:Inputs");
-  if (!values_json) {
-    LOG_WARN("⚠️ No input values found in invocation\n");
-    return 0;
-  }
-
+  // Make sure expr_id is a definition
   char *type = lookup_object(db, block, expr_id, "rdf:type");
-  if (!type || strcmp(type, "inv:Definition") != 0) {
-    free(type);
-    free(values_json);
+
+  if (!type) {
+    LOG_WARN("⚠️ Could not determine type of expression: %s\n", expr_id);
     return 0;
   }
 
-  char *def_name = lookup_object(db, block, expr_id, "inv:name");
-  if (!def_name) {
-    free(type);
-    free(values_json);
-    return 0;
-  }
+  char *inv_id = NULL;
+  char *values_json = NULL;
+  char *def_name = NULL;
 
-  char *inv_id = find_invocation_by_name(db, block, def_name);
-  if (!inv_id) {
-    LOG_WARN("⚠️ No matching Invocation found for Definition %s\n", def_name);
+  // Get definition name (e.g. "XOR")
+  if (strcmp(type, "inv:Definition") == 0) {
+    def_name = lookup_object(db, block, expr_id, "inv:name");
+    if (!def_name) {
+      LOG_WARN("❌ Definition has no name: %s\n", expr_id);
+      free(type);
+      return 0;
+    }
+
+    values_json = lookup_raw_value(db, block, inv_id, "inv:Inputs");
+    if (!values_json) {
+      LOG_WARN("⚠️ Invocation %s had no Inputs\n", inv_id);
+      free(type);
+      free(def_name);
+      free(inv_id);
+      return 0;
+    }
+  } else if (strcmp(type, "inv:Invocation") == 0) {
+    def_name = strdup(expr_id); // invocation is named after definition
+    inv_id = strdup(expr_id);
+    values_json = lookup_raw_value(db, block, inv_id, "inv:Inputs");
+
+    if (!values_json) {
+      LOG_WARN("⚠️ Invocation %s had no Inputs\n", inv_id);
+      free(type);
+      free(def_name);
+      free(inv_id);
+      return 0;
+    }
+
+  } else {
+    LOG_WARN("⚠️ Unexpected expression type: %s\n", type);
     free(type);
-    free(def_name);
-    free(values_json);
     return 0;
   }
 
@@ -424,6 +533,7 @@ int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
     return 0;
   }
 
+  // Bind each input to its corresponding SourcePlace
   sqlite3_stmt *stmt;
   const char *sql = "SELECT object FROM triples WHERE psi = ? AND subject = ? "
                     "AND predicate = 'inv:SourceList'";
@@ -439,10 +549,14 @@ int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
   }
 
   sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
-  sqlite3_bind_text(stmt, 2, expr_id, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, def_name, -1, SQLITE_STATIC);
 
   int index = 0;
   int side_effect = 0;
+
+  LOG_INFO("👉 Binding for def = %s, using invocation = %s\n", def_name,
+           inv_id);
+  LOG_INFO("🔢 Input values JSON: %s\n", values_json);
 
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     const char *scoped_source_id = (const char *)sqlite3_column_text(stmt, 0);
@@ -489,20 +603,76 @@ bool is_contained_definition(sqlite3 *db, const char *block,
   return result;
 }
 
-int cycle(sqlite3 *db, const char *block, const char *expr_id) {
-  LOG_INFO("🔁 Cycle pass for expression: %s\n", expr_id);
+void evaluate_definitions(sqlite3 *db, const char *block) {
+  LOG_INFO("🧪 Evaluating all definitions marked Executing...\n");
+
+  sqlite3_stmt *stmt;
+  const char *sql = "SELECT subject FROM triples "
+                    "WHERE predicate = 'inv:Executing' AND psi = ?;";
+
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    LOG_ERROR("❌ Failed to prepare executing definitions query: %s\n",
+              sqlite3_errmsg(db));
+    return;
+  }
+
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char *def_id = (const char *)sqlite3_column_text(stmt, 0);
+    LOG_INFO("🔬 Running resolve_definition_output on %s...\n", def_id);
+
+    int side_effect = resolve_definition_output(db, block, def_id);
+    if (!side_effect) {
+      LOG_INFO("✅ %s output stable, clearing Executing flag\n", def_id);
+      delete_triple(db, block, def_id, "inv:Executing");
+    } else {
+      LOG_INFO("🔁 %s still evolving, keeping Executing\n", def_id);
+    }
+  }
+
+  sqlite3_finalize(stmt);
+}
+
+int cycle(sqlite3 *db, const char *block, const char *invocation_name) {
+  LOG_INFO("🔁 Cycle pass for expression: %s\n", invocation_name);
   int side_effect = 0;
 
   // Step 1: Bind inputs
-  if (bind_inputs(db, block, expr_id)) {
+  if (bind_inputs(db, block, invocation_name)) {
     LOG_INFO("🔗 Input binding caused side effects.\n");
     side_effect = 1;
   } else {
     LOG_INFO("🔗 Input binding caused NO side effects.\n");
   }
 
+  // Step 2: Input boundary readiness check
+  int is_ready_now =
+      check_invocation_boundary_complete(db, block, invocation_name, "inv:Input");
+  int was_ready = has_triple(db, block, invocation_name, "inv:WasReady", "true");
+
+  // Transition from NULL → ready
+  if (!was_ready && is_ready_now) {
+    LOG_INFO("🌊 NULL→Value transition: %s is now ready to flow\n", invocation_name);
+    insert_triple(db, block, invocation_name, "inv:WasReady", "true");
+    side_effect = 1;
+  }
+
+  // Transition from Value → NULL
+  if (was_ready && !is_ready_now) {
+    LOG_INFO("💤 Value→NULL transition for invocation: %s no longer ready\n", invocation_name);
+    delete_triple(db, block, invocation_name, "inv:WasReady");
+    side_effect = 1;
+  }
+
+  // 💥 Bail early if not ready
+  if (!is_ready_now) {
+    LOG_INFO("⛔ Not ready — skipping resolution for %s\n", invocation_name);
+    return side_effect;
+  }
+
   // Step 1.5: Evaluate ConditionalInvocation dynamic names
-  char *por = lookup_object(db, block, expr_id, "inv:PlaceOfResolution");
+  char *por = lookup_object(db, block, invocation_name, "inv:PlaceOfResolution");
   if (por) {
     LOG_INFO("🪵 DEBUG: Found PlaceOfResolution: %s\n", por); // 🪵 DEBUG
     char *frag = lookup_object(db, block, por, "inv:hasExpressionFragment");
@@ -533,7 +703,7 @@ int cycle(sqlite3 *db, const char *block, const char *expr_id) {
             if (template && strchr(template, '$')) {
               LOG_INFO("🔧 template from %s is: %s\n", cond, template);
               char *resolved =
-                  build_resolution_key(db, block, expr_id, template);
+                  build_resolution_key(db, block, invocation_name, template);
               if (resolved) {
                 LOG_INFO("🧩 Resolved dynamic invocationName = %s\n", resolved);
                 char *existing_inv = lookup_object(
@@ -588,7 +758,7 @@ int cycle(sqlite3 *db, const char *block, const char *expr_id) {
   }
 
   sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
-  sqlite3_bind_text(stmt, 2, expr_id, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, invocation_name, -1, SQLITE_STATIC);
 
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     const char *dest_id = (const char *)sqlite3_column_text(stmt, 0);
@@ -657,35 +827,65 @@ int cycle(sqlite3 *db, const char *block, const char *expr_id) {
 
   sqlite3_finalize(stmt);
 
-  // Step 2.5: Conditional resolution
-  int resolved_conditional_invocation =
-      resolve_conditional_invocation(db, block, expr_id);
-  LOG_INFO("🪵 DEBUG: resolve_conditional_invocation returned %d\n",
-           resolved_conditional_invocation); // 🪵 DEBUG
-  side_effect |= resolved_conditional_invocation;
-
   // Step 3: Resolution table output — only if ConditionalInvocation didn't run
-  char *def_id = lookup_object(db, block, expr_id, "inv:ContainsDefinition");
-  if (!resolved_conditional_invocation && def_id) {
-    if (!is_contained_definition(db, block, def_id)) {
+  char *contained_def_id = lookup_object(db, block, invocation_name, "inv:ContainsDefinition");
+  int resolved_conditional_invocation =
+    resolve_conditional_invocation(db, block, contained_def_id, invocation_name);
+  if (!resolved_conditional_invocation && contained_def_id) {
+    if (!is_contained_definition(db, block, contained_def_id)) {
       LOG_INFO("📎 Passing def_id into resolve_definition_output: %s\n",
-               def_id);
-      int output_side_effect = resolve_definition_output(db, block, def_id);
+              contained_def_id);
+      int output_side_effect = resolve_definition_output(db, block, contained_def_id);
       LOG_INFO("🪵 DEBUG: resolve_definition_output returned %d\n",
                output_side_effect); // 🪵 DEBUG
       side_effect |= output_side_effect;
     } else {
       LOG_INFO(
           "🔬 Skipping resolve_definition_output for ContainedDefinition: %s\n",
-          def_id);
+          contained_def_id);
     }
   }
-  free(def_id);
-
-  LOG_INFO("🔚 cycle(%s, %s) returned side_effect = %d\n", block, expr_id,
+  free(contained_def_id);
+ 
+  evaluate_definitions(db, block);
+  LOG_INFO("🔚 cycle(%s, %s) returned side_effect = %d\n", block, invocation_name,
            side_effect); // 🪵 DEBUG
 
   return side_effect;
+}
+
+void log_seed(sqlite3 *db, const char *block) {
+  char line[129] = {0}; // 128 bits + null terminator
+  sqlite3_stmt *stmt;
+
+  for (int i = 0; i < 128; i++) {
+    char subject[64];
+    snprintf(subject, sizeof(subject), "CA:%d", i);
+
+    const char *sql = "SELECT object FROM triples WHERE subject = ? AND "
+                      "predicate = 'inv:hasContent' AND psi = ?";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+      LOG_ERROR("❌ Failed to prepare seed query: %s\n", sqlite3_errmsg(db));
+      return;
+    }
+
+    sqlite3_bind_text(stmt, 1, subject, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, block, -1, SQLITE_TRANSIENT);
+
+    int bit = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+      const unsigned char *content = sqlite3_column_text(stmt, 0);
+      if (content && strcmp((const char *)content, "1") == 0) {
+        bit = 1;
+      }
+    }
+
+    sqlite3_finalize(stmt);
+    line[i] = bit ? '1' : '0';
+  }
+
+  LOG_INFO("🧬 Seed Row (CA:0..127):\n%s\n", line);
 }
 
 int eval(sqlite3 *db, const char *block) {
@@ -709,10 +909,10 @@ int eval(sqlite3 *db, const char *block) {
     LOG_INFO("🔁 Eval iteration #%d\n", ++iteration);
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-      const char *expr_id = (const char *)sqlite3_column_text(stmt, 0);
-      LOG_INFO("📘 Evaluating expression: %s\n", expr_id);
+      const char *invocation_name = (const char *)sqlite3_column_text(stmt, 0);
+      LOG_INFO("📘 Evaluating invocation: %s\n", invocation_name);
 
-      if (cycle(db, block, expr_id)) {
+      if (cycle(db, block, invocation_name)) {
         side_effect_this_round = 1;
         total_side_effects = total_side_effects + 1;
       }
@@ -723,6 +923,7 @@ int eval(sqlite3 *db, const char *block) {
     if (!side_effect_this_round) {
       LOG_INFO("✅ Eval for %s stabilized after %d iteration(s)\n", block,
                iteration);
+      log_seed(db, block);
       break;
     }
   }

@@ -62,6 +62,10 @@ inv:IO a rdfs:Class ;
     rdfs:label "IO" ;
     rdfs:comment "A convenience wrapper that contains both inputs and outputs." .
 
+inv:ConditionalInvocation a rdfs:Class ;
+    rdfs:label "Conditional Invocation" ;
+    rdfs:comment "A template-based dispatch that dynamically forms an invocation name from signal values like $A$B." .
+
 inv:hasIO a rdf:Property ;
     rdfs:domain inv:HasIOLists ;
     rdfs:range inv:IO ;
@@ -255,3 +259,15 @@ inv:overflow a rdf:Property ;
     rdfs:range xsd:string ;
     rdfs:label "overflow" ;
     rdfs:comment "What to do when accessing index > to. Values: 'zero', 'wrap', 'clamp'." .
+
+inv:ofDefinition a rdf:Property ;
+    rdfs:domain inv:Invocation ;
+    rdfs:range xsd:string ;
+    rdfs:label "ofDefinition" ;
+    rdfs:comment "Links an invocation instance to the name of the definition it invokes." .
+
+inv:uuid a rdf:Property ;
+    rdfs:domain inv:Invocation ;
+    rdfs:range xsd:string ;
+    rdfs:label "uuid" ;
+    rdfs:comment "Globally unique identifier assigned to this specific invocation instance." .

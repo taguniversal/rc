@@ -1,15 +1,15 @@
 #include "cJSON.h"
 #include "log.h"
 #include "rdf.h"
-#include "util.h"
+#include "mkrand.h"
 #include "sqlite3.h"
+#include "util.h"
 #include <dirent.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
 
 char *load_file(const char *filename) {
   FILE *file = fopen(filename, "rb");
@@ -176,8 +176,10 @@ void process_definition(sqlite3 *db, const char *block, cJSON *root,
                       "inv:DestinationPlace");
         insert_triple(db, block, scoped_oputput_name, "inv:name",
                       scoped_oputput_name);
-        insert_triple(db, block, name, "inv:DestinationList", scoped_oputput_name);
-        LOG_INFO("📎 [%s] Bound output signal: %s\n", name, scoped_oputput_name);
+        insert_triple(db, block, name, "inv:DestinationList",
+                      scoped_oputput_name);
+        LOG_INFO("📎 [%s] Bound output signal: %s\n", name,
+                 scoped_oputput_name);
       }
     }
   }
@@ -237,13 +239,13 @@ void process_definition(sqlite3 *db, const char *block, cJSON *root,
             LOG_INFO("\xF0\x9F\x93\x9B ConditionalInvocationName: %s\n",
                      inv_name);
             insert_triple(db, block, cond_id, "inv:invocationName", inv_name);
-          /*  cJSON *cond_inputs = cJSON_GetObjectItem(cond, "inv:Inputs");
-            if (cond_inputs && cJSON_IsArray(cond_inputs)) {
-              char *raw = cJSON_PrintUnformatted(cond_inputs);
-              insert_triple(db, block, cond_id, "inv:Inputs", raw);
-              free(raw);
-            }
-            */
+            /*  cJSON *cond_inputs = cJSON_GetObjectItem(cond, "inv:Inputs");
+              if (cond_inputs && cJSON_IsArray(cond_inputs)) {
+                char *raw = cJSON_PrintUnformatted(cond_inputs);
+                insert_triple(db, block, cond_id, "inv:Inputs", raw);
+                free(raw);
+              }
+              */
           }
 
           const char *output = get_value(cond, "inv:Output");
@@ -257,10 +259,10 @@ void process_definition(sqlite3 *db, const char *block, cJSON *root,
             free(scoped_output);
 
             // 🩹 FIX: Make sure the destination place is registered
-         /*  insert_triple(db, block, output, "rdf:type",
-                          "inv:DestinationPlace");
-            insert_triple(db, block, output, "inv:name", output);
-            */
+            /*  insert_triple(db, block, output, "rdf:type",
+                             "inv:DestinationPlace");
+               insert_triple(db, block, output, "inv:name", output);
+               */
           } else {
             LOG_WARN("⚠️ inv:Output missing from ConditionalInvocation\n");
           }
@@ -295,21 +297,55 @@ void process_definition(sqlite3 *db, const char *block, cJSON *root,
     }
   }
 }
-
 void process_invocation(sqlite3 *db, const char *block, cJSON *root,
-                        const char *json, const char *name) {
-  LOG_INFO("📘 Invocation: name=%s\n", name);
-  insert_triple(db, block, name, "rdf:type", "inv:Invocation");
-  insert_triple(db, block, name, "inv:name", name);
-  insert_triple(db, block, name, "context", json);
-  cJSON *inputs = cJSON_GetObjectItem(root, "inv:Inputs");
-  if (inputs && cJSON_IsArray(inputs)) {
-    char *raw_inputs = cJSON_PrintUnformatted(inputs);
-    insert_triple(db, block, name, "inv:Inputs", raw_inputs);
-    free(raw_inputs);
+                        const char *json, const char *name_hint) {
+  const char *iname = get_value(root, "inv:name");
+  if (!iname) {
+    LOG_ERROR("❌ Invocation missing inv:name — skipping.\n");
+    return;
   }
 
-  // --- SourceList ---
+  // 🔑 Generate UUID and use that as the subject
+  char *uuid = new_block();
+  LOG_INFO("📘 Invocation: name=%s → uuid=%s\n", iname, uuid);
+
+  insert_triple(db, block, uuid, "rdf:type", "inv:Invocation");
+  insert_triple(db, block, uuid, "inv:name", iname);
+  insert_triple(db, block, uuid, "inv:uuid", uuid);
+  insert_triple(db, block, uuid, "inv:ofDefinition", iname);
+  insert_triple(db, block, uuid, "context", json); // optional full context
+
+  // --- IO block ---
+  cJSON *io = cJSON_GetObjectItem(root, "inv:IO");
+  if (io && cJSON_IsObject(io)) {
+    cJSON *inputs = cJSON_GetObjectItem(io, "inputs");
+    if (inputs && cJSON_IsArray(inputs)) {
+      cJSON *in;
+      cJSON_ArrayForEach(in, inputs) {
+        if (!cJSON_IsString(in))
+          continue;
+        const char *pname = in->valuestring;
+        insert_triple(db, block, pname, "rdf:type", "inv:SourcePlace");
+        insert_triple(db, block, pname, "inv:name", pname);
+        insert_triple(db, block, uuid, "inv:SourceList", pname);
+      }
+    }
+
+    cJSON *outputs = cJSON_GetObjectItem(io, "outputs");
+    if (outputs && cJSON_IsArray(outputs)) {
+      cJSON *out;
+      cJSON_ArrayForEach(out, outputs) {
+        if (!cJSON_IsString(out))
+          continue;
+        const char *pname = out->valuestring;
+        insert_triple(db, block, pname, "rdf:type", "inv:DestinationPlace");
+        insert_triple(db, block, pname, "inv:name", pname);
+        insert_triple(db, block, uuid, "inv:DestinationList", pname);
+      }
+    }
+  }
+
+  // --- Explicit SourceList (if present) ---
   cJSON *src_list = cJSON_GetObjectItem(root, "inv:SourceList");
   if (src_list && cJSON_IsArray(src_list)) {
     cJSON *src;
@@ -323,14 +359,13 @@ void process_invocation(sqlite3 *db, const char *block, cJSON *root,
       insert_triple(db, block, sname, "inv:name", sname);
       if (val)
         insert_triple(db, block, sname, "inv:hasContent", val);
-      insert_triple(db, block, sname, "inv:SourceList", sname);
+      insert_triple(db, block, uuid, "inv:SourceList", sname);
 
-      LOG_INFO("🟢 Invocation SourcePlace: %s = %s\n", sname,
-               val ? val : "(null)");
+      LOG_INFO("🟢 SourcePlace: %s = %s\n", sname, val ? val : "(null)");
     }
   }
 
-  // --- DestinationList ---
+  // --- Explicit DestinationList (if present) ---
   cJSON *dst_list = cJSON_GetObjectItem(root, "inv:DestinationList");
   if (dst_list && cJSON_IsArray(dst_list)) {
     cJSON *dst;
@@ -341,15 +376,18 @@ void process_invocation(sqlite3 *db, const char *block, cJSON *root,
 
       insert_triple(db, block, dname, "rdf:type", "inv:DestinationPlace");
       insert_triple(db, block, dname, "inv:name", dname);
-      insert_triple(db, block, name, "inv:DestinationList", dname);
+      insert_triple(db, block, uuid, "inv:DestinationList", dname);
 
-      LOG_INFO("🔵 Invocation DestinationPlace: %s\n", dname);
+      LOG_INFO("🔵 DestinationPlace: %s\n", dname);
     }
   }
+
+  free(uuid);
 }
 
 void replace_template_vars(cJSON *node, int i, int from, int to, cJSON *edge) {
-  if (!node) return;
+  if (!node)
+    return;
 
   // Recurse on arrays/objects
   if (cJSON_IsArray(node)) {
@@ -365,10 +403,12 @@ void replace_template_vars(cJSON *node, int i, int from, int to, cJSON *edge) {
   }
 
   // Only act on string values
-  if (!cJSON_IsString(node)) return;
+  if (!cJSON_IsString(node))
+    return;
 
   const char *val = node->valuestring;
-  if (!strchr(val, '$')) return;  // Fast path
+  if (!strchr(val, '$'))
+    return; // Fast path
 
   // Replace templates like "$i", "$i+1", "$i-1"
   char buf[128];
@@ -391,8 +431,10 @@ void replace_template_vars(cJSON *node, int i, int from, int to, cJSON *edge) {
       int range_size = (to - from + 1);
 
       // 🌀 Wraparound
-      while (actual < from) actual += range_size;
-      while (actual > to) actual -= range_size;
+      while (actual < from)
+        actual += range_size;
+      while (actual > to)
+        actual -= range_size;
 
       w += sprintf(w, "CA:%d", actual);
     } else {
@@ -404,8 +446,10 @@ void replace_template_vars(cJSON *node, int i, int from, int to, cJSON *edge) {
   cJSON_SetValuestring(node, buf);
 }
 
+void process_expression_fragment(sqlite3 *db, const char *block, cJSON *frag,
+                                 const char *scoped_prefix, int i, int from,
+                                 int to, cJSON *edge) {
 
-void process_expression_fragment(sqlite3 *db, const char *block, cJSON *frag, const char *scoped_prefix) {
   char frag_id[128];
   snprintf(frag_id, sizeof(frag_id), "%s", scoped_prefix);
 
@@ -418,10 +462,7 @@ void process_expression_fragment(sqlite3 *db, const char *block, cJSON *frag, co
     insert_triple(db, block, cond_id, "rdf:type", "inv:ConditionalInvocation");
     insert_triple(db, block, frag_id, "inv:ConditionalInvocation", cond_id);
 
-    const char *inv_name = get_value(cond, "inv:invocationName");
-    if (inv_name) {
-      insert_triple(db, block, cond_id, "inv:invocationName", inv_name);
-    }
+    // 🧼 Skip setting invocationName — it's resolved dynamically later
 
     const char *output = get_value(cond, "inv:Output");
     if (output) {
@@ -432,16 +473,20 @@ void process_expression_fragment(sqlite3 *db, const char *block, cJSON *frag, co
 
     cJSON *inputs = cJSON_GetObjectItem(cond, "inv:Inputs");
     if (inputs && cJSON_IsArray(inputs)) {
+      replace_template_vars(inputs, i, from, to, edge);
       char *raw = cJSON_PrintUnformatted(inputs);
       insert_triple(db, block, cond_id, "inv:Inputs", raw);
       free(raw);
     }
+
   } else {
-    LOG_INFO("ℹ️ Fragment %s has no ConditionalInvocation — skipping.\n", scoped_prefix);
+    LOG_INFO("ℹ️ Fragment %s has no ConditionalInvocation — skipping.\n",
+             scoped_prefix);
   }
 }
 
-void unroll_arrayed_expression(sqlite3 *db, const char *block, cJSON *root, const char *prefix) {
+void unroll_arrayed_expression(sqlite3 *db, const char *block, cJSON *root,
+                               const char *prefix) {
   cJSON *range = cJSON_GetObjectItem(root, "inv:range");
   cJSON *body = cJSON_GetObjectItem(root, "inv:body");
   cJSON *edge = cJSON_GetObjectItem(root, "inv:edgeBehavior");
@@ -453,20 +498,16 @@ void unroll_arrayed_expression(sqlite3 *db, const char *block, cJSON *root, cons
     char index_expr[64];
     snprintf(index_expr, sizeof(index_expr), "%s:%d", prefix, i);
 
-    // Clone body template
     cJSON *instance = cJSON_Duplicate(body, 1);
-
-    // Replace all `$i`, `$i-1`, `$i+1`, etc.
     replace_template_vars(instance, i, from, to, edge);
 
-    // Inject into database using same loader as ExpressionFragment
     LOG_INFO("🧬 Injecting fragment instance %s\n", index_expr);
-    process_expression_fragment(db, block, instance, index_expr);
+    process_expression_fragment(db, block, instance, index_expr, i, from, to,
+                                edge);
 
     cJSON_Delete(instance);
   }
 }
-
 
 void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
   DIR *dir = opendir(inv_dir);
@@ -495,6 +536,13 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
         continue;
       }
 
+      if (validate_json_structure(root) != 0) {
+        fprintf(stderr, "❌ Validation failed for %s\n", path);
+        continue;
+      } else {
+        printf("✅ JSON structure for %s is valid.\n", path);
+      }
+
       const char *name = get_value(root, "inv:name");
       if (!name)
         name = entry->d_name; // fallback ID from file
@@ -512,9 +560,9 @@ void map_io(sqlite3 *db, const char *block, const char *inv_dir) {
       if (is_type(root, "inv:ArrayedExpression")) {
         matched = true;
         LOG_INFO("📐 Unrolling ArrayedExpression from %s\n", entry->d_name);
-        unroll_arrayed_expression(db, block, root, name);  // <- you'll define this
+        unroll_arrayed_expression(db, block, root,
+                                  name); // <- you'll define this
       }
-      
 
       if (!matched) {
         const char *type = get_value(root, "@type");

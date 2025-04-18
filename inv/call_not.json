@@ -4,5 +4,8 @@
   },
   "@type": "inv:Invocation",
   "inv:name": "NOT",
-  "inv:Inputs": ["1"]
+  "inv:IO" : {
+     "inputs": ["1"],
+     "outputs": ["NOT:Out0"]
+  } 
 }
