@@ -79,6 +79,47 @@ int lookup_definition_io_list(
   return found;
 }
 
+void dump_source_list(sqlite3 *db, const char *block, const char *def_name) {
+  sqlite3_stmt *stmt;
+  const char *sql = "SELECT object FROM triples WHERE psi = ? AND subject = ? AND predicate = 'inv:SourceList'";
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return;
+
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, def_name, -1, SQLITE_STATIC);
+
+  LOG_INFO("🔍 SourceList for %s:", def_name);
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char *src = (const char *)sqlite3_column_text(stmt, 0);
+    LOG_INFO(" • %s", src);
+  }
+
+  sqlite3_finalize(stmt);
+}
+
+
+char *lookup_subject_by_object(sqlite3 *db, const char *block, const char *predicate, const char *object) {
+  const char *sql = "SELECT subject FROM triples WHERE psi = ? AND predicate = ? AND object = ? LIMIT 1;";
+  sqlite3_stmt *stmt;
+
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    LOG_ERROR("❌ Failed to prepare subject lookup: %s\n", sqlite3_errmsg(db));
+    return NULL;
+  }
+
+  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, predicate, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 3, object, -1, SQLITE_STATIC);
+
+  char *subject = NULL;
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    const unsigned char *raw = sqlite3_column_text(stmt, 0);
+    if (raw) subject = strdup((const char *)raw);
+  }
+
+  sqlite3_finalize(stmt);
+  return subject;
+}
+
 // Caller is responsible for freeing the returned string.
 char *lookup_subject_by_name(sqlite3 *db, const char *block, const char *name) {
   sqlite3_stmt *stmt;
@@ -233,6 +274,8 @@ void insert_triple(sqlite3 *db, const char *psi, const char *subject,
 
   const char *sql = "REPLACE INTO triples (psi, subject, predicate, object) "
                     "VALUES (?, ?, ?, ?);";
+
+  LOG_INFO("📝 Inserting: [%s] %s -- %s --> %s", psi, subject, pred, value);
 
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
     LOG_ERROR("❌ Failed to prepare insert_triple\n");

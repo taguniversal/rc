@@ -1,30 +1,29 @@
 {
-    "@context": {
-      "inv": "https://digitalblockchain.io/ontology/definition#"
-    },
-    "@type": "inv:Definition",
-    "inv:name": "NOR",
-  
-    "inv:IO": {
-      "inputs": ["A", "B"],
-      "outputs": ["Out0"]
-    },
-  
-    "inv:PlaceOfResolution": {
-      "inv:hasExpressionFragment": [
-        {
-          "@type": "inv:Invocation",
-          "inv:invocationName": "OR",
-          "inv:Inputs": ["A", "B"],
-          "inv:Output": "Temp0"
-        },
-        {
-          "@type": "inv:Invocation",
-          "inv:invocationName": "NOT",
-          "inv:Inputs": ["A","B"],
-          "inv:Output": "Out0"
-        }
-      ]
-    }
+  "@context": {
+    "inv": "https://digitalblockchain.io/ontology/definition#"
+  },
+  "@type": "inv:Definition",
+  "inv:name": "NOR",
+
+  "inv:IO": {
+    "inputs": ["A", "B"],
+    "outputs": ["Out0"]
+  },
+
+  "inv:PlaceOfResolution": {
+    "inv:hasExpressionFragment": [
+      {
+        "@type": "inv:Invocation",
+        "inv:invocationName": "OR",
+        "inv:Inputs": ["A", "B"],
+        "inv:Output": "Temp0"
+      },
+      {
+        "@type": "inv:Invocation",
+        "inv:invocationName": "NOT",
+        "inv:Inputs": ["Temp0"],
+        "inv:Output": "Out0"
+      }
+    ]
   }
-  
+}

@@ -6,7 +6,6 @@
   "inv:name": "AND",
   "inv:IO": {
     "inputs": ["1", "1"],
-    "outputs": ["AND:Out0"]
+    "outputs": ["result"]
   }
-
 }

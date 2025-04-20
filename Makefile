@@ -5,7 +5,7 @@ LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm
 # For rcnode
 rcnode_SRC = src/util.c src/main.c src/eval.c src/rdf.c external/cJSON/cJSON.c \
    src/udp_send.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c \
-   src/osc.c  src/graph.c  src/invocation.c
+   src/osc.c  src/graph.c  src/invocation.c src/wiring.c
 
 rcnode_OBJ = $(rcnode_SRC:.c=.o)
 rcnode_OBJ := $(patsubst %, build/%, $(rcnode_OBJ))

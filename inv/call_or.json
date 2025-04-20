@@ -6,6 +6,6 @@
   "inv:name": "OR",
   "inv:IO" : {
     "inputs": ["1", "0"],
-    "outputs": ["OR:Out0"]
+    "outputs": ["Or_Out"]
   }
 }

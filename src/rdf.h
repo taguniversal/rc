@@ -14,7 +14,7 @@ void delete_triple(sqlite3 *db, const char *psi, const char *subject,
                    const char *predicate);
 void delete_expression_triples(sqlite3 *db, const char *psi,
                                const char *expr_id);
-//int load_rdf_from_dir(const char *dirname, sqlite3 *db, const char *psi);
+char *lookup_subject_by_object(sqlite3 *db, const char *block, const char *predicate, const char *object);
 
 char *lookup_object(sqlite3 *db, const char *block, const char *subject,
                     const char *predicate);
@@ -33,4 +33,7 @@ int lookup_definition_io_list(
 // parsing
 char *lookup_raw_value(sqlite3 *db, const char *block, const char *subject,
                        const char *predicate);
+
+void dump_source_list(sqlite3 *db, const char *block, const char *def_name);
+
 #endif

@@ -28,7 +28,8 @@
 #include <stdarg.h>
 
 #include "log.h"
-
+#include "wiring.h"
+#include "block.h"
 
 #define PSI_BLOCK_LEN 39
 #define OSC_PORT_XMIT 4242
@@ -42,9 +43,10 @@ const char* default_schema =
   "subject TEXT,"
   "predicate TEXT,"
   "object TEXT,"
-  "PRIMARY KEY (psi, subject, predicate)"
+  "PRIMARY KEY (psi, subject, predicate, object)"
   ");";
 
+const char *active_block = NULL;
 
 char ipv6_address[INET6_ADDRSTRLEN];
 
@@ -113,14 +115,13 @@ cJSON* run_poll_cycle(sqlite3* db, const char* block) {
 int main(int argc, char *argv[]) {
     const char* state_dir = "./state";
     const char* inv_dir = "./inv";
-    char* block = "INVALID";
     char buffer[BUFFER_SIZE];
     sqlite3 *db;
     LOG_INFO("Reality Compiler CLI\n");
 
     // 🧱 Genesis Block
-    block = new_block();
-    LOG_INFO("Genesis Block: %s\n", block);
+    active_block = new_block();
+    LOG_INFO("Actibe Block: %s\n", active_block);
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--state") == 0 && i + 1 < argc) {
@@ -159,9 +160,9 @@ int main(int argc, char *argv[]) {
 
     // 📥 Load RDF UI triples and Invocation IO mappings
    // load_rdf_from_dir("ui", db, block);
-    map_io(db, block, inv_dir);
-    eval(db, block);
-
+    map_io(db, active_block, inv_dir);
+    eval(db, active_block);
+    dump_wiring(db, active_block);
 
        // 🎛️ Handle flags
        if (argc > 1) {
@@ -171,7 +172,7 @@ int main(int argc, char *argv[]) {
             signal(SIGTERM, handle_signal);
             signal(SIGINT, handle_signal);
             LOG_INFO("🔍 Final DB Pointer before loop: %p\n", db);
-            run_osc_listener(db, block, &keep_running);
+            run_osc_listener(db, active_block, &keep_running);
             return 0;
         }
 
@@ -179,7 +180,7 @@ int main(int argc, char *argv[]) {
             signal(SIGTERM, handle_signal);
             signal(SIGINT, handle_signal);
             LOG_INFO("🧪 Debug Mode: Entering OSC Loop...\n");
-            run_osc_listener(db, block, &keep_running);
+            run_osc_listener(db, active_block, &keep_running);
             return 0;
         }
 
@@ -222,7 +223,7 @@ int main(int argc, char *argv[]) {
 
         if (strcmp(argv[1], "--poll") == 0) {
             LOG_INFO("🔍 Starting poll cycle...");
-            cJSON* report = run_poll_cycle(db, block);
+            cJSON* report = run_poll_cycle(db, active_block);
         
             if (report) {
                 LOG_INFO("✅ Poll cycle returned successfully.");
@@ -235,7 +236,6 @@ int main(int argc, char *argv[]) {
             }
         
             sqlite3_close(db);
-            if (block) free(block);
             return 0;
         }
     }
@@ -254,10 +254,9 @@ int main(int argc, char *argv[]) {
     LOG_INFO("Serd initialized.\n");
 
     int len = tosc_writeMessage(buffer, BUFFER_SIZE, "/generate_ipv6", "");
-    process_osc_message(db, buffer, block, len);
+    process_osc_message(db, buffer, active_block, len);
 
     sqlite3_close(db);
-    if (block) free(block);
 
     return 0;
 }

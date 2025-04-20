@@ -6,6 +6,6 @@
   "inv:name": "XOR",
   "inv:IO": {
     "inputs": ["1", "0"],
-    "outputs": ["XOR:Out0"]
+    "outputs": ["XOR_Out"]
   }
 }

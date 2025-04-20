@@ -70,17 +70,25 @@ for i in $(seq 0 127); do
   [ "$value" == "1" ] && echo -n "$i "
 done
 echo
-
 echo -e "\n=== Execution Status and Source Content ==="
 for gate in AND OR XOR NOT NOR; do
   echo -e "\n🔍 $gate:"
-  exec=$(sqlite3 $DB "SELECT 1 FROM triples WHERE subject = '$gate' AND predicate = 'inv:Executing' LIMIT 1;")
+
+  uuid=$(sqlite3 $DB "SELECT subject FROM triples WHERE predicate = 'inv:name' AND object = '$gate' AND subject != '$gate' LIMIT 1;")
+
+  if [ -z "$uuid" ]; then
+    echo "  ⚠️  No active invocation found."
+    continue
+  fi
+
+  exec=$(sqlite3 $DB "SELECT 1 FROM triples WHERE subject = '$uuid' AND predicate = 'inv:Executing' LIMIT 1;")
   [ "$exec" == "1" ] && echo "  ▶️  Executing: YES" || echo "  ⏸️  Executing: NO"
 
   echo "  Source Places:"
-  sqlite3 $DB "SELECT object FROM triples WHERE subject = '$gate' AND predicate = 'inv:SourceList';" | while read -r src; do
+  sqlite3 $DB "SELECT object FROM triples WHERE subject = '$uuid' AND predicate = 'inv:SourceList';" | while read -r src; do
     val=$(sqlite3 $DB "SELECT object FROM triples WHERE subject = '$src' AND predicate = 'inv:hasContent';")
     [ -z "$val" ] && val="NULL"
     echo "    - $src = $val"
   done
 done
+

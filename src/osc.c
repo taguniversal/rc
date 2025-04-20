@@ -5,12 +5,13 @@
 #include "rdf.h"
 #include "sqlite3.h"
 #include "tinyosc.h"
+#include "util.h"
+#include "wiring.h"
 #include <arpa/inet.h>
 #include <openssl/sha.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "util.h"
 
 #define OSC_BUFFER_SIZE 1024
 
@@ -189,7 +190,9 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
       float pressed =
           (osc.format && osc.format[0] == 'f') ? tosc_getNextFloat(&osc) : 0.0f;
       if (pressed == 1.0f) {
+
         LOG_INFO("⚙️  OSC Init received — seeding row_driver:CA:X values...\n");
+        LOG_INFO("🧬 Using block ID: [%s]", block);
 
         for (int i = 0; i < 128; i++) {
           char subject[64], content[8];
@@ -206,6 +209,7 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
         LOG_INFO(
             "✅ Init complete. Center cell lit. Pattern awaits evolution.\n");
         db_state(db, block);
+        dump_wiring(db, block);
       } else {
         LOG_INFO("🛑 OSC Init ignored (pressed = %.1f)\n", pressed);
       }
@@ -389,8 +393,12 @@ void run_osc_listener(sqlite3 *db, const char *block,
       process_osc_message(db, buffer, block, n);
       eval(db, block);
       process_osc_response(db, buffer, block, n);
+    } else {
+      // Timeout occurred — keep ticking the simulation forward
+      LOG_INFO("⏳ Timeout — triggering background eval cycle...\n");
+      eval(db, block);
     }
-    // else: timeout occurred, just loop back and check keep_running
+
   }
 
   LOG_INFO("👋 Shutting down OSC listener.\n");

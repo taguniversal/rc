@@ -6,6 +6,6 @@
   "inv:name": "NOR",
   "inv:IO" : {
     "inputs": ["1", "0"],
-    "outputs": ["NOR:Out0"]
+    "outputs": ["Nor_Out"]
   }
 }

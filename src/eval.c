@@ -229,7 +229,8 @@ int resolve_conditional_invocation(sqlite3 *db, const char *block,
     return 0;
   }
 
-  char *contained_def_id = lookup_object(db, block, expr_id, "inv:ContainsDefinition");
+  char *contained_def_id =
+      lookup_object(db, block, expr_id, "inv:ContainsDefinition");
   if (!def_id) {
     LOG_WARN("⚠️ Missing ContainsDefinition in %s\n", expr_id);
     free(output_id);
@@ -475,120 +476,105 @@ const char *get_input_value_from_invocation(sqlite3 *db, const char *expr_id,
 int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
   LOG_INFO("🔗 Binding inputs for expression: %s\n", expr_id);
 
-  // Make sure expr_id is a definition
   char *type = lookup_object(db, block, expr_id, "rdf:type");
-
-  if (!type) {
-    LOG_WARN("⚠️ Could not determine type of expression: %s\n", expr_id);
+  if (!type || strcmp(type, "inv:Invocation") != 0) {
+    LOG_WARN("⚠️ Unexpected or missing expression type for: %s\n", expr_id);
+    if (type) free(type);
     return 0;
   }
 
-  char *inv_id = NULL;
-  char *values_json = NULL;
-  char *def_name = NULL;
+  char *inv_id = strdup(expr_id);
+  char *def_name = lookup_object(db, block, inv_id, "inv:name");
+  char *input_vals_json = lookup_raw_value(db, block, inv_id, "inv:Inputs");
 
-  // Get definition name (e.g. "XOR")
-  if (strcmp(type, "inv:Definition") == 0) {
-    def_name = lookup_object(db, block, expr_id, "inv:name");
-    if (!def_name) {
-      LOG_WARN("❌ Definition has no name: %s\n", expr_id);
-      free(type);
-      return 0;
-    }
-
-    values_json = lookup_raw_value(db, block, inv_id, "inv:Inputs");
-    if (!values_json) {
-      LOG_WARN("⚠️ Invocation %s had no Inputs\n", inv_id);
-      free(type);
-      free(def_name);
-      free(inv_id);
-      return 0;
-    }
-  } else if (strcmp(type, "inv:Invocation") == 0) {
-    def_name = strdup(expr_id); // invocation is named after definition
-    inv_id = strdup(expr_id);
-    values_json = lookup_raw_value(db, block, inv_id, "inv:Inputs");
-
-    if (!values_json) {
-      LOG_WARN("⚠️ Invocation %s had no Inputs\n", inv_id);
-      free(type);
-      free(def_name);
-      free(inv_id);
-      return 0;
-    }
-
-  } else {
-    LOG_WARN("⚠️ Unexpected expression type: %s\n", type);
-    free(type);
-    return 0;
-  }
-
-  cJSON *input_vals = cJSON_Parse(values_json);
-  if (!input_vals || !cJSON_IsArray(input_vals)) {
-    LOG_ERROR("❌ Failed to parse inv:Inputs array from invocation\n");
+  if (!def_name || !input_vals_json) {
+    LOG_WARN("⚠️ Invocation %s missing name or Inputs\n", inv_id);
     free(type);
     free(def_name);
     free(inv_id);
-    free(values_json);
+    free(input_vals_json);
     return 0;
   }
 
-  // Bind each input to its corresponding SourcePlace
-  sqlite3_stmt *stmt;
-  const char *sql = "SELECT object FROM triples WHERE psi = ? AND subject = ? "
-                    "AND predicate = 'inv:SourceList'";
-  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-    LOG_ERROR("❌ Failed to prepare SourceList lookup: %s\n",
-              sqlite3_errmsg(db));
+  // Lookup definition node by matching inv:name
+  char *def_id = lookup_subject_by_object(db, block, "inv:name", def_name);
+  if (!def_id) {
+    LOG_ERROR("❌ Could not find definition for name: %s\n", def_name);
+    free(type);
+    free(def_name);
+    free(inv_id);
+    free(input_vals_json);
+    return 0;
+  }
+
+  // Lookup inv:IO on the definition to get formal param names
+  char *io_json = lookup_raw_value(db, block, def_id, "inv:IO");
+  if (!io_json) {
+    LOG_ERROR("❌ Missing inv:IO on definition: %s\n", def_id);
+    free(type);
+    free(def_name);
+    free(def_id);
+    free(inv_id);
+    free(input_vals_json);
+    return 0;
+  }
+
+  cJSON *input_vals = cJSON_Parse(input_vals_json);
+  cJSON *io_obj = cJSON_Parse(io_json);
+  cJSON *input_keys = cJSON_GetObjectItem(io_obj, "inputs");
+
+  if (!cJSON_IsArray(input_vals) || !cJSON_IsArray(input_keys)) {
+    LOG_ERROR("❌ Malformed input arrays in invocation or definition\n");
     cJSON_Delete(input_vals);
+    cJSON_Delete(io_obj);
     free(type);
     free(def_name);
+    free(def_id);
     free(inv_id);
-    free(values_json);
+    free(input_vals_json);
+    free(io_json);
     return 0;
   }
 
-  sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
-  sqlite3_bind_text(stmt, 2, def_name, -1, SQLITE_STATIC);
+  LOG_INFO("👉 Binding for invocation = %s (definition = %s)\n", inv_id, def_name);
+  LOG_INFO("🔢 Input values JSON: %s\n", input_vals_json);
 
-  int index = 0;
   int side_effect = 0;
-
-  LOG_INFO("👉 Binding for def = %s, using invocation = %s\n", def_name,
-           inv_id);
-  LOG_INFO("🔢 Input values JSON: %s\n", values_json);
-
-  while (sqlite3_step(stmt) == SQLITE_ROW) {
-    const char *scoped_source_id = (const char *)sqlite3_column_text(stmt, 0);
-
-    cJSON *val_item = cJSON_GetArrayItem(input_vals, index++);
-    if (!val_item || !cJSON_IsString(val_item)) {
+  int len = cJSON_GetArraySize(input_keys);
+  for (int i = 0; i < len; i++) {
+    cJSON *key = cJSON_GetArrayItem(input_keys, i);
+    cJSON *val = cJSON_GetArrayItem(input_vals, i);
+    if (!key || !val || !cJSON_IsString(key) || !cJSON_IsString(val)) {
       continue;
     }
 
-    const char *value = val_item->valuestring;
+    const char *name = key->valuestring;
+    const char *value = val->valuestring;
 
-    char *existing_value =
-        lookup_object(db, block, scoped_source_id, "inv:hasContent");
+    char scoped_id[256];
+    snprintf(scoped_id, sizeof(scoped_id), "%s:%s", inv_id, name);
 
-    if (!existing_value || strcmp(existing_value, value) != 0) {
-      LOG_INFO("📅 Binding [%s] = %s\n", scoped_source_id, value);
-      insert_triple(db, block, scoped_source_id, "inv:hasContent", value);
+    char *existing = lookup_object(db, block, scoped_id, "inv:hasContent");
+
+    if (!existing || strcmp(existing, value) != 0) {
+      LOG_INFO("📅 Binding [%s] = %s\n", scoped_id, value);
+      insert_triple(db, block, scoped_id, "inv:hasContent", value);
       side_effect = 1;
     } else {
-      LOG_INFO("⚖️  Skipping bind: [%s] already has content = %s\n",
-               scoped_source_id, existing_value);
+      LOG_INFO("⚖️  Skipping bind: [%s] already has content = %s\n", scoped_id, existing);
     }
 
-    free(existing_value);
+    if (existing) free(existing);
   }
 
-  sqlite3_finalize(stmt);
   cJSON_Delete(input_vals);
+  cJSON_Delete(io_obj);
   free(type);
   free(def_name);
+  free(def_id);
   free(inv_id);
-  free(values_json);
+  free(input_vals_json);
+  free(io_json);
   return side_effect;
 }
 
@@ -635,7 +621,8 @@ void evaluate_definitions(sqlite3 *db, const char *block) {
 }
 
 int cycle(sqlite3 *db, const char *block, const char *invocation_name) {
-  LOG_INFO("🔁 Cycle pass for expression: %s\n", invocation_name);
+  LOG_INFO("⚙️  Starting cycle() pass for [%s] %ss", block, invocation_name);
+
   int side_effect = 0;
 
   // Step 1: Bind inputs
@@ -647,20 +634,23 @@ int cycle(sqlite3 *db, const char *block, const char *invocation_name) {
   }
 
   // Step 2: Input boundary readiness check
-  int is_ready_now =
-      check_invocation_boundary_complete(db, block, invocation_name, "inv:Input");
-  int was_ready = has_triple(db, block, invocation_name, "inv:WasReady", "true");
+  int is_ready_now = check_invocation_boundary_complete(
+      db, block, invocation_name, "inv:Input");
+  int was_ready =
+      has_triple(db, block, invocation_name, "inv:WasReady", "true");
 
   // Transition from NULL → ready
   if (!was_ready && is_ready_now) {
-    LOG_INFO("🌊 NULL→Value transition: %s is now ready to flow\n", invocation_name);
+    LOG_INFO("🌊 NULL→Value transition: %s is now ready to flow\n",
+             invocation_name);
     insert_triple(db, block, invocation_name, "inv:WasReady", "true");
     side_effect = 1;
   }
 
   // Transition from Value → NULL
   if (was_ready && !is_ready_now) {
-    LOG_INFO("💤 Value→NULL transition for invocation: %s no longer ready\n", invocation_name);
+    LOG_INFO("💤 Value→NULL transition for invocation: %s no longer ready\n",
+             invocation_name);
     delete_triple(db, block, invocation_name, "inv:WasReady");
     side_effect = 1;
   }
@@ -672,7 +662,8 @@ int cycle(sqlite3 *db, const char *block, const char *invocation_name) {
   }
 
   // Step 1.5: Evaluate ConditionalInvocation dynamic names
-  char *por = lookup_object(db, block, invocation_name, "inv:PlaceOfResolution");
+  char *por =
+      lookup_object(db, block, invocation_name, "inv:PlaceOfResolution");
   if (por) {
     LOG_INFO("🪵 DEBUG: Found PlaceOfResolution: %s\n", por); // 🪵 DEBUG
     char *frag = lookup_object(db, block, por, "inv:hasExpressionFragment");
@@ -828,14 +819,16 @@ int cycle(sqlite3 *db, const char *block, const char *invocation_name) {
   sqlite3_finalize(stmt);
 
   // Step 3: Resolution table output — only if ConditionalInvocation didn't run
-  char *contained_def_id = lookup_object(db, block, invocation_name, "inv:ContainsDefinition");
-  int resolved_conditional_invocation =
-    resolve_conditional_invocation(db, block, contained_def_id, invocation_name);
+  char *contained_def_id =
+      lookup_object(db, block, invocation_name, "inv:ContainsDefinition");
+  int resolved_conditional_invocation = resolve_conditional_invocation(
+      db, block, contained_def_id, invocation_name);
   if (!resolved_conditional_invocation && contained_def_id) {
     if (!is_contained_definition(db, block, contained_def_id)) {
       LOG_INFO("📎 Passing def_id into resolve_definition_output: %s\n",
-              contained_def_id);
-      int output_side_effect = resolve_definition_output(db, block, contained_def_id);
+               contained_def_id);
+      int output_side_effect =
+          resolve_definition_output(db, block, contained_def_id);
       LOG_INFO("🪵 DEBUG: resolve_definition_output returned %d\n",
                output_side_effect); // 🪵 DEBUG
       side_effect |= output_side_effect;
@@ -846,9 +839,10 @@ int cycle(sqlite3 *db, const char *block, const char *invocation_name) {
     }
   }
   free(contained_def_id);
- 
+
   evaluate_definitions(db, block);
-  LOG_INFO("🔚 cycle(%s, %s) returned side_effect = %d\n", block, invocation_name,
+  LOG_INFO("🔚 cycle(%s, %s) returned side_effect = %d\n", block,
+           invocation_name,
            side_effect); // 🪵 DEBUG
 
   return side_effect;

@@ -4,6 +4,8 @@
 #include <string.h> // for strchr, strlen, strncpy
 #include "sqlite3.h"
 #include "log.h"
+#include "cJSON.h"
+
 
 char *prefix_name(const char *def_name, const char *signal_name) {
   char *prefixed =
@@ -11,6 +13,12 @@ char *prefix_name(const char *def_name, const char *signal_name) {
   sprintf(prefixed, "%s:%s", def_name, signal_name);
   return prefixed;
 }
+
+const char *last_component(const char *qualified) {
+  const char *colon = strrchr(qualified, ':');
+  return colon ? colon + 1 : qualified;
+}
+
 
 char *extract_left_of_colon(const char *str) {
   if (!str)
@@ -56,55 +64,90 @@ void db_state(sqlite3 *db, const char *block) {
   LOG_INFO("🧬 Seed Row (CA:0..127):\n%s\n", line);
 }
 
-#include "cJSON.h"
-#include <stdio.h>
-#include <string.h>
-
-// Returns 0 if valid, 1 if invalid
 int validate_json_structure(cJSON *root) {
+  LOG_INFO("Starting validation\n");
+
   if (!root) {
     fprintf(stderr, "❌ Error: null JSON root.\n");
     return 1;
   }
 
-  // Check for @type
   cJSON *type = cJSON_GetObjectItemCaseSensitive(root, "@type");
   if (!type || !cJSON_IsString(type)) {
     fprintf(stderr, "❌ Error: Missing or invalid '@type'.\n");
     return 1;
   }
 
-  // Only validate inv:Definition or inv:Invocation
-  if (strcmp(type->valuestring, "inv:Definition") != 0 &&
-      strcmp(type->valuestring, "inv:Invocation") != 0) {
-    // Not an IO-bearing construct, so skip validation
+  const char *tval = type->valuestring;
+
+  // Validate inv:Invocation
+  if (strcmp(tval, "inv:Invocation") == 0) {
+    cJSON *io = cJSON_GetObjectItemCaseSensitive(root, "inv:IO");
+    if (!io || !cJSON_IsObject(io)) {
+      fprintf(stderr, "❌ Error: 'inv:Invocation' missing 'inv:IO'.\n");
+      return 1;
+    }
+
+    cJSON *inputs = cJSON_GetObjectItemCaseSensitive(io, "inputs");
+    cJSON *outputs = cJSON_GetObjectItemCaseSensitive(io, "outputs");
+    if (!inputs || !cJSON_IsArray(inputs)) {
+      fprintf(stderr, "❌ Error: 'inv:IO.inputs' is missing or not an array.\n");
+      return 1;
+    }
+    if (!outputs || !cJSON_IsArray(outputs)) {
+      fprintf(stderr, "❌ Error: 'inv:IO.outputs' is missing or not an array.\n");
+      return 1;
+    }
     return 0;
   }
 
-  // Check for inv:IO
-  cJSON *io = cJSON_GetObjectItemCaseSensitive(root, "inv:IO");
-  if (!io || !cJSON_IsObject(io)) {
-    fprintf(stderr, "❌ Error: Missing or invalid 'inv:IO' object.\n");
-    return 1;
+  // Validate inv:Definition
+  if (strcmp(tval, "inv:Definition") == 0) {
+    cJSON *io = cJSON_GetObjectItemCaseSensitive(root, "inv:IO");
+    if (!io || !cJSON_IsObject(io)) {
+      fprintf(stderr, "❌ Error: 'inv:Definition' missing 'inv:IO'.\n");
+      return 1;
+    }
+
+    cJSON *inputs = cJSON_GetObjectItemCaseSensitive(io, "inputs");
+    cJSON *outputs = cJSON_GetObjectItemCaseSensitive(io, "outputs");
+    if (!inputs || !cJSON_IsArray(inputs)) {
+      fprintf(stderr, "❌ Error: 'inv:IO.inputs' is missing or not an array.\n");
+      return 1;
+    }
+    if (!outputs || !cJSON_IsArray(outputs)) {
+      fprintf(stderr, "❌ Error: 'inv:IO.outputs' is missing or not an array.\n");
+      return 1;
+    }
+
+    // Must contain *either* ConditionalInvocation *or* PlaceOfResolution
+    cJSON *table = cJSON_GetObjectItemCaseSensitive(root, "inv:ConditionalInvocation");
+    cJSON *por = cJSON_GetObjectItemCaseSensitive(root, "inv:PlaceOfResolution");
+
+    if (!table && !por) {
+      fprintf(stderr, "❌ Error: Definition must have 'inv:ConditionalInvocation' or 'inv:PlaceOfResolution'.\n");
+      return 1;
+    }
+
+    // If ConditionalInvocation is present, validate keys are 0/1 combos (optional strictness)
+    if (table && !cJSON_IsObject(table)) {
+      fprintf(stderr, "❌ Error: 'inv:ConditionalInvocation' must be an object.\n");
+      return 1;
+    }
+
+    // If PlaceOfResolution is present, ensure it contains hasExpressionFragment array
+    if (por) {
+      cJSON *frags = cJSON_GetObjectItemCaseSensitive(por, "inv:hasExpressionFragment");
+      if (!frags || !cJSON_IsArray(frags)) {
+        fprintf(stderr, "❌ Error: 'inv:PlaceOfResolution' missing 'inv:hasExpressionFragment'.\n");
+        return 1;
+      }
+    }
+    LOG_INFO("✅ Finished validation.. OK");
+    return 0;
   }
 
-  // Check for inputs and outputs
-  cJSON *inputs = cJSON_GetObjectItemCaseSensitive(io, "inputs");
-  cJSON *outputs = cJSON_GetObjectItemCaseSensitive(io, "outputs");
-
-  if (!inputs || !cJSON_IsArray(inputs)) {
-    fprintf(stderr, "❌ Error: 'inv:IO.inputs' is missing or not an array.\n");
-    return 1;
-  }
-
-  if (!outputs || !cJSON_IsArray(outputs)) {
-    fprintf(stderr, "❌ Error: 'inv:IO.outputs' is missing or not an array.\n");
-    return 1;
-  }
-
-  // Passed all checks
+  // Unknown type
+  fprintf(stderr, "⚠️ Unknown '@type': %s — skipping strict validation.\n", tval);
   return 0;
 }
-
-
-
