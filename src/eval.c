@@ -19,71 +19,78 @@ int is_place_null(sqlite3 *db, const char *block, const char *place_id) {
 }
 
 int check_invocation_boundary_complete(
-    sqlite3 *db, const char *block, const char *expr_id,
-    const char *direction // must be "inv:Input" or "inv:Output"
+  sqlite3 *db, const char *block, const char *expr_id,
+  const char *direction // must be "inv:Input" or "inv:Output"
 ) {
-  LOG_INFO("🔍 Checking boundary completeness for %s (%s)\n", expr_id,
-           direction);
+LOG_INFO("🔍 Checking boundary completeness for %s (%s)\n", expr_id,
+         direction);
 
-  // Validate direction
-  if (strcmp(direction, "inv:Input") != 0 &&
-      strcmp(direction, "inv:Output") != 0) {
-    LOG_ERROR("❌ Invalid direction parameter: %s. Must be 'inv:Input' or "
-              "'inv:Output'\n",
-              direction);
-    return -1;
-  }
-
-  // Ensure expr_id is an inv:Invocation
-  char *type = lookup_object(db, block, expr_id, "rdf:type");
-  if (!type || strcmp(type, "inv:Invocation") != 0) {
-    LOG_ERROR("❌ %s is not an inv:Invocation (type = %s)\n", expr_id,
-              type ? type : "(null)");
-    free(type);
-    return -1;
-  }
-  free(type);
-
-  // Get the invocation name (used to find the matching Definition)
-  char *def_name = lookup_object(db, block, expr_id, "inv:name");
-  if (!def_name) {
-    LOG_ERROR("❌ Could not find inv:name for invocation %s\n", expr_id);
-    return -1;
-  }
-
-  // Translate "inv:Input"/"inv:Output" to RDF predicate
-  const char *predicate = strcmp(direction, "inv:Input") == 0
-                              ? "inv:DestinationList"
-                              : "inv:SourceList";
-
-  // Get the appropriate list of signal IDs
-  char list[32][128]; // or larger if needed
-  int count =
-      lookup_definition_io_list(db, block, def_name, predicate, list, 32);
-
-  free(def_name);
-
-  if (count < 0) {
-    LOG_ERROR("❌ Failed to retrieve I/O list from definition\n");
-    return -1;
-  }
-
-  int all_present = 1;
-  for (int i = 0; i < count; ++i) {
-    const char *place = list[i];
-    char *content = lookup_object(db, block, place, "inv:hasContent");
-
-    if (!content) {
-      LOG_INFO("🕳️  Missing content at %s → NOT COMPLETE\n", place);
-      all_present = 0;
-    } else {
-      LOG_INFO("✅ Place %s has content: %s\n", place, content);
-      free(content);
-    }
-  }
-
-  return all_present;
+// Validate direction
+if (strcmp(direction, "inv:Input") != 0 &&
+    strcmp(direction, "inv:Output") != 0) {
+  LOG_ERROR("❌ Invalid direction parameter: %s. Must be 'inv:Input' or "
+            "'inv:Output'\n",
+            direction);
+  return -1;
 }
+
+// Ensure expr_id is an inv:Invocation
+char *type = lookup_object(db, block, expr_id, "rdf:type");
+if (!type || strcmp(type, "inv:Invocation") != 0) {
+  LOG_ERROR("❌ %s is not an inv:Invocation (type = %s)\n", expr_id,
+            type ? type : "(null)");
+  free(type);
+  return -1;
+}
+free(type);
+
+// Get the invocation name (used to find the matching Definition)
+char *def_name = lookup_object(db, block, expr_id, "inv:name");
+if (!def_name) {
+  LOG_ERROR("❌ Could not find inv:name for invocation %s\n", expr_id);
+  return -1;
+}
+
+// Translate "inv:Input"/"inv:Output" to RDF predicate
+const char *predicate = strcmp(direction, "inv:Input") == 0
+                            ? "inv:SourceList"
+                            : "inv:DestinationList";
+
+// Get the appropriate list of signal IDs
+char list[32][128]; // or larger if needed
+int count =
+    lookup_definition_io_list(db, block, def_name, predicate, list, 32);
+
+if (count < 0) {
+  LOG_ERROR("❌ Failed to retrieve I/O list from definition\n");
+  free(def_name);
+  return -1;
+}
+
+LOG_INFO("📦 Checking %s boundary on %s: %d signal(s)", direction, def_name, count);
+for (int i = 0; i < count; ++i) {
+  LOG_INFO("   • %s", list[i]);
+}
+
+free(def_name);
+
+int all_present = 1;
+for (int i = 0; i < count; ++i) {
+  const char *place = list[i];
+  char *content = lookup_object(db, block, place, "inv:hasContent");
+
+  if (!content) {
+    LOG_INFO("🕳️  Missing content at %s → NOT COMPLETE\n", place);
+    all_present = 0;
+  } else {
+    LOG_INFO("✅ Place %s has content: %s\n", place, content);
+    free(content);
+  }
+}
+
+return all_present;
+}
+
 
 char *build_resolution_key(sqlite3 *db, const char *block,
                            const char *definition_name,
@@ -475,11 +482,15 @@ const char *get_input_value_from_invocation(sqlite3 *db, const char *expr_id,
 
 int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
   LOG_INFO("🔗 Binding inputs for expression: %s\n", expr_id);
+  char *inv_name = lookup_object(db, block, expr_id, "inv:name");
+  LOG_INFO("🔗 Binding inputs for [%s] (name = %s)", expr_id, inv_name ? inv_name : "null");
+  free(inv_name);
 
   char *type = lookup_object(db, block, expr_id, "rdf:type");
   if (!type || strcmp(type, "inv:Invocation") != 0) {
     LOG_WARN("⚠️ Unexpected or missing expression type for: %s\n", expr_id);
-    if (type) free(type);
+    if (type)
+      free(type);
     return 0;
   }
 
@@ -536,7 +547,8 @@ int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
     return 0;
   }
 
-  LOG_INFO("👉 Binding for invocation = %s (definition = %s)\n", inv_id, def_name);
+  LOG_INFO("👉 Binding for invocation = %s (definition = %s)\n", inv_id,
+           def_name);
   LOG_INFO("🔢 Input values JSON: %s\n", input_vals_json);
 
   int side_effect = 0;
@@ -561,10 +573,12 @@ int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
       insert_triple(db, block, scoped_id, "inv:hasContent", value);
       side_effect = 1;
     } else {
-      LOG_INFO("⚖️  Skipping bind: [%s] already has content = %s\n", scoped_id, existing);
+      LOG_INFO("⚖️  Skipping bind: [%s] already has content = %s\n", scoped_id,
+               existing);
     }
 
-    if (existing) free(existing);
+    if (existing)
+      free(existing);
   }
 
   cJSON_Delete(input_vals);
@@ -620,50 +634,51 @@ void evaluate_definitions(sqlite3 *db, const char *block) {
   sqlite3_finalize(stmt);
 }
 
-int cycle(sqlite3 *db, const char *block, const char *invocation_name) {
-  LOG_INFO("⚙️  Starting cycle() pass for [%s] %ss", block, invocation_name);
+int cycle(sqlite3 *db, const char *block, const char *invocation_uuid) {
+  LOG_INFO("⚙️  Starting cycle() pass for block %s invocation uuid: %ss", block, invocation_uuid);
 
   int side_effect = 0;
 
   // Step 1: Bind inputs
-  if (bind_inputs(db, block, invocation_name)) {
+  if (bind_inputs(db, block, invocation_uuid)) {
     LOG_INFO("🔗 Input binding caused side effects.\n");
     side_effect = 1;
   } else {
     LOG_INFO("🔗 Input binding caused NO side effects.\n");
   }
 
+
   // Step 2: Input boundary readiness check
   int is_ready_now = check_invocation_boundary_complete(
-      db, block, invocation_name, "inv:Input");
+      db, block, invocation_uuid, "inv:Input");
   int was_ready =
-      has_triple(db, block, invocation_name, "inv:WasReady", "true");
+      has_triple(db, block, invocation_uuid, "inv:WasReady", "true");
 
   // Transition from NULL → ready
   if (!was_ready && is_ready_now) {
     LOG_INFO("🌊 NULL→Value transition: %s is now ready to flow\n",
-             invocation_name);
-    insert_triple(db, block, invocation_name, "inv:WasReady", "true");
+      invocation_uuid);
+    insert_triple(db, block, invocation_uuid, "inv:WasReady", "true");
     side_effect = 1;
   }
 
   // Transition from Value → NULL
   if (was_ready && !is_ready_now) {
     LOG_INFO("💤 Value→NULL transition for invocation: %s no longer ready\n",
-             invocation_name);
-    delete_triple(db, block, invocation_name, "inv:WasReady");
+      invocation_uuid);
+    delete_triple(db, block, invocation_uuid, "inv:WasReady");
     side_effect = 1;
   }
 
   // 💥 Bail early if not ready
   if (!is_ready_now) {
-    LOG_INFO("⛔ Not ready — skipping resolution for %s\n", invocation_name);
+    LOG_INFO("⛔ Not ready — skipping resolution for %s\n", invocation_uuid);
     return side_effect;
   }
 
   // Step 1.5: Evaluate ConditionalInvocation dynamic names
   char *por =
-      lookup_object(db, block, invocation_name, "inv:PlaceOfResolution");
+      lookup_object(db, block, invocation_uuid, "inv:PlaceOfResolution");
   if (por) {
     LOG_INFO("🪵 DEBUG: Found PlaceOfResolution: %s\n", por); // 🪵 DEBUG
     char *frag = lookup_object(db, block, por, "inv:hasExpressionFragment");
@@ -694,7 +709,7 @@ int cycle(sqlite3 *db, const char *block, const char *invocation_name) {
             if (template && strchr(template, '$')) {
               LOG_INFO("🔧 template from %s is: %s\n", cond, template);
               char *resolved =
-                  build_resolution_key(db, block, invocation_name, template);
+                  build_resolution_key(db, block, invocation_uuid, template);
               if (resolved) {
                 LOG_INFO("🧩 Resolved dynamic invocationName = %s\n", resolved);
                 char *existing_inv = lookup_object(
@@ -749,7 +764,7 @@ int cycle(sqlite3 *db, const char *block, const char *invocation_name) {
   }
 
   sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
-  sqlite3_bind_text(stmt, 2, invocation_name, -1, SQLITE_STATIC);
+  sqlite3_bind_text(stmt, 2, invocation_uuid, -1, SQLITE_STATIC);
 
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     const char *dest_id = (const char *)sqlite3_column_text(stmt, 0);
@@ -820,9 +835,9 @@ int cycle(sqlite3 *db, const char *block, const char *invocation_name) {
 
   // Step 3: Resolution table output — only if ConditionalInvocation didn't run
   char *contained_def_id =
-      lookup_object(db, block, invocation_name, "inv:ContainsDefinition");
+      lookup_object(db, block, invocation_uuid, "inv:ContainsDefinition");
   int resolved_conditional_invocation = resolve_conditional_invocation(
-      db, block, contained_def_id, invocation_name);
+      db, block, contained_def_id, invocation_uuid);
   if (!resolved_conditional_invocation && contained_def_id) {
     if (!is_contained_definition(db, block, contained_def_id)) {
       LOG_INFO("📎 Passing def_id into resolve_definition_output: %s\n",
@@ -842,7 +857,7 @@ int cycle(sqlite3 *db, const char *block, const char *invocation_name) {
 
   evaluate_definitions(db, block);
   LOG_INFO("🔚 cycle(%s, %s) returned side_effect = %d\n", block,
-           invocation_name,
+    invocation_uuid,
            side_effect); // 🪵 DEBUG
 
   return side_effect;

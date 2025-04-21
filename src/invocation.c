@@ -162,7 +162,7 @@ void process_definition(sqlite3 *db, const char *block, cJSON *root,
 
   delete_expression_triples(db, block, name);
 
-  LOG_INFO("\xF0\x9F\x93\x98 Definition: name=%s\n", name);
+  LOG_INFO("\xF0\x9F\x93\x98 Definition name=%s\n", name);
   insert_triple(db, block, name, "rdf:type", "inv:Definition");
   insert_triple(db, block, name, "inv:name", name);
   insert_triple(db, block, name, "context", raw_json);
@@ -325,7 +325,7 @@ void process_invocation(sqlite3 *db, const char *block, cJSON *root,
 
   // 🔑 Generate UUID for this invocation
   char *uuid = new_block();
-  LOG_INFO("📘 Invocation: name=%s → uuid=%s\n", iname, uuid);
+  LOG_INFO("📘 Invocation name=%s → uuid=%s\n", iname, uuid);
 
   char *check = lookup_object(db, block, uuid, "inv:uuid");
   if (check) {
@@ -341,9 +341,16 @@ void process_invocation(sqlite3 *db, const char *block, cJSON *root,
   insert_triple(db, block, uuid, "inv:ofDefinition", iname);
   insert_triple(db, block, uuid, "context", json);
 
-
   // --- IO block ---
+  // 🧠 Also store the raw IO object so invocations can read it
   cJSON *io = cJSON_GetObjectItem(root, "inv:IO");
+  if (io && cJSON_IsObject(io)) {
+    char *raw_io = cJSON_PrintUnformatted(io);
+    insert_triple(db, block, iname, "inv:IO", raw_io);
+    LOG_INFO("📦 Stored inv:IO for %s\n", iname);
+    free(raw_io);
+  }
+
   if (io && cJSON_IsObject(io)) {
     cJSON *inputs = cJSON_GetObjectItem(io, "inputs");
     LOG_INFO("🧪 Preparing to bind inputs for %s\n", iname);
@@ -357,6 +364,7 @@ void process_invocation(sqlite3 *db, const char *block, cJSON *root,
       }
       idx++;
     }
+
     if (inputs && cJSON_IsArray(inputs)) {
       char *def_id = lookup_subject_by_object(db, block, "inv:name", iname);
       if (!def_id) {
@@ -366,13 +374,16 @@ void process_invocation(sqlite3 *db, const char *block, cJSON *root,
       }
 
       // Step 1: Look up the formal param names from the definition's IO
-      char *def_subject = lookup_subject_by_object(db, block, "inv:name", iname);
+      char *def_subject =
+          lookup_subject_by_object(db, block, "inv:name", iname);
       char *io_json = lookup_raw_value(db, block, def_subject, "inv:IO");
-      
+
       if (!def_subject || !io_json) {
-        LOG_ERROR("❌ Could not find definition subject or IO for: %s\n", iname);
+        LOG_ERROR("❌ Could not find definition subject or IO for: %s\n",
+                  iname);
         free(uuid);
-        if (def_subject) free(def_subject);
+        if (def_subject)
+          free(def_subject);
         return;
       }
 
@@ -423,7 +434,6 @@ void process_invocation(sqlite3 *db, const char *block, cJSON *root,
 
       cJSON_Delete(io_def);
       free(io_json);
-      free(def_id);
 
       free(def_id);
     }

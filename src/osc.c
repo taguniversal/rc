@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "wiring.h"
+#include "block.h"
 
 #define OSC_BUFFER_SIZE 1024
 
@@ -397,6 +399,8 @@ void run_osc_listener(sqlite3 *db, const char *block,
       // Timeout occurred — keep ticking the simulation forward
       LOG_INFO("⏳ Timeout — triggering background eval cycle...\n");
       eval(db, block);
+      dump_wiring(db, block);
+      db_state(db, block);
     }
 
   }

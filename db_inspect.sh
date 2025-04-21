@@ -90,5 +90,9 @@ for gate in AND OR XOR NOT NOR; do
     [ -z "$val" ] && val="NULL"
     echo "    - $src = $val"
   done
+
 done
+
+  echo -e "\n=== Signals with content ==="
+  sqlite3 $DB "SELECT subject, object FROM triples WHERE predicate = 'inv:hasContent';"
 

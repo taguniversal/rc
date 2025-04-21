@@ -36,4 +36,7 @@ char *lookup_raw_value(sqlite3 *db, const char *block, const char *subject,
 
 void dump_source_list(sqlite3 *db, const char *block, const char *def_name);
 
+// debug
+void drop_old_triples(sqlite3 *db, const char *block);
+
 #endif

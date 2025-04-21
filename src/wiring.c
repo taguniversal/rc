@@ -8,16 +8,15 @@
 void dump_wiring(sqlite3 *db, const char *block) {
   LOG_INFO("🐐 GOAT Diagram: Signal Wiring");
 
-  const char *sql_exprs = "SELECT DISTINCT subject FROM triples "
-                          "WHERE psi = ? AND (predicate = 'inv:SourceList' OR "
-                          "predicate = 'inv:DestinationList');";
+  const char *sql_invocations =
+    "SELECT DISTINCT subject FROM triples "
+    "WHERE psi = ? AND predicate = 'rdf:type' AND object = 'inv:Invocation';";
 
   sqlite3_stmt *stmt;
-  if (sqlite3_prepare_v2(db, sql_exprs, -1, &stmt, NULL) != SQLITE_OK) {
-    LOG_ERROR("❌ Failed to prepare expression scan.");
+  if (sqlite3_prepare_v2(db, sql_invocations, -1, &stmt, NULL) != SQLITE_OK) {
+    LOG_ERROR("❌ Failed to prepare invocation scan.");
     return;
   }
-
   sqlite3_bind_text(stmt, 1, block, -1, SQLITE_STATIC);
 
   char *buffer = strdup("");
@@ -25,29 +24,18 @@ void dump_wiring(sqlite3 *db, const char *block) {
 
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     const char *expr_id = (const char *)sqlite3_column_text(stmt, 0);
-    char *inv_name = lookup_object(db, block, expr_id, "inv:name");
-    char *type = lookup_object(db, block, expr_id, "rdf:type");
+    char *iname = lookup_object(db, block, expr_id, "inv:name");
 
-    if (!inv_name) {
-      LOG_WARN("⚠️ Expression %s is missing inv:name — skipping.\n", expr_id);
-      if (type) free(type);
-      continue;
-    }
+    char short_uuid[7] = {0};
+    const char *uuid_start = strstr(expr_id, "<:") ? expr_id + 2 : expr_id;
+    strncpy(short_uuid, uuid_start, 6);
 
-    char label[128] = {0};
-    if (type && strcmp(type, "inv:Invocation") == 0) {
-      const char *uuid_start = strstr(expr_id, "<:") ? expr_id + 2 : expr_id;
-      char short_uuid[7] = {0};
-      strncpy(short_uuid, uuid_start, 6);
-      snprintf(label, sizeof(label), "[%s] $%s", short_uuid, inv_name);
-    } else {
-      snprintf(label, sizeof(label), "[%s]", inv_name);
-    }
+    char label[128];
+    snprintf(label, sizeof(label), "[::%s] %s", short_uuid, iname ? iname : "(unnamed)");
 
-    // --- SourceList
+    // === SourceList
+    const char *sql_src = "SELECT object FROM triples WHERE psi = ? AND subject = ? AND predicate = 'inv:SourceList';";
     sqlite3_stmt *src_stmt;
-    const char *sql_src = "SELECT object FROM triples WHERE psi = ? AND "
-                          "subject = ? AND predicate = 'inv:SourceList';";
     sqlite3_prepare_v2(db, sql_src, -1, &src_stmt, NULL);
     sqlite3_bind_text(src_stmt, 1, block, -1, SQLITE_STATIC);
     sqlite3_bind_text(src_stmt, 2, expr_id, -1, SQLITE_STATIC);
@@ -56,27 +44,21 @@ void dump_wiring(sqlite3 *db, const char *block) {
     while (sqlite3_step(src_stmt) == SQLITE_ROW) {
       const char *src_id = (const char *)sqlite3_column_text(src_stmt, 0);
       char *src_name = lookup_object(db, block, src_id, "inv:name");
-      char *content = lookup_object(db, block, src_id, "inv:hasContent");
+      char *val = lookup_object(db, block, src_id, "inv:hasContent");
 
-      if (src_name) {
-        strncat(input_names, src_name,
-                sizeof(input_names) - strlen(input_names) - 1);
-        strncat(input_names, "=",
-                sizeof(input_names) - strlen(input_names) - 1);
-        strncat(input_names, content ? content : "",
-                sizeof(input_names) - strlen(input_names) - 1);
-        strncat(input_names, content ? "✅ " : "🛸 ",
-                sizeof(input_names) - strlen(input_names) - 1);
-        free(src_name);
-        if (content) free(content);
-      }
+      strncat(input_names, src_name ? src_name : src_id, sizeof(input_names) - strlen(input_names) - 1);
+      strncat(input_names, "=", sizeof(input_names) - strlen(input_names) - 1);
+      strncat(input_names, val ? val : "", sizeof(input_names) - strlen(input_names) - 1);
+      strncat(input_names, val ? "✅ " : "🛸 ", sizeof(input_names) - strlen(input_names) - 1);
+
+      if (src_name) free(src_name);
+      if (val) free(val);
     }
     sqlite3_finalize(src_stmt);
 
-    // --- DestinationList
+    // === DestinationList
+    const char *sql_dst = "SELECT object FROM triples WHERE psi = ? AND subject = ? AND predicate = 'inv:DestinationList';";
     sqlite3_stmt *dst_stmt;
-    const char *sql_dst = "SELECT object FROM triples WHERE psi = ? AND "
-                          "subject = ? AND predicate = 'inv:DestinationList';";
     sqlite3_prepare_v2(db, sql_dst, -1, &dst_stmt, NULL);
     sqlite3_bind_text(dst_stmt, 1, block, -1, SQLITE_STATIC);
     sqlite3_bind_text(dst_stmt, 2, expr_id, -1, SQLITE_STATIC);
@@ -85,34 +67,24 @@ void dump_wiring(sqlite3 *db, const char *block) {
     while (sqlite3_step(dst_stmt) == SQLITE_ROW) {
       const char *dst_id = (const char *)sqlite3_column_text(dst_stmt, 0);
       char *dst_name = lookup_object(db, block, dst_id, "inv:name");
-      if (dst_name) {
-        strncat(output_names, dst_name,
-                sizeof(output_names) - strlen(output_names) - 1);
-        strncat(output_names, " ",
-                sizeof(output_names) - strlen(output_names) - 1);
-        free(dst_name);
-      }
+      strncat(output_names, dst_name ? dst_name : dst_id, sizeof(output_names) - strlen(output_names) - 1);
+      strncat(output_names, " ", sizeof(output_names) - strlen(output_names) - 1);
+      if (dst_name) free(dst_name);
     }
     sqlite3_finalize(dst_stmt);
 
-    // Format line
+    // Print line
     char *line;
-    if (type && strcmp(type, "inv:Invocation") == 0) {
-      asprintf(&line, "   ⮑ %s ⬅─ %s→ %s\n", label,
-               input_names[0] ? input_names : "(no inputs)",
-               output_names[0] ? output_names : "(no outputs)");
-    } else {
-      asprintf(&line, "%s ⬅─ %s→ %s\n", label,
-               input_names[0] ? input_names : "(no inputs)",
-               output_names[0] ? output_names : "(no outputs)");
-    }
+    asprintf(&line, "%s ⬅─ %s→ %s\n",
+             label,
+             input_names[0] ? input_names : "(no inputs)",
+             output_names[0] ? output_names : "(no outputs)");
 
     buffer = realloc(buffer, strlen(buffer) + strlen(line) + 2);
     strcat(buffer, line);
     free(line);
 
-    free(inv_name);
-    if (type) free(type);
+    if (iname) free(iname);
     any_printed = 1;
   }
 
@@ -121,9 +93,12 @@ void dump_wiring(sqlite3 *db, const char *block) {
   if (any_printed) {
     LOG_INFO("\n%s", buffer);
   } else {
-    LOG_INFO("⚠️  No expressions with source/destination bindings found in block '%s'.", block);
+    LOG_INFO("⚠️  No invocations found in block '%s'.", block);
   }
 
   free(buffer);
   LOG_INFO("🟢 Done.");
 }
+
+
+

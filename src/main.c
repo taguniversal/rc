@@ -116,12 +116,13 @@ int main(int argc, char *argv[]) {
     const char* state_dir = "./state";
     const char* inv_dir = "./inv";
     char buffer[BUFFER_SIZE];
-    sqlite3 *db;
+    sqlite3 *db = NULL;
     LOG_INFO("Reality Compiler CLI\n");
 
     // 🧱 Genesis Block
     active_block = new_block();
-    LOG_INFO("Actibe Block: %s\n", active_block);
+    LOG_INFO("Active Block: %s\n", active_block);
+    drop_old_triples(db, active_block);
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--state") == 0 && i + 1 < argc) {

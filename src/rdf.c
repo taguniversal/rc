@@ -188,6 +188,29 @@ int lookup_destinations_for_name(sqlite3 *db, const char *block,
   return count;
 }
 
+// For debugging only: drops all triples not in the given block (e.g. active_block)
+void drop_old_triples(sqlite3 *db, const char *block) {
+  if (!block) {
+    LOG_WARN("⚠️ drop_old_triples called with NULL block");
+    return;
+  }
+
+  char sql_delete[256];
+  snprintf(sql_delete, sizeof(sql_delete),
+           "DELETE FROM triples WHERE psi != '%s';", block);
+
+  LOG_INFO("💣 Dropping all triples not in block %s", block);
+
+  char *errmsg = NULL;
+  int rc = sqlite3_exec(db, sql_delete, NULL, NULL, &errmsg);
+  if (rc != SQLITE_OK) {
+    LOG_ERROR("❌ Failed to delete old triples: %s", errmsg);
+    sqlite3_free(errmsg);
+  }
+}
+
+
+
 char *lookup_raw_value(sqlite3 *db, const char *block, const char *subject,
                        const char *predicate) {
   sqlite3_stmt *stmt;
@@ -272,10 +295,20 @@ void insert_triple(sqlite3 *db, const char *psi, const char *subject,
                    const char *pred, const char *value) {
   sqlite3_stmt *stmt;
 
+  if (!psi || strlen(psi) == 0) {
+    LOG_WARN("⚠️  insert_triple() called with NULL or empty psi! subject=%s predicate=%s object=%s",
+             subject, pred, value);
+  }
+
+  if (strcmp(pred, "inv:hasContent") == 0) {
+    LOG_INFO("🌟 INSERT CONTENT %s = %s (psi=%s)", subject, value, psi);
+  }
+  
+  
   const char *sql = "REPLACE INTO triples (psi, subject, predicate, object) "
                     "VALUES (?, ?, ?, ?);";
 
-  LOG_INFO("📝 Inserting: [%s] %s -- %s --> %s", psi, subject, pred, value);
+  LOG_INFO("📝 Inserting: %s %s -- %s --> %s", psi, subject, pred, value);
 
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
     LOG_ERROR("❌ Failed to prepare insert_triple\n");
