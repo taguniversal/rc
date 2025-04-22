@@ -18,6 +18,12 @@ int is_place_null(sqlite3 *db, const char *block, const char *place_id) {
   return !has_predicate(db, block, place_id, "inv:hasContent");
 }
 
+/**
+ * Checks whether an Invocation's input or output boundary is complete.
+ * For a given direction ("inv:Input" or "inv:Output"), this verifies that all
+ * required signal places (defined by the corresponding Definition) have
+ * content.
+ */
 int check_invocation_boundary_complete(
     sqlite3 *db, const char *block, const char *expr_id,
     const char *direction // must be "inv:Input" or "inv:Output"
@@ -92,6 +98,12 @@ int check_invocation_boundary_complete(
   return all_present;
 }
 
+/**
+ * Expands a dynamic invocation string into a concrete resolution key.
+ * This function replaces each variable (e.g., "$A") in the template with the
+ * current content value of its scoped signal (e.g., DEF:A), forming a key used
+ * to index into a definition's resolution table.
+ */
 char *build_resolution_key(sqlite3 *db, const char *block,
                            const char *definition_name,
                            const char *invocation_str) {
@@ -280,6 +292,12 @@ int resolve_conditional_invocation(sqlite3 *db, const char *block,
   return side_effect;
 }
 
+/**
+ * Evaluates a ConditionalInvocation within an Invocation context.
+ * If all inputs are bound, this function computes a resolution key from the
+ * invocation template (e.g., "$A$B"), looks it up in the associated resolution
+ * table, and writes the resulting value to the specified output signal.
+ */
 int resolve_definition_output(sqlite3 *db, const char *block,
                               const char *definition_id) {
   int side_effect = 0;
@@ -444,6 +462,11 @@ int resolve_definition_output(sqlite3 *db, const char *block,
   return side_effect;
 }
 
+/**
+ * Retrieves the raw input value at a given index from an Invocation's IO array.
+ * This reads the JSON-encoded inv:Inputs list attached to the invocation,
+ * and returns the string at the specified position (e.g., "1", "$A", etc).
+ */
 const char *get_input_value_from_invocation(sqlite3 *db, const char *expr_id,
                                             int index) {
   sqlite3_stmt *stmt;
@@ -480,6 +503,13 @@ const char *get_input_value_from_invocation(sqlite3 *db, const char *expr_id,
   return result;
 }
 
+/**
+ * Binds raw input values to the scoped input signals of an Invocation.
+ * Matches the input list in inv:Inputs (JSON) with formal parameter names
+ * from the Definition’s inv:IO block, storing resolved values in the RDF graph.
+ * Returns 1 if any binding caused a state change, 0 if all inputs were already
+ * bound.
+ */
 int bind_inputs(sqlite3 *db, const char *block, const char *expr_id) {
   LOG_INFO("🔗 Binding inputs for expression: %s\n", expr_id);
   char *inv_name = lookup_object(db, block, expr_id, "inv:name");
@@ -604,8 +634,14 @@ bool is_contained_definition(sqlite3 *db, const char *block,
   return result;
 }
 
-void evaluate_executing_invocations(sqlite3 *db, const char *block) {
-  LOG_INFO("🧪 Evaluating all invocations marked Executing...\n");
+/**
+ * Evaluates all invocations currently marked as `inv:Executing`.
+ * For each, attempts to resolve its output using the definition’s resolution
+ * table. If the output is stable (no state change), the Executing flag is
+ * cleared.
+ */
+void check_executing_invocations(sqlite3 *db, const char *block) {
+  LOG_INFO("🧪 Checking all invocations marked Executing...\n");
 
   sqlite3_stmt *stmt;
   const char *sql =
@@ -641,7 +677,17 @@ void evaluate_executing_invocations(sqlite3 *db, const char *block) {
   sqlite3_finalize(stmt);
 }
 
-
+/**
+ * Resolves outputs from a Definition to the corresponding Invocation.
+ * For each output defined in the Definition's `inv:IO.outputs`, this function:
+ *   - Looks up the value in the Definition scope,
+ *   - Maps it positionally to the Invocation’s DestinationList,
+ *   - Copies the content if it differs from the existing value.
+ *
+ * This models the output propagation stage where a Definition’s internal
+ * results are exposed to the outer world through the Invocation’s named output
+ * ports.
+ */
 int resolve_invocation_outputs(sqlite3 *db, const char *block,
                                const char *invocation_uuid) {
   int side_effect = 0;
@@ -704,8 +750,10 @@ int resolve_invocation_outputs(sqlite3 *db, const char *block,
     if (!def_out || !cJSON_IsString(def_out))
       continue;
 
-    char *scoped_def_out = prefix_name(def_id, def_out->valuestring);
+    char *scoped_def_out = prefix_name(def_subject, def_out->valuestring);
     char *val = lookup_object(db, block, scoped_def_out, "inv:hasContent");
+    LOG_INFO("🔁 Mapping def output %s (%s) → invocation dest %s\n",
+             def_out->valuestring, scoped_def_out, inv_dest);
 
     if (val) {
       char *existing = lookup_object(db, block, inv_dest, "inv:hasContent");
@@ -729,6 +777,15 @@ int resolve_invocation_outputs(sqlite3 *db, const char *block,
   return side_effect;
 }
 
+/**
+ * Checks if the Invocation has all its input signals present (ready).
+ * If the readiness status has changed since the last evaluation, it updates
+ * the `inv:WasReady` marker accordingly and returns a side-effect flag.
+ * 
+ * This ensures that readiness transitions (NULL→Value or Value→NULL) are tracked,
+ * enabling the system to know when an Invocation becomes eligible (or ineligible)
+ * for resolution.
+ */
 int check_readiness_and_mark_transitions(sqlite3 *db, const char *block,
                                          const char *uuid) {
   int is_ready_now =
@@ -755,6 +812,16 @@ int check_readiness_and_mark_transitions(sqlite3 *db, const char *block,
   return 0;
 }
 
+/**
+ * Resolves dynamic invocation names in a ConditionalInvocation block.
+ * 
+ * If a template string (e.g., "$A$B") is found in the ConditionalInvocation,
+ * this function computes its resolved name based on the current input signal values
+ * and inserts a `inv:ResolvedInvocationName` triple if it has changed.
+ * 
+ * This enables conditional expressions (like truth tables or pattern maps)
+ * to dynamically route execution or data based on input signal states.
+ */
 int evaluate_conditional_invocation(sqlite3 *db, const char *block,
                                     const char *invocation_uuid) {
   int side_effect = 0;
@@ -837,6 +904,16 @@ int evaluate_conditional_invocation(sqlite3 *db, const char *block,
   return side_effect;
 }
 
+/**
+ * Propagates values from SourcePlaces to their connected DestinationPlaces.
+ * 
+ * For each DestinationPlace attached to the invocation, this scans for a
+ * SourcePlace with a matching name (across the block) and, if it has content,
+ * copies that value forward. If the content is no longer present in the source,
+ * the destination is cleared to reflect the disconnection.
+ * 
+ * This mechanism models digital signal propagation across invocation boundaries.
+ */
 int propagate_output_values(sqlite3 *db, const char *block, const char *uuid) {
   int side_effect = 0;
   sqlite3_stmt *stmt;
@@ -910,6 +987,15 @@ int propagate_output_values(sqlite3 *db, const char *block, const char *uuid) {
   return side_effect;
 }
 
+/**
+ * Evaluates the resolution output of an invocation's contained definition.
+ * 
+ * If the invocation includes a ContainedDefinition, this first checks for
+ * a ConditionalInvocation to resolve dynamically. If not present or inactive,
+ * it falls back to resolve the definition's output directly using the static
+ * resolution table. Only outer definitions are processed; inner definitions
+ * are skipped to avoid redundant evaluation.
+ */
 int evaluate_resolution_table(sqlite3 *db, const char *block,
                               const char *uuid) {
   int side_effect = 0;
@@ -941,6 +1027,21 @@ int evaluate_resolution_table(sqlite3 *db, const char *block,
   return side_effect;
 }
 
+/**
+ * Executes a single evaluation cycle for an invocation.
+ *
+ * A cycle attempts to bind all input values, then checks readiness across
+ * the input boundary. If the invocation is ready (all inputs have values),
+ * it proceeds to:
+ *   1. Resolve any dynamic ConditionalInvocation templates.
+ *   2. Propagate outputs to named destinations.
+ *   3. Mirror values from the invoked Definition's outputs.
+ *   4. Resolve entries in the resolution table (e.g. for conditional logic).
+ *
+ * If any step changes state (e.g. value inserted/removed), a side effect
+ * is recorded. The cycle is part of the stabilization loop and will repeat
+ * until all invocations in the block have reached steady state.
+ */
 int cycle(sqlite3 *db, const char *block, const char *invocation_uuid) {
   LOG_INFO("⚙️  Starting cycle() pass for block %s invocation uuid: %s", block,
            invocation_uuid);
@@ -981,11 +1082,11 @@ int cycle(sqlite3 *db, const char *block, const char *invocation_uuid) {
   side_effect |= resolve_invocation_outputs(db, block, invocation_uuid);
   side_effect |= evaluate_resolution_table(db, block, invocation_uuid);
 
-  evaluate_executing_invocations(db, block);
+  check_executing_invocations(db, block);
 
   LOG_INFO("🔚 cycle(%s, %s) returned side_effect = %d\n", block,
            invocation_uuid, side_effect);
-           
+
   return side_effect;
 }
 
@@ -1023,6 +1124,19 @@ void log_seed(sqlite3 *db, const char *block) {
   LOG_INFO("🧬 Seed Row (CA:0..127):\n%s\n", line);
 }
 
+/**
+ * Performs a full evaluation pass on all invocations in the block.
+ *
+ * This function iterates over every `inv:Invocation` in the RDF graph and
+ * calls `cycle()` repeatedly until no further side effects occur, meaning
+ * all signals have stabilized. Each iteration may bind inputs, propagate
+ * outputs, resolve conditional invocations, or update resolution tables.
+ *
+ * Terminates early upon stabilization, or forcefully after MAX_ITERATIONS
+ * to prevent infinite loops in unstable or cyclic graphs.
+ *
+ * Returns the total number of state changes (side effects) across all iterations.
+ */
 int eval(sqlite3 *db, const char *block) {
   LOG_INFO("⚙️  Starting eval() pass for %s (until stabilization)\n", block);
   int total_side_effects = 0;
