@@ -6,6 +6,6 @@
   "inv:name": "NOT",
   "inv:IO" : {
      "inputs": ["1"],
-     "outputs": ["Out"]
+     "outputs": ["Out0"]
   } 
 }
