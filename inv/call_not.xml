@@ -1,0 +1,11 @@
+<Invocation>
+  <name>NOT</name>
+
+  <DestinationList>
+    <DestinationPlace name="1"/>
+  </DestinationList>
+
+  <SourceList>
+    <SourcePlace name="Out0"/>
+  </SourceList>
+</Invocation>

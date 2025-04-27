@@ -1,0 +1,35 @@
+<Definition>
+  <name>NOR</name>
+
+  <SourceList>
+    <source name="A"/>
+    <source name="B"/>
+  </SourceList>
+
+  <DestinationList>
+    <destination name="Out0"/>
+  </DestinationList>
+
+  <PlaceOfResolution>
+    <hasExpressionFragment>
+      <Invocation>
+        <invocationName>OR</invocationName>
+        <Inputs>
+          <Input>A</Input>
+          <Input>B</Input>
+        </Inputs>
+        <Output>Temp0</Output>
+      </Invocation>
+    </hasExpressionFragment>
+
+    <hasExpressionFragment>
+      <Invocation>
+        <invocationName>NOT</invocationName>
+        <Inputs>
+          <Input>Temp0</Input>
+        </Inputs>
+        <Output>Out0</Output>
+      </Invocation>
+    </hasExpressionFragment>
+  </PlaceOfResolution>
+</Definition>

@@ -1,0 +1,26 @@
+<Definition>
+
+  <name>Rule30Cell</name>
+
+  <SourceList>
+    <SourcePlace name="L"/>
+    <SourcePlace name="C"/>
+    <SourcePlace name="R"/>
+  </SourceList>
+
+  <DestinationList>
+    <DestinationPlace name="Out"/>
+  </DestinationList>
+
+  <ConditionalInvocation>
+    <invocationName>$L$C$R</invocationName> 
+    <case value="111">0</case>
+    <case value="110">0</case>
+    <case value="101">0</case>
+    <case value="100">1</case>
+    <case value="011">1</case>
+    <case value="010">1</case>
+    <case value="001">1</case>
+    <case value="000">0</case>
+  </ConditionalInvocation>
+</Definition>

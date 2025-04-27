@@ -1,0 +1,33 @@
+#!/bin/sh
+
+echo "🔍 Checking for mxml.h..."
+
+# Try common locations
+if [ -f /usr/local/include/libmxml4/mxml.h ]; then
+  echo "✅ Found mxml.h in /usr/local/include/libmxml4"
+  CFLAGS_EXTRA="-I/usr/local/include/libmxml4"
+elif [ -f /usr/local/include/mxml.h ]; then
+  echo "✅ Found mxml.h in /usr/local/include"
+  CFLAGS_EXTRA="-I/usr/local/include"
+elif [ -f /opt/homebrew/include/mxml.h ]; then
+  echo "✅ Found mxml.h in /opt/homebrew/include"
+  CFLAGS_EXTRA="-I/opt/homebrew/include"
+else
+  echo "❌ Error: mxml.h not found. Please install Mini-XML first."
+  exit 1
+fi
+
+echo "🔍 Checking for libmxml4..."
+if [ -f /usr/local/lib/libmxml4.a ] || [ -f /usr/local/lib/libmxml4.dylib ]; then
+  echo "✅ Found libmxml4 in standard locations."
+else
+  echo "❌ Error: libmxml4.a or libmxml4.dylib not found. Please install Mini-XML libraries."
+  exit 1
+fi
+
+
+# Write the Makefile from the template
+echo "🛠️  Generating Makefile from Makefile.template..."
+sed "s|@@CFLAGS_EXTRA@@|$CFLAGS_EXTRA|g" Makefile.template > Makefile
+
+echo "✅ Configuration complete. You can now run 'make'."

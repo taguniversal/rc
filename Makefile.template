@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -I/usr/local/include/libmxml4 -Iexternal/serd -Iexternal/mkrand -Iexternal/tinyosc
+CFLAGS = -Wall @@CFLAGS_EXTRA@@ -Iexternal/serd -Iexternal/mkrand -Iexternal/tinyosc
 LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm -lmxml4 -L/usr/local/lib
 
 # For rcnode

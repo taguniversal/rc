@@ -1,0 +1,22 @@
+<Definition>
+  <name>AND</name>
+
+  <!-- Internally read from these -->
+  <SourceList>
+    <source name="A"/>
+    <source name="B"/>
+  </SourceList>
+
+  <!-- Internally write to these -->
+  <DestinationList>
+    <destination name="$out"/>
+  </DestinationList>
+
+  <Conditionalocation>
+   <ocationName>$A$B</ocationName>
+    <case value="00">0</case>
+    <case value="01">0</case>
+    <case value="10">0</case>
+    <case value="11">1</case>
+  </Conditionalocation>
+</Definition>

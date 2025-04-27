@@ -34,3 +34,8 @@ venv
 state/db.sqlite3
 tree.txt
 out-20*.txt
+debug.log
+debug.dot 
+debug.html
+my_graph.svg 
+Makefile

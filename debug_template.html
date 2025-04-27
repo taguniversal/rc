@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Reality Compiler Debugger</title>
+  <script src="https://cdn.jsdelivr.net/npm/viz.js@2.1.2/viz.js"></script>
+  <style>
+    body { font-family: sans-serif; background: #f9f9f9; padding: 1em; }
+    #graph { margin-bottom: 2em; border: 1px solid #ccc; padding: 1em; background: white; }
+    pre { background: #eee; padding: 1em; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>🧠 Reality Compiler Debug View</h1>
+  <div id="graph">Rendering DOT graph...</div>
+  <h2>📋 Raw RDF Triples</h2>
+  <pre id="triples">(loading...)</pre>
+
+<script>
+const dotSrc = `__DOT__GOES__HERE__`;
+const triplesRaw = `__TRIPLES__GO_HERE__`;
+
+document.getElementById("triples").textContent = triplesRaw;
+
+(async function() {
+  const { render } = await Viz();
+  document.getElementById("graph").innerHTML = render(dotSrc);
+})();
+</script>
+</body>
+</html>

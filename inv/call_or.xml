@@ -1,0 +1,12 @@
+<Invocation>
+  <name>OR</name>
+
+  <DestinationList>
+    <DestinationPlace name="1"/>
+    <DestinationPlace name="0"/>
+  </DestinationList>
+
+  <SourceList>
+    <SourcePlace name="Or_Out"/>
+  </SourceList>
+</Invocation>

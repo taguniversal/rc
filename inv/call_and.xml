@@ -1,0 +1,12 @@
+<Invocation>
+  <name>AND</name>
+
+  <DestinationList>
+    <DestinationPlace name="1"/>
+    <DestinationPlace name="1"/>
+  </DestinationList>
+
+  <SourceList>
+    <SourcePlace name="result"/>
+  </SourceList>
+</Invocation>

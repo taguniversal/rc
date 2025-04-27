@@ -1,3 +1,7 @@
-#include "sqlite3.h"
+#ifndef INVOCATION_H
+#define INVOCATION_H
 
-void map_io(sqlite3* db, const char* block, const char* inv_dir) ;
+#include "sqlite3.h"
+#include "eval.h"
+void map_io(Block* blk, const char* inv_dir) ;
+#endif

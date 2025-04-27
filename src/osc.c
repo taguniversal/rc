@@ -12,8 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "wiring.h"
-#include "block.h"
 
 #define OSC_BUFFER_SIZE 1024
 
@@ -115,47 +113,6 @@ void send_osc_response_str(const char *address, const char *str) {
   close(sockfd);
 }
 
-const char *lookup_name_by_osc_path(sqlite3 *db, const char *osc_path) {
-  static char name[128];
-  sqlite3_stmt *stmt;
-
-  // Step 1: Find subject where inv:from = osc_path
-  const char *sql = "SELECT subject FROM triples WHERE predicate = 'inv:from' "
-                    "AND object = ? LIMIT 1;";
-  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
-    return NULL;
-
-  sqlite3_bind_text(stmt, 1, osc_path, -1, SQLITE_STATIC);
-
-  char subject[128];
-  if (sqlite3_step(stmt) == SQLITE_ROW) {
-    const unsigned char *subj = sqlite3_column_text(stmt, 0);
-    snprintf(subject, sizeof(subject), "%s", subj);
-    sqlite3_finalize(stmt);
-  } else {
-    sqlite3_finalize(stmt);
-    return NULL;
-  }
-
-  // Step 2: Look up inv:name for that subject
-  const char *sql2 = "SELECT object FROM triples WHERE subject = ? AND "
-                     "predicate = 'inv:name' LIMIT 1;";
-  if (sqlite3_prepare_v2(db, sql2, -1, &stmt, NULL) != SQLITE_OK)
-    return NULL;
-
-  sqlite3_bind_text(stmt, 1, subject, -1, SQLITE_STATIC);
-
-  if (sqlite3_step(stmt) == SQLITE_ROW) {
-    const unsigned char *val = sqlite3_column_text(stmt, 0);
-    snprintf(name, sizeof(name), "%s", val);
-    sqlite3_finalize(stmt);
-    return name;
-  }
-
-  sqlite3_finalize(stmt);
-  return NULL;
-}
-
 // Template pattern for OSC messages with writes:
 #define STORE_TRIPLE(subject, pred, value)                                     \
   do {                                                                         \
@@ -163,8 +120,7 @@ const char *lookup_name_by_osc_path(sqlite3 *db, const char *osc_path) {
     side_effect = 1;                                                           \
   } while (0)
 
-int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
-                        int len) {
+int process_osc_message(Block* blk, const char *buffer, int len) {
   int side_effect = 0;
 
   tosc_message osc;
@@ -194,7 +150,7 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
       if (pressed == 1.0f) {
 
         LOG_INFO("⚙️  OSC Init received — seeding row_driver:CA:X values...\n");
-        LOG_INFO("🧬 Using block ID: [%s]", block);
+        LOG_INFO("🧬 Using block ID: [%s]", blk->psi);
 
         for (int i = 0; i < 128; i++) {
           char subject[64], content[8];
@@ -202,16 +158,12 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
 
           int bit = (i == 64) ? 1 : 0; // center cell gets the fire
           snprintf(content, sizeof(content), "%d", bit);
-
-          STORE_TRIPLE(subject, "rdf:type", "inv:SourcePlace");
-          STORE_TRIPLE(subject, "inv:name", subject);
-          STORE_TRIPLE(subject, "inv:hasContent", content);
+        
         }
 
         LOG_INFO(
             "✅ Init complete. Center cell lit. Pattern awaits evolution.\n");
-        db_state(db, block);
-        dump_wiring(db, block);
+
       } else {
         LOG_INFO("🛑 OSC Init ignored (pressed = %.1f)\n", pressed);
       }
@@ -238,9 +190,6 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
       char val_str[32];
       snprintf(val_str, sizeof(val_str), "%f", val);
 
-      STORE_TRIPLE("/button1", "context", enrich("/button1"));
-      STORE_TRIPLE("/button1", "pressedValue", val_str);
-      STORE_TRIPLE("/button1", "timestamp", iso_timestamp);
 
       send_osc_response("/button1_response", val + 1.0);
     }
@@ -252,9 +201,6 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
       snprintf(val_str, sizeof(val_str), "%f", value);
       snprintf(subject, sizeof(subject), "/grid1/%d", row);
 
-      STORE_TRIPLE("/grid1", "context", enrich("/grid1"));
-      STORE_TRIPLE(subject, "rowValue", val_str);
-      STORE_TRIPLE(subject, "timestamp", iso_timestamp);
     }
 
     if (strcmp(osc.buffer, "/radar1") == 0) {
@@ -264,10 +210,7 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
       snprintf(x_str, sizeof(x_str), "%f", x);
       snprintf(y_str, sizeof(y_str), "%f", y);
 
-      STORE_TRIPLE("/radar1", "context", enrich("/radar1"));
-      STORE_TRIPLE("/radar1", "hasX", x_str);
-      STORE_TRIPLE("/radar1", "hasY", y_str);
-      STORE_TRIPLE("/radar1", "timestamp", iso_timestamp);
+
     }
 
     if (strcmp(osc.buffer, "/pager1") == 0) {
@@ -275,9 +218,7 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
       char page_str[16];
       snprintf(page_str, sizeof(page_str), "%d", page);
 
-      STORE_TRIPLE("/pager1", "context", enrich("/pager1"));
-      STORE_TRIPLE("/pager1", "selectedPage", page_str);
-      STORE_TRIPLE("/pager1", "timestamp", iso_timestamp);
+
     }
 
     if (strcmp(osc.buffer, "/encoder1") == 0) {
@@ -285,9 +226,6 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
       char value_str[32];
       snprintf(value_str, sizeof(value_str), "%f", value);
 
-      STORE_TRIPLE("/encoder1", "context", enrich("/encoder1"));
-      STORE_TRIPLE("/encoder1", "rotatedTo", value_str);
-      STORE_TRIPLE("/encoder1", "timestamp", iso_timestamp);
     }
 
     if (strcmp(osc.buffer, "/radio1") == 0) {
@@ -295,9 +233,6 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
       char sel_str[16];
       snprintf(sel_str, sizeof(sel_str), "%d", selection);
 
-      STORE_TRIPLE("/radio1", "context", enrich("/radio1"));
-      STORE_TRIPLE("/radio1", "selectedOption", sel_str);
-      STORE_TRIPLE("/radio1", "timestamp", iso_timestamp);
     }
 
     if (strcmp(osc.buffer, "/xy1") == 0) {
@@ -307,10 +242,6 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
       snprintf(x_str, sizeof(x_str), "%f", x);
       snprintf(y_str, sizeof(y_str), "%f", y);
 
-      STORE_TRIPLE("/xy1", "context", enrich("/xy1"));
-      STORE_TRIPLE("/xy1", "positionX", x_str);
-      STORE_TRIPLE("/xy1", "positionY", y_str);
-      STORE_TRIPLE("/xy1", "timestamp", iso_timestamp);
     }
 
     if (strcmp(osc.buffer, "/fader5") == 0) {
@@ -318,9 +249,6 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
       char value_str[32];
       snprintf(value_str, sizeof(value_str), "%f", value);
 
-      STORE_TRIPLE("/fader5", "context", enrich("/fader5"));
-      STORE_TRIPLE("/fader5", "faderValue", value_str);
-      STORE_TRIPLE("/fader5", "timestamp", iso_timestamp);
     }
   } else {
     LOG_ERROR("❌ Error parsing OSC message\n");
@@ -329,33 +257,17 @@ int process_osc_message(sqlite3 *db, const char *buffer, const char *block,
   return side_effect;
 }
 
-void process_osc_response(sqlite3 *db, char *buffer, const char *block,
-                          int len) {
+void process_osc_response(Block* blk, char *buffer,  int len) {
   tosc_message osc;
   tosc_parseMessage(&osc, buffer, len);
 
   const char *addr = tosc_getAddress(&osc);
-  const char *name = lookup_name_by_osc_path(db, addr);
-  if (!name)
-    return;
 
-  LOG_INFO("Found source %s\n", name);
+  LOG_INFO("process_osc_response %s Address: %s\n", blk->psi, addr);
 
-  char dests[10][128]; // Support up to 10 fan-out targets
-  int num = lookup_destinations_for_name(db, block, name, dests, 10);
-  if (num == 0)
-    return;
-
-  float v = tosc_getNextFloat(&osc);
-
-  for (int i = 0; i < num; i++) {
-    LOG_INFO("🔁 Fanout %s → %s (via name: %s) with value: %f\n", addr,
-             dests[i], name, v);
-    send_osc_response(dests[i], v);
-  }
 }
 
-void run_osc_listener(sqlite3 *db, const char *block,
+void run_osc_listener(Block* blk,
                       volatile sig_atomic_t *keep_running_ptr) {
   int sockfd;
   struct sockaddr_in servaddr, cliaddr;
@@ -392,15 +304,13 @@ void run_osc_listener(sqlite3 *db, const char *block,
     n = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&cliaddr,
                  &len);
     if (n > 0) {
-      process_osc_message(db, buffer, block, n);
-      eval(db, block);
-      process_osc_response(db, buffer, block, n);
+      process_osc_message(blk, buffer, n);
+      eval(blk);
+      process_osc_response(blk, buffer, n);
     } else {
       // Timeout occurred — keep ticking the simulation forward
       LOG_INFO("⏳ Timeout — triggering background eval cycle...\n");
-      eval(db, block);
-      dump_wiring(db, block);
-      db_state(db, block);
+      eval(blk);
     }
 
   }

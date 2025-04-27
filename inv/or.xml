@@ -1,0 +1,22 @@
+<Definition>
+
+  <name>OR</name>
+
+ <SourceList>
+    <source name="A"/>
+    <source name="B"/>
+  </SourceList>
+
+  <DestinationList>
+    <destination name="Out0"/>
+  </DestinationList>
+
+
+  <ConditionalInvocation>
+    <invocationName>$A$B</invocationName>
+    <case value="00">0</case>
+    <case value="01">1</case>
+    <case value="10">1</case>
+    <case value="11">1</case>
+  </ConditionalInvocation>
+</Definition>

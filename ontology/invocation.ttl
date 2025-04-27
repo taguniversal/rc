@@ -4,270 +4,190 @@
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-### Abstract class for all named elements
+#################################################################
+### === CORE ENTITIES ===
+#################################################################
+
 inv:NamedEntity a rdfs:Class ;
     rdfs:label "Named Entity" ;
     rdfs:comment "An abstract class for constructs that have a symbolic name." .
 
-### Base Class: Place
+inv:Definition a rdfs:Class ;
+    rdfs:subClassOf inv:NamedEntity ;
+    rdfs:label "Definition" ;
+    rdfs:comment "A reusable construct mapping inputs to outputs via a transformation." .
+
+inv:Invocation a rdfs:Class ;
+    rdfs:subClassOf inv:NamedEntity ;
+    rdfs:label "Invocation" ;
+    rdfs:comment "A symbolic activation of a Definition by name." .
+
+inv:ContainedDefinition a rdfs:Class ;
+    rdfs:label "Contained Definition" ;
+    rdfs:comment "A sub-definition nested within a larger Definition." .
+
+#################################################################
+### === SIGNAL PLACES ===
+#################################################################
+
 inv:Place a rdfs:Class ;
     rdfs:subClassOf inv:NamedEntity ;
     rdfs:label "Place" ;
-    rdfs:comment "A generic concept of a place where values can originate or be received." .
+    rdfs:comment "A conceptual location where values originate or are stored." .
 
-### Place Content
-inv:hasContent a rdf:Property ;
-    rdfs:domain inv:Place ;
-    rdfs:range rdfs:Literal ;
-    rdfs:label "has content" ;
-    rdfs:comment "Defines the current content value present in a Place." .
-
-### Subclasses of Place
 inv:SourcePlace a rdfs:Class ;
     rdfs:subClassOf inv:Place ;
     rdfs:label "Source Place" ;
-    rdfs:comment "A place that generates or emits data." .
+    rdfs:comment "A place that provides data to computations." .
 
 inv:DestinationPlace a rdfs:Class ;
     rdfs:subClassOf inv:Place ;
     rdfs:label "Destination Place" ;
-    rdfs:comment "A place that receives or stores data." .
+    rdfs:comment "A place that receives data from computations." .
 
-### Properties for Named Entities (now includes Place, Definition, Invocation)
+inv:PlaceOfResolution a rdfs:Class ;
+    rdfs:label "Place of Resolution" ;
+    rdfs:comment "A self-contained structure where input values are evaluated into outputs." .
+
+#################################################################
+### === LOGIC AND EXPRESSIONS ===
+#################################################################
+
+inv:ExpressionFragment a rdfs:Class ;
+    rdfs:label "Expression Fragment" ;
+    rdfs:comment "A logic step inside a PlaceOfResolution, such as a computation, invocation, or assignment." .
+
+inv:ConditionalInvocation a rdfs:Class ;
+    rdfs:label "Conditional Invocation" ;
+    rdfs:comment "A dynamic invocation constructed from input signal values." .
+
+inv:ResolutionMapping a rdfs:Class ;
+    rdfs:label "Resolution Mapping" ;
+    rdfs:comment "A mapping of symbolic input patterns to resulting outputs." .
+
+inv:ArrayedExpression a rdfs:Class ;
+    rdfs:subClassOf inv:ExpressionFragment ;
+    rdfs:label "Arrayed Expression" ;
+    rdfs:comment "Template for generating a sequence of expressions over a range." .
+
+#################################################################
+### === SUPPORT STRUCTURES ===
+#################################################################
+
+inv:LoopRange a rdfs:Class ;
+    rdfs:label "Loop Range" ;
+    rdfs:comment "Defines start and end indices for a looping expression." .
+
+inv:EdgeBehavior a rdfs:Class ;
+    rdfs:label "Edge Behavior" ;
+    rdfs:comment "Specifies behavior for overflow/underflow in signal indexing." .
+
+#################################################################
+### === PROPERTIES ===
+#################################################################
+
+# === Naming and Identification ===
+
 inv:name a rdf:Property ;
     rdfs:domain inv:NamedEntity ;
     rdfs:range rdfs:Literal ;
     rdfs:label "name" ;
-    rdfs:comment "The identifier or tag used for matching named entities like places, definitions, and invocations." .
-
-inv:Outputs a rdf:Property ;
-    rdfs:domain inv:IO ;
-    rdfs:range rdfs:Literal ;
-    rdfs:label "outputs" ;
-    rdfs:comment "Names of output places." .
-
-inv:Output a rdf:Property ;
-    rdfs:domain inv:ConditionalInvocation ;
-    rdfs:range inv:DestinationPlace ;
-    rdfs:label "output" ;
-    rdfs:comment "The DestinationPlace where the result of this invocation should be written." .
-
-### Shared superclass for anything with I/O lists
-inv:HasIOLists a rdfs:Class ;
-    rdfs:label "Has IO Lists" ;
-    rdfs:comment "An abstract class for constructs with source and destination lists." .
-
-### I/O abstraction container
-inv:IO a rdfs:Class ;
-    rdfs:label "IO" ;
-    rdfs:comment "A convenience wrapper that contains both inputs and outputs." .
-
-inv:ConditionalInvocation a rdfs:Class ;
-    rdfs:label "Conditional Invocation" ;
-    rdfs:comment "A template-based dispatch that dynamically forms an invocation name from signal values like $A$B." .
-
-inv:hasIO a rdf:Property ;
-    rdfs:domain inv:HasIOLists ;
-    rdfs:range inv:IO ;
-    rdfs:label "has IO" ;
-    rdfs:comment "Associates an entity with its combined input and output names via the IO object." .
-
-
-inv:Inputs a rdf:Property ;
-    rdfs:domain [ owl:unionOf (inv:IO inv:Definition inv:ContainedDefinition) ] ;
-    rdfs:range rdfs:Literal ;
-    rdfs:label "inputs" ;
-    rdfs:comment "Input place names for a Definition or IO structure." .
-
-inv:Outputs a rdf:Property ;
-    rdfs:domain [ owl:unionOf (inv:IO inv:Definition inv:ContainedDefinition) ] ;
-    rdfs:range rdfs:Literal ;
-    rdfs:label "outputs" ;
-    rdfs:comment "Output place names for a Definition or IO structure." .
-
-### Invocation Name Property
-inv:invocationName a rdf:Property ;
-    rdfs:domain inv:ConditionalInvocation ;
-    rdfs:range rdfs:Literal ;
-    rdfs:label "invocation name" ;
-    rdfs:comment "A dynamically constructed name formed from the current values of input Places during a ConditionalInvocation. Used to index into resolution tables or dispatch specific behaviors." .
-
-### Core Constructs
-inv:Definition a rdfs:Class ;
-    rdfs:subClassOf inv:HasIOLists, inv:NamedEntity ;
-    rdfs:label "Definition" ;
-    rdfs:comment "A top-level construct mapping inputs to outputs via transformation logic." .
-
-inv:Invocation a rdfs:Class ;
-    rdfs:subClassOf inv:HasIOLists, inv:NamedEntity ;
-    rdfs:label "Invocation" ;
-    rdfs:comment "A symbolic activation of a Definition by name, carrying source and destination lists." .
-
-inv:SourceList a rdfs:Class ;
-    rdfs:label "Source List" ;
-    rdfs:comment "A list of source places serving as inputs." .
-
-inv:DestinationList a rdfs:Class ;
-    rdfs:label "Destination List" ;
-    rdfs:comment "A list of destination places serving as outputs." .
-
-inv:PlaceOfResolution a rdfs:Class ;
-    rdfs:label "Place of Resolution" ;
-    rdfs:comment "An expression or sub-structure where content is evaluated and transformed." .
-
-inv:ContainedDefinition a rdfs:Class ;
-    rdfs:label "Contained Definition" ;
-    rdfs:comment "A sub-definition or child construct nested within a larger definition." .
-
-### Properties linking HasIOLists to its parts
-inv:hasSourceList a rdf:Property ;
-    rdfs:domain inv:HasIOLists ;
-    rdfs:range inv:SourceList ;
-    rdfs:label "has source list" ;
-    rdfs:comment "Links a construct to its SourceList, which contains input places." .
-
-inv:hasDestinationList a rdf:Property ;
-    rdfs:domain inv:HasIOLists ;
-    rdfs:range inv:DestinationList ;
-    rdfs:label "has destination list" ;
-    rdfs:comment "Links a construct to its DestinationList, which contains output places." .
-
-### Properties for internal logic (Definition only)
-inv:hasResolutionPlace a rdf:Property ;
-    rdfs:domain inv:Definition ;
-    rdfs:range inv:PlaceOfResolution ;
-    rdfs:label "has resolution place" ;
-    rdfs:comment "Links a Definition to the place where input values are evaluated and transformed." .
-
-inv:ContainsDefinition a rdf:Property ;
-    rdfs:domain inv:Definition ;
-    rdfs:range inv:ContainedDefinition ;
-    rdfs:label "has contained definition" ;
-    rdfs:comment "Links a Definition to another nested Definition within it." .
-
-### Properties for Resolution Logic
-inv:hasInvocation a rdf:Property ;
-    rdfs:domain inv:PlaceOfResolution ;
-    rdfs:range inv:Invocation ;
-    rdfs:label "has invocation" ;
-    rdfs:comment "Allows a PlaceOfResolution to contain one or more invocations that operate on current inputs." .
-
-inv:hasExpressionFragment a rdf:Property ;
-    rdfs:domain inv:PlaceOfResolution ;
-    rdfs:range inv:ExpressionFragment ;
-    rdfs:label "has expression fragment" ;
-    rdfs:comment "Contains one or more fragments representing assignments, invocations, or logic steps." .
-
-### Updated Properties for ExpressionFragment (conditional handling)
-inv:invocationName a rdf:Property ;
-    rdfs:domain inv:ConditionalInvocation ;
-    rdfs:range rdfs:Literal ;
-    rdfs:label "invocation name" ;
-    rdfs:comment "The dynamically formed name of the conditional invocation, based on destination places." .
-
-inv:ResolvedInvocationName a rdf:Property ;
-  rdfs:label "Resolved Invocation Name" ;
-  rdfs:comment "The fully substituted invocation name derived from variable inputs like $A$B → 10. Used internally for resolution lookup without overwriting the original template." .
-
-inv:ResolutionMapping a rdfs:Class ;
-    rdfs:label "Resolution Mapping" ;
-    rdfs:comment "A compact mapping of symbolic inputs to outputs, used in conditional resolution scenarios." .
-
-inv:sourceNames rdf:type rdf:Property ;
-    rdfs:domain inv:ContainedDefinition ;
-    rdfs:range rdfs:Literal ;
-    rdfs:comment "Symbolic input names used in resolutionTable lookup. They match outer input values when evaluating conditional invocations." .
-
-inv:destinationNames rdf:type rdf:Property ;
-    rdfs:domain inv:ContainedDefinition ;
-    rdfs:range rdfs:Literal ;
-    rdfs:comment "Outputs targeted by resolutionTable key values." .
-
-inv:rRsolutionTable rdf:type rdf:Property ;
-    rdfs:comment "A map of symbolic input combinations to output values, e.g. { '00': '1', '01': '0' }. Interpreted using sourceNames and destinationNames." ;
-    rdfs:domain inv:ContainedDefinition ;
-    rdfs:range rdfs:Literal .
-
-### Expression Fragment Class
-inv:ExpressionFragment a rdfs:Class ;
-    rdfs:label "Expression Fragment" ;
-    rdfs:comment "A fragment of logic or operation used within a PlaceOfResolution. May include invocations, constants, and assignments." .
-
-inv:invokesDefinition a rdf:Property ;
-    rdfs:domain inv:ExpressionFragment ;
-    rdfs:range inv:Invocation ;
-    rdfs:label "invokes definition" ;
-    rdfs:comment "Points to a named invocation or definition called within this fragment." .
-
-inv:invocationArguments a rdf:Property ;
-    rdfs:domain inv:ExpressionFragment ;
-    rdfs:range rdfs:Literal ;
-    rdfs:label "invocation arguments" ;
-    rdfs:comment "Comma-separated literal values passed as arguments to the invocation." .
-
-inv:ArrayedExpression a rdfs:Class ;
-    rdfs:label "Arrayed Expression" ;
-    rdfs:comment "A reusable template for generating a sequence of logic expressions indexed by a loop variable." ;
-    rdfs:subClassOf inv:Expression .
-
-inv:range a rdf:Property ;
-    rdfs:domain inv:ArrayedExpression ;
-    rdfs:range inv:LoopRange ;
-    rdfs:label "range" ;
-    rdfs:comment "Defines the loop index boundaries for an ArrayedExpression." .
-
-inv:body a rdf:Property ;
-    rdfs:domain inv:ArrayedExpression ;
-    rdfs:range inv:ExpressionFragment ;
-    rdfs:label "body" ;
-    rdfs:comment "Template fragment to be instantiated across the loop index." .
-
-inv:edgeBehavior a rdf:Property ;
-    rdfs:domain inv:ArrayedExpression ;
-    rdfs:range inv:EdgeBehavior ;
-    rdfs:label "edgeBehavior" ;
-    rdfs:comment "Specifies how to handle underflow/overflow conditions for loop-indexed signals." .
-
-inv:LoopRange a rdfs:Class ;
-    rdfs:label "Loop Range" ;
-    rdfs:comment "Defines a numeric range with inclusive from/to values." .
-
-inv:from a rdf:Property ;
-    rdfs:domain inv:LoopRange ;
-    rdfs:range xsd:integer ;
-    rdfs:label "from" ;
-    rdfs:comment "Start index of the loop (inclusive)." .
-
-inv:to a rdf:Property ;
-    rdfs:domain inv:LoopRange ;
-    rdfs:range xsd:integer ;
-    rdfs:label "to" ;
-    rdfs:comment "End index of the loop (inclusive)." .
-
-inv:EdgeBehavior a rdfs:Class ;
-    rdfs:label "Edge Behavior" ;
-    rdfs:comment "Defines how signal lookups outside the loop index range should behave." .
-
-inv:underflow a rdf:Property ;
-    rdfs:domain inv:EdgeBehavior ;
-    rdfs:range xsd:string ;
-    rdfs:label "underflow" ;
-    rdfs:comment "What to do when accessing index < from. Values: 'zero', 'wrap', 'clamp'." .
-
-inv:overflow a rdf:Property ;
-    rdfs:domain inv:EdgeBehavior ;
-    rdfs:range xsd:string ;
-    rdfs:label "overflow" ;
-    rdfs:comment "What to do when accessing index > to. Values: 'zero', 'wrap', 'clamp'." .
-
-inv:ofDefinition a rdf:Property ;
-    rdfs:domain inv:Invocation ;
-    rdfs:range xsd:string ;
-    rdfs:label "ofDefinition" ;
-    rdfs:comment "Links an invocation instance to the name of the definition it invokes." .
+    rdfs:comment "Symbolic identifier for any NamedEntity." .
 
 inv:uuid a rdf:Property ;
     rdfs:domain inv:Invocation ;
     rdfs:range xsd:string ;
     rdfs:label "uuid" ;
-    rdfs:comment "Globally unique identifier assigned to this specific invocation instance." .
+    rdfs:comment "Globally unique identifier assigned to an Invocation." .
+
+inv:ofDefinition a rdf:Property ;
+    rdfs:domain inv:Invocation ;
+    rdfs:range xsd:string ;
+    rdfs:label "ofDefinition" ;
+    rdfs:comment "References the Definition that an Invocation calls." .
+
+# === Place Content ===
+
+inv:hasContent a rdf:Property ;
+    rdfs:domain inv:Place ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "hasContent" ;
+    rdfs:comment "The current value assigned to a Place." .
+
+### === LIST CONTAINERS ===
+
+inv:DestinationList a rdfs:Class ;
+    rdfs:label "Destination List" ;
+    rdfs:comment "A list of DestinationPlaces passed into a Definition as the first positional group." .
+
+inv:SourceList a rdfs:Class ;
+    rdfs:label "Source List" ;
+    rdfs:comment "A list of SourcePlaces passed into a Definition as the second positional group." .
+
+# === Conditional Invocations ===
+
+inv:invocationName a rdf:Property ;
+    rdfs:domain inv:ConditionalInvocation ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "invocationName" ;
+    rdfs:comment "Template-based name formed from current input signal values." .
+
+inv:resolvedInvocationName a rdf:Property ;
+    rdfs:domain inv:ConditionalInvocation ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "resolvedInvocationName" ;
+    rdfs:comment "Fully-resolved invocation name at runtime." .
+
+inv:resolutionTable a rdf:Property ;
+    rdfs:domain inv:ContainedDefinition ;
+    rdfs:range rdfs:Literal ;
+    rdfs:label "resolutionTable" ;
+    rdfs:comment "Symbolic mapping of input patterns to outputs." .
+
+# === Arrayed Expression ===
+
+inv:range a rdf:Property ;
+    rdfs:domain inv:ArrayedExpression ;
+    rdfs:range inv:LoopRange ;
+    rdfs:label "range" ;
+    rdfs:comment "Specifies loop start/end indices for arrayed generation." .
+
+inv:body a rdf:Property ;
+    rdfs:domain inv:ArrayedExpression ;
+    rdfs:range inv:ExpressionFragment ;
+    rdfs:label "body" ;
+    rdfs:comment "Expression fragment repeated across indices." .
+
+inv:edgeBehavior a rdf:Property ;
+    rdfs:domain inv:ArrayedExpression ;
+    rdfs:range inv:EdgeBehavior ;
+    rdfs:label "edgeBehavior" ;
+    rdfs:comment "Underflow/overflow handling for indexed array access." .
+
+# === Loop Range Properties ===
+
+inv:from a rdf:Property ;
+    rdfs:domain inv:LoopRange ;
+    rdfs:range xsd:integer ;
+    rdfs:label "from" ;
+    rdfs:comment "Start index for a loop range (inclusive)." .
+
+inv:to a rdf:Property ;
+    rdfs:domain inv:LoopRange ;
+    rdfs:range xsd:integer ;
+    rdfs:label "to" ;
+    rdfs:comment "End index for a loop range (inclusive)." .
+
+# === Edge Behavior Properties ===
+
+inv:underflow a rdf:Property ;
+    rdfs:domain inv:EdgeBehavior ;
+    rdfs:range xsd:string ;
+    rdfs:label "underflow" ;
+    rdfs:comment "How to handle index underflow (e.g., 'zero', 'wrap', 'clamp')." .
+
+inv:overflow a rdf:Property ;
+    rdfs:domain inv:EdgeBehavior ;
+    rdfs:range xsd:string ;
+    rdfs:label "overflow" ;
+    rdfs:comment "How to handle index overflow (e.g., 'zero', 'wrap', 'clamp')." .

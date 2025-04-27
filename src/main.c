@@ -11,11 +11,11 @@
 #include <signal.h>
 #include <sys/socket.h>
 #include <time.h>
+#include <stdarg.h>
 #include <dirent.h>
 #include "udp_send.h"  
 #include "mkrand.h"
 #include "tinyosc.h"
-#include "cJSON.h"
 #include "serd.h"
 #include "sqlite3.h"
 #include "rdf.h"
@@ -23,13 +23,9 @@
 #include "osc.h"
 #include "graph.h"
 #include "invocation.h"
-
-#include <time.h>
-#include <stdarg.h>
-
 #include "log.h"
 #include "wiring.h"
-#include "block.h"
+
 
 #define PSI_BLOCK_LEN 39
 #define OSC_PORT_XMIT 4242
@@ -46,7 +42,6 @@ const char* default_schema =
   "PRIMARY KEY (psi, subject, predicate, object)"
   ");";
 
-const char *active_block = NULL;
 
 char ipv6_address[INET6_ADDRSTRLEN];
 
@@ -87,28 +82,28 @@ void daemonize() {
 }
 
 
-cJSON* run_poll_cycle(sqlite3* db, const char* block) {
-    // Create the root JSON object
-    cJSON* root = cJSON_CreateObject();
 
-    // Timestamp
-    time_t now = time(NULL);
-    struct tm* tm_info = gmtime(&now);
-    char iso_timestamp[32];
-    strftime(iso_timestamp, sizeof(iso_timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
-    cJSON_AddStringToObject(root, "timestamp", iso_timestamp);
+Block *start_block(void) {
+    Block *blk = (Block *)calloc(1, sizeof(Block));
+    if (!blk) {
+        LOG_ERROR("❌ Failed to allocate Block structure.");
+        return NULL;
+    }
 
-    // Placeholder: executed invocations array
-    cJSON* executed = cJSON_CreateArray();
-    cJSON_AddItemToObject(root, "executed", executed);
+    char *new_psi = new_block(); // new_block() comes from  mkrand lib
+    if (!new_psi) {
+        LOG_ERROR("❌ Failed to generate PSI for new Block.");
+        free(blk);
+        return NULL;
+    }
 
-    // Placeholder: live values object
-    cJSON* live = cJSON_CreateObject();
-    cJSON_AddItemToObject(root, "live_values", live);
+    blk->psi = strdup(new_psi); // Save a copy inside Block
+    blk->definitions = NULL;
+    blk->invocations = NULL;
 
-    // TODO: Add logic here to scan triples and update these sections
-    return root;
-  
+    LOG_INFO("✅ New Block started with PSI: %s", blk->psi);
+
+    return blk;
 }
 
 
@@ -117,11 +112,13 @@ int main(int argc, char *argv[]) {
     const char* inv_dir = "./inv";
     char buffer[BUFFER_SIZE];
     sqlite3 *db = NULL;
+   
     LOG_INFO("Reality Compiler CLI\n");
-
     // 🧱 Genesis Block
-    active_block = new_block();
-    LOG_INFO("Active Block: %s\n", active_block);
+    Block* active_block = start_block();
+
+
+    LOG_INFO("Active Block: %s\n", active_block->psi);
     drop_old_triples(db, active_block);
 
     for (int i = 1; i < argc; ++i) {
@@ -161,9 +158,9 @@ int main(int argc, char *argv[]) {
 
     // 📥 Load RDF UI triples and Invocation IO mappings
    // load_rdf_from_dir("ui", db, block);
-    map_io(db, active_block, inv_dir);
-    eval(db, active_block);
-    dump_wiring(db, active_block);
+    map_io(active_block, inv_dir);
+    eval(active_block);
+    dump_wiring(active_block);
 
        // 🎛️ Handle flags
        if (argc > 1) {
@@ -173,7 +170,7 @@ int main(int argc, char *argv[]) {
             signal(SIGTERM, handle_signal);
             signal(SIGINT, handle_signal);
             LOG_INFO("🔍 Final DB Pointer before loop: %p\n", db);
-            run_osc_listener(db, active_block, &keep_running);
+            run_osc_listener(active_block, &keep_running);
             return 0;
         }
 
@@ -181,7 +178,7 @@ int main(int argc, char *argv[]) {
             signal(SIGTERM, handle_signal);
             signal(SIGINT, handle_signal);
             LOG_INFO("🧪 Debug Mode: Entering OSC Loop...\n");
-            run_osc_listener(db, active_block, &keep_running);
+            run_osc_listener(active_block, &keep_running);
             return 0;
         }
 
@@ -190,72 +187,10 @@ int main(int argc, char *argv[]) {
             return 0;
         }
 
-
-        if (strcmp(argv[1], "--osc") == 0 && argc >= 3) {
-            const char* json_input = argv[2];
-            char buffer[2048] = {0};
-        
-            // 🔁 Read from stdin if `-` is passed
-            if (strcmp(json_input, "-") == 0) {
-                size_t total_read = fread(buffer, 1, sizeof(buffer) - 1, stdin);
-                buffer[total_read] = '\0';
-                json_input = buffer;
-            }
-        
-            cJSON* json = cJSON_Parse(json_input);
-            if (!json) {
-                fprintf(stderr, "❌ Failed to parse JSON: %s\n", cJSON_GetErrorPtr());
-                exit(1);
-            }
-        
-            const cJSON* path = cJSON_GetObjectItemCaseSensitive(json, "path");
-            const cJSON* value = cJSON_GetObjectItemCaseSensitive(json, "value");
-        
-            if (cJSON_IsString(path) && cJSON_IsNumber(value)) {
-                send_osc_response(path->valuestring, value->valuedouble);
-            } else {
-                fprintf(stderr, "❌ Invalid JSON structure.\n");
-            }
-        
-            cJSON_Delete(json);
-            exit(0);
-        }
-
-
-        if (strcmp(argv[1], "--poll") == 0) {
-            LOG_INFO("🔍 Starting poll cycle...");
-            cJSON* report = run_poll_cycle(db, active_block);
-        
-            if (report) {
-                LOG_INFO("✅ Poll cycle returned successfully.");
-                char* out = cJSON_Print(report);
-                fprintf(stdout, "%s\n", out);  // same result, but more control
-                free(out);
-                cJSON_Delete(report);
-            } else {
-                LOG_ERROR("❌ Polling cycle failed: report was NULL.");
-            }
-        
-            sqlite3_close(db);
-            return 0;
-        }
     }
-
-    // 🧪 Default test block
-    const char *json_string = "{\"name\": \"Reality Compiler\"}";
-    cJSON *json = cJSON_Parse(json_string);
-    if (json) {
-        cJSON *name = cJSON_GetObjectItemCaseSensitive(json, "name");
-        if (cJSON_IsString(name) && name->valuestring != NULL) {
-            LOG_INFO("JSON Parsed: Name = %s\n", name->valuestring);
-        }
-        cJSON_Delete(json);
-    }
-
-    LOG_INFO("Serd initialized.\n");
 
     int len = tosc_writeMessage(buffer, BUFFER_SIZE, "/generate_ipv6", "");
-    process_osc_message(db, buffer, active_block, len);
+    process_osc_message(active_block, buffer, len);
 
     sqlite3_close(db);
 

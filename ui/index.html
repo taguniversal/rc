@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Reality Compiler Viewer</title>
+  <script src="https://unpkg.com/htmx.org@1.9.4"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      margin: 0;
+    }
+    nav {
+      width: 200px;
+      background: #f5f5f5;
+      padding: 1rem;
+      height: 100vh;
+      overflow-y: auto;
+      border-right: 1px solid #ccc;
+    }
+    nav a {
+      display: block;
+      margin-bottom: 0.75rem;
+      color: #333;
+      text-decoration: none;
+    }
+    nav a:hover {
+      text-decoration: underline;
+    }
+    main {
+      flex: 1;
+      padding: 2rem;
+    }
+    pre {
+      background: #eee;
+      padding: 1rem;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <h3>Gates</h3>
+    <a href="xor.html" hx-get="xor.html" hx-target="#content" hx-swap="innerHTML">XOR</a>
+    <a href="and.html" hx-get="and.html" hx-target="#content" hx-swap="innerHTML">AND</a>
+    <a href="nor.html" hx-get="nor.html" hx-target="#content" hx-swap="innerHTML">NOR</a>
+    <a href="not.html" hx-get="not.html" hx-target="#content" hx-swap="innerHTML">NOT</a>
+  </nav>
+  <main>
+    <div id="content">
+      <h2>Welcome</h2>
+      <p>Select a gate from the sidebar to explore its structure.</p>
+    </div>
+  </main>
+</body>
+</html>
