@@ -12,8 +12,6 @@
 #include <string.h>
 #include <unistd.h>
 
-static void free_signals(Signal *sig);
-
 char *load_file(const char *filename) {
   FILE *file = fopen(filename, "rb");
   if (!file)
@@ -168,7 +166,6 @@ void process_invocation(sqlite3 *db, const char *block, mxml_node_t *tree,
 
   // (Optional: You can add more fields later if invocations grow more complex.)
 }
-
 int validate_xml_structure(mxml_node_t *tree) {
   if (!tree)
     return -1;
@@ -178,12 +175,53 @@ int validate_xml_structure(mxml_node_t *tree) {
     return -1;
 
   // Allow only certain root elements
-  if (strcmp(tag, "Definition") == 0 || strcmp(tag, "Invocation") == 0 ||
-      strcmp(tag, "ArrayedExpression") == 0) {
-    return 0; // valid
+  if (!(strcmp(tag, "Definition") == 0 || strcmp(tag, "Invocation") == 0 ||
+        strcmp(tag, "ArrayedExpression") == 0)) {
+    LOG_ERROR("❌ Invalid root element: %s", tag);
+    return -1;
   }
 
-  return -1; // invalid
+  // === Check SourceList ===
+  mxml_node_t *source_list =
+      mxmlFindElement(tree, tree, "SourceList", NULL, NULL, MXML_DESCEND_FIRST);
+  // Check SourceList contents
+  if (source_list) {
+    for (mxml_node_t *child = mxmlGetFirstChild(source_list); child;
+         child = mxmlGetNextSibling(child)) {
+
+      if (strcmp(mxmlGetElement(child), "SourcePlace") != 0) {
+        LOG_ERROR(
+            "❌ Invalid element inside SourceList: %s (expected SourcePlace)",
+            mxmlGetElement(child));
+        return -1;
+      }
+
+      const char *from_attr = mxmlElementGetAttr(child, "from");
+      const char *value_attr = mxmlElementGetAttr(child, "value");
+
+      if ((from_attr && value_attr) || (!from_attr && !value_attr)) {
+        LOG_ERROR("❌ SourcePlace must have exactly one of 'from' or 'value'");
+        return -1;
+      }
+    }
+  }
+
+  // === Check DestinationList ===
+  mxml_node_t *dest_list = mxmlFindElement(tree, tree, "DestinationList", NULL,
+                                           NULL, MXML_DESCEND_FIRST);
+  if (dest_list) {
+    for (mxml_node_t *child = mxmlGetFirstChild(dest_list); child;
+         child = mxmlGetNextSibling(child)) {
+      if (strcmp(mxmlGetElement(child), "DestinationPlace") != 0) {
+        LOG_ERROR("❌ Invalid element inside DestinationList: %s (expected "
+                  "DestinationPlace)",
+                  mxmlGetElement(child));
+        return -1;
+      }
+    }
+  }
+
+  return 0; // valid
 }
 
 ConditionalInvocation *parse_conditional_invocation(mxml_node_t *ci_node) {
@@ -223,7 +261,86 @@ ConditionalInvocation *parse_conditional_invocation(mxml_node_t *ci_node) {
   return ci;
 }
 
+void parse_sources(mxml_node_t *parent, void **list_head, bool is_definition) {
+  mxml_node_t *src = mxmlFindElement(
+      parent, parent, is_definition ? "SourcePlace" : "SourcePlace", NULL, NULL,
+      MXML_DESCEND_FIRST);
 
+  while (src) {
+    const char *from_attr = mxmlElementGetAttr(src, "from");
+    const char *value_attr = mxmlElementGetAttr(src, "value");
+
+    if (is_definition) {
+      // For Definitions, SourcePlace only has a name
+      const char *name_attr = mxmlElementGetAttr(src, "name");
+      if (!name_attr) {
+        LOG_ERROR("❌ Definition SourcePlace missing 'name' attribute");
+        return;
+      }
+      SourcePlace *place = (SourcePlace *)calloc(1, sizeof(SourcePlace));
+      place->name = strdup(name_attr);
+      place->signal = &NULL_SIGNAL;
+      place->next = *(SourcePlace **)list_head;
+      *(SourcePlace **)list_head = place;
+      LOG_INFO("📎 Definition source added: %s", place->name);
+
+    } else {
+      // For Invocations, SourcePlace has either from= or value=
+      if ((from_attr && value_attr) || (!from_attr && !value_attr)) {
+        LOG_ERROR("❌ Invocation SourcePlace must have exactly one of 'from' "
+                  "or 'value'");
+        return;
+      }
+
+      SourcePlace *place = (SourcePlace *)calloc(1, sizeof(SourcePlace));
+      if (from_attr) {
+        place->name = strdup(from_attr);
+        place->value = NULL;
+        LOG_INFO("🔗 Invocation source (link): %s", place->name);
+      } else {
+        place->name = NULL;
+        place->value = strdup(value_attr);
+        LOG_INFO("💎 Invocation source (literal): %s", place->value);
+      }
+      place->signal = &NULL_SIGNAL;
+      place->next = *(SourcePlace **)list_head;
+      *(SourcePlace **)list_head = place;
+    }
+
+    src = mxmlFindElement(src, parent, "SourcePlace", NULL, NULL,
+                          MXML_DESCEND_FIRST);
+  }
+}
+
+void parse_destinations(mxml_node_t *parent, void **list_head,
+                        bool is_definition) {
+  mxml_node_t *dst = mxmlFindElement(
+      parent, parent, is_definition ? "DestinationPlace" : "DestinationPlace",
+      NULL, NULL, MXML_DESCEND_FIRST);
+  while (dst) {
+    const char *name_attr = mxmlElementGetAttr(dst, "name");
+    if (name_attr) {
+      if (is_definition) {
+        DestinationPlace *place =
+            (DestinationPlace *)calloc(1, sizeof(DestinationPlace));
+        place->name = strdup(name_attr);
+        place->signal = &NULL_SIGNAL;
+        place->next = *(DestinationPlace **)list_head;
+        *(DestinationPlace **)list_head = place;
+        LOG_INFO("📎 Definition destination added: %s", place->name);
+      } else {
+        Signal *sig = (Signal *)calloc(1, sizeof(Signal));
+        sig->name = strdup(name_attr);
+        sig->next = *(Signal **)list_head;
+        *(Signal **)list_head = sig;
+        LOG_INFO("📎 Invocation destination added: %s", sig->name);
+      }
+    }
+    dst = mxmlFindElement(
+        dst, parent, is_definition ? "DestinationPlace" : "DestinationPlace",
+        NULL, NULL, MXML_DESCEND_FIRST);
+  }
+}
 
 Definition *parse_definition(mxml_node_t *tree, const char *filename) {
   if (!tree)
@@ -247,49 +364,19 @@ Definition *parse_definition(mxml_node_t *tree, const char *filename) {
     def->name = strdup(filename);
     LOG_WARN("⚠️ No name found for %s, using filename fallback", filename);
   }
-
   // 2. Parse SourceList
   mxml_node_t *source_list =
       mxmlFindElement(tree, tree, "SourceList", NULL, NULL, MXML_DESCEND_FIRST);
   if (source_list) {
-    mxml_node_t *src = mxmlFindElement(source_list, source_list, "source", NULL,
-                                       NULL, MXML_DESCEND_FIRST);
-    while (src) {
-      const char *name_attr = mxmlElementGetAttr(src, "name");
-      if (name_attr) {
-        Signal *sig = (Signal *)calloc(1, sizeof(Signal));
-        sig->name = strdup(name_attr);
-        sig->next = def->sources;
-        def->sources = sig;
-
-        LOG_INFO("📎 Source signal added: %s", sig->name);
-      }
-      src = mxmlFindElement(src, source_list, "source", NULL, NULL,
-                            MXML_DESCEND_FIRST);
-    }
+    parse_sources(source_list, (void **)&def->sources, true);
   } else {
     LOG_WARN("⚠️ No SourceList found for %s", filename);
   }
 
-  // 3. Parse DestinationList
   mxml_node_t *dest_list = mxmlFindElement(tree, tree, "DestinationList", NULL,
                                            NULL, MXML_DESCEND_FIRST);
   if (dest_list) {
-    mxml_node_t *dst = mxmlFindElement(dest_list, dest_list, "destination",
-                                       NULL, NULL, MXML_DESCEND_FIRST);
-    while (dst) {
-      const char *name_attr = mxmlElementGetAttr(dst, "name");
-      if (name_attr) {
-        Signal *sig = (Signal *)calloc(1, sizeof(Signal));
-        sig->name = strdup(name_attr);
-        sig->next = def->destinations;
-        def->destinations = sig;
-
-        LOG_INFO("📎 Destination signal added: %s", sig->name);
-      }
-      dst = mxmlFindElement(dst, dest_list, "destination", NULL, NULL,
-                            MXML_DESCEND_FIRST);
-    }
+    parse_destinations(dest_list, (void **)&def->destinations, true);
   } else {
     LOG_WARN("⚠️ No DestinationList found for %s", filename);
   }
@@ -326,7 +413,7 @@ Invocation *parse_invocation(mxml_node_t *tree, const char *filename) {
     const char *text = mxmlGetText(name_node, NULL);
     if (text) {
       inv->name = strdup(text);
-      LOG_INFO("🔖 Definition name: %s", inv->name);
+      LOG_INFO("🔖 Invocation name: %s", inv->name);
     }
   } else {
     inv->name = strdup(filename);
@@ -337,21 +424,7 @@ Invocation *parse_invocation(mxml_node_t *tree, const char *filename) {
   mxml_node_t *source_list =
       mxmlFindElement(tree, tree, "SourceList", NULL, NULL, MXML_DESCEND_FIRST);
   if (source_list) {
-    mxml_node_t *src = mxmlFindElement(source_list, source_list, "source", NULL,
-                                       NULL, MXML_DESCEND_FIRST);
-    while (src) {
-      const char *name_attr = mxmlElementGetAttr(src, "name");
-      if (name_attr) {
-        Signal *sig = (Signal *)calloc(1, sizeof(Signal));
-        sig->name = strdup(name_attr);
-        sig->next = inv->sources;
-        inv->sources = sig;
-
-        LOG_INFO("📎 Invocation source added: %s", sig->name);
-      }
-      src = mxmlFindElement(src, source_list, "source", NULL, NULL,
-                            MXML_DESCEND_FIRST);
-    }
+    parse_sources(source_list, (void **)&inv->sources, false);
   } else {
     LOG_WARN("⚠️ No SourceList found for Invocation %s", inv->name);
   }
@@ -360,28 +433,11 @@ Invocation *parse_invocation(mxml_node_t *tree, const char *filename) {
   mxml_node_t *dest_list = mxmlFindElement(tree, tree, "DestinationList", NULL,
                                            NULL, MXML_DESCEND_FIRST);
   if (dest_list) {
-    mxml_node_t *dst = mxmlFindElement(dest_list, dest_list, "destination",
-                                       NULL, NULL, MXML_DESCEND_FIRST);
-    while (dst) {
-      const char *name_attr = mxmlElementGetAttr(dst, "name");
-      if (name_attr) {
-        Signal *sig = (Signal *)calloc(1, sizeof(Signal));
-        sig->name = strdup(name_attr);
-        sig->next = inv->destinations;
-        inv->destinations = sig;
-
-        LOG_INFO("📎 Invocation destination added: %s", sig->name);
-      }
-      dst = mxmlFindElement(dst, dest_list, "destination", NULL, NULL,
-                            MXML_DESCEND_FIRST);
-    }
+    parse_destinations(dest_list, (void **)&inv->destinations,
+                       false); // false = DestinationPlace
   } else {
     LOG_WARN("⚠️ No DestinationList found for Invocation %s", inv->name);
   }
-
-  // 4. (Later) Definition linking
-  // For now, inv->definition = NULL;
-  // We'll link it during resolution pass after loading all Definitions
 
   return inv;
 }
@@ -449,7 +505,7 @@ void parse_block_from_xml(Block *blk, const char *inv_dir) {
 
 void map_io(Block *blk, const char *inv_dir) {
   DIR *dir = opendir(inv_dir);
-  bool matched = false;
+
   LOG_INFO("\xF0\x9F\x94\x8D map_io starting. in %s\n", inv_dir);
 
   if (!dir) {
@@ -463,8 +519,7 @@ void map_io(Block *blk, const char *inv_dir) {
 }
 
 // Memory freeing functions
-
-static void free_signals(Signal *sig) {
+void free_signal(Signal *sig) {
   while (sig) {
     Signal *next = sig->next;
     if (sig->name)
@@ -473,6 +528,28 @@ static void free_signals(Signal *sig) {
       free(sig->content);
     free(sig);
     sig = next;
+  }
+}
+
+void free_source_places(SourcePlace *src) {
+  while (src) {
+    SourcePlace *next = src->next;
+    if (src->name)
+      free(src->name);
+    free_signal(src->signal);
+    free(src);
+    src = next;
+  }
+}
+
+void free_destination_places(DestinationPlace *dst) {
+  while (dst) {
+    DestinationPlace *next = dst->next;
+    if (dst->name)
+      free(dst->name);
+    free_signal(dst->signal);
+    free(dst);
+    dst = next;
   }
 }
 
@@ -500,8 +577,8 @@ static void free_definitions(Definition *def) {
     Definition *next = def->next;
     if (def->name)
       free(def->name);
-    free_signals(def->sources);
-    free_signals(def->destinations);
+    free_source_places(def->sources);
+    free_destination_places(def->destinations);
     free_conditional_invocation(def->conditional_invocation);
     free(def);
     def = next;
@@ -513,8 +590,8 @@ static void free_invocations(Invocation *inv) {
     Invocation *next = inv->next;
     if (inv->name)
       free(inv->name);
-    free_signals(inv->sources);
-    free_signals(inv->destinations);
+    free_source_places(inv->sources);
+    free_destination_places(inv->destinations);
     free(inv);
     inv = next;
   }

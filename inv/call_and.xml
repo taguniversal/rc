@@ -2,11 +2,11 @@
   <name>AND</name>
 
   <DestinationList>
-    <DestinationPlace name="1"/>
-    <DestinationPlace name="1"/>
+    <DestinationPlace name="result"/>
   </DestinationList>
 
   <SourceList>
-    <SourcePlace name="result"/>
+    <SourcePlace value="1"/>
+    <SourcePlace value="0"/>
   </SourceList>
 </Invocation>

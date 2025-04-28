@@ -3,12 +3,12 @@
   <name>XOR</name>
 
   <SourceList>
-    <source name="A"/>
-    <source name="B"/>
+    <SourcePlace name="A"/>
+    <SourcePlace name="B"/>
   </SourceList>
 
   <DestinationList>
-    <destination name="Out0"/>
+    <DestinationPlace name="Out0"/>
   </DestinationList>
 
 <ConditionalInvocation>

@@ -3,8 +3,8 @@
 
   <!-- Internally read from these -->
   <SourceList>
-    <source name="A"/>
-    <source name="B"/>
+    <SourcePlace name="A"/>
+    <SourcePlace name="B"/>
   </SourceList>
 
   <!-- Internally write to these -->

@@ -2,57 +2,90 @@
 #define EVAL_H
 
 #include "sqlite3.h"
+#include <stdint.h>
+#define SAFETY_GUARD
 
+// === Forward Declarations ===
+typedef struct Signal Signal;
+typedef struct SourcePlace SourcePlace;
+typedef struct DestinationPlace DestinationPlace;
+typedef struct ConditionalInvocation ConditionalInvocation;
+typedef struct Invocation Invocation;
+typedef struct Definition Definition;
+typedef struct Block Block;
 
-typedef struct Signal {
-  char *name;          // e.g., "A", "Out0"
-  char *content;       // e.g., "0", "1", etc. (can NULL if unbound)
-  struct Signal *next; // for linked list inside Invocation
-} Signal;
+// === Core Structures ===
+
+struct Signal {
+  char *name;
+  char *content;
+  struct Signal *next;
+#ifdef SAFETY_GUARD
+  uint64_t safety_guard;
+#endif
+};
+
+extern struct Signal NULL_SIGNAL;
+
+// === Boundary Structs ===
+
+struct SourcePlace {
+  char *name;     // If pulling from a place, this is set (from=...)
+  char *value;    // If injecting a literal, this is set (value=...)
+  Signal *signal; // Points to actual signal (or &NULL_SIGNAL)
+  SourcePlace *next;
+};
+
+struct DestinationPlace {
+  char *name;     // Name of the destination
+  Signal *signal; // Points to actual signal (or &NULL_SIGNAL)
+  DestinationPlace *next;
+};
+
+// === Conditional Invocation for dynamic behavior ===
 
 typedef struct ConditionalInvocationCase {
-    char *pattern; // e.g., "00", "01", etc.
-    char *result;  // e.g., "0" or "1"
-    struct ConditionalInvocationCase *next;
-  } ConditionalInvocationCase;
-  
-  typedef struct ConditionalInvocation {
-    char *invocation_template;        // e.g., "$A$B"
-    ConditionalInvocationCase *cases; // linked list of cases
-  } ConditionalInvocation;
-  
-  
-typedef struct Invocation {
-  char *name; // UUID or unique name of the invocation
+  char *pattern; // e.g., "00", "01", etc.
+  char *result;  // e.g., "0", "1"
+  struct ConditionalInvocationCase *next;
+} ConditionalInvocationCase;
 
-  Signal *sources;      // linked list of Source signals
-  Signal *destinations; // linked list of Destination signals
+struct ConditionalInvocation {
+  char *invocation_template;        // e.g., "$A$B"
+  ConditionalInvocationCase *cases; // Linked list
+};
 
-  struct Definition
-      *definition;         // pointer back to its Definition (if contained)
-  struct Invocation *next; // for chaining multiple Invocations in the block
-} Invocation;
+// === Core Graph Nodes ===
 
-typedef struct Definition {
-    char *name; // e.g., "XOR", "AND", etc.
-  
-    Signal *sources;      // expected inputs
-    Signal *destinations; // expected outputs
-  
-    // ConditionalInvocation mapping
-    ConditionalInvocation *conditional_invocation;
-  
-    struct Definition *next; // for chaining definitions if needed
-  } Definition;
+struct Invocation {
+  char *name; // Unique name of invocation
 
+  SourcePlace *sources;           // Boundary input points
+  DestinationPlace *destinations; // Boundary output points
 
-typedef struct Block {
-  char *psi;
-  Invocation *invocations; // linked list of all invocations in this block
-  Definition *definitions; // linked list of all definitions
-} Block;
+  Definition *definition; // Linked back to definition (if any)
+  Invocation *next;       // Linked list
+};
 
-// int cycle(sqlite3* db, const char* block, const char* expr_id) ;
-int eval(Block* blk);
+struct Definition {
+  char *name; // Logic block name ("AND", "XOR", etc.)
 
-#endif 
+  SourcePlace *sources;           // Expected inputs
+  DestinationPlace *destinations; // Expected outputs
+
+  ConditionalInvocation *conditional_invocation; // Optional logic
+
+  Definition *next;
+};
+
+struct Block {
+  char *psi;               // Unique block ID (from mkrand)
+  Invocation *invocations; // Linked list of invocations
+  Definition *definitions; // Linked list of definitions
+};
+
+// === API ===
+
+int eval(Block *blk);
+
+#endif

@@ -13,11 +13,11 @@
   <name>NOT</name>
 
  <SourceList>
-    <source name="A"/>
+    <SourcePlace name="A"/>
   </SourceList>
 
   <DestinationList>
-    <destination name="Out0"/>
+    <DestinationPlace name="Out0"/>
   </DestinationList>
 
 

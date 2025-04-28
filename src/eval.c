@@ -14,6 +14,17 @@
 #include <unistd.h>      // isatty, fileno
 #define MAX_ITERATIONS 5 // Or whatever feels safe for your app
 
+#include "eval.h"
+
+struct Signal NULL_SIGNAL = {
+  .name = "NULL",
+  .content = NULL,
+  .next = NULL,
+#ifdef SAFETY_GUARD
+  .safety_guard = 0xDEADBEEFCAFEBABE,
+#endif
+};
+
 /**
  * Checks whether an Invocation's input or output boundary is complete.
  * For a given direction ("inv:Input" or "inv:Output"), this verifies that all

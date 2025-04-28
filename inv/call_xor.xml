@@ -1,12 +1,12 @@
 <Invocation>
   <name>XOR</name>
 
-  <DestinationList>
-    <DestinationPlace name="1"/>
-    <DestinationPlace name="0"/>
-  </DestinationList>
-
   <SourceList>
-    <SourcePlace name="XOR_Out"/>
+    <SourcePlace value="1"/>
+    <SourcePlace value="0"/>
   </SourceList>
+
+  <DestinationList>
+    <DestinationPlace name="XOR_Out"/>
+  </DestinationList>
 </Invocation>
