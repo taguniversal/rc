@@ -1,6 +1,6 @@
 <Definition>
 
-  <name>OR</name>
+  <Name>OR</Name>
 
  <SourceList>
     <SourcePlace name="A"/>
@@ -14,9 +14,9 @@
 
   <ConditionalInvocation>
     <invocationName>$A$B</invocationName>
-    <case value="00">0</case>
-    <case value="01">1</case>
-    <case value="10">1</case>
-    <case value="11">1</case>
+    <Case value="00">0</Case>
+    <Case value="01">1</Case>
+    <Case value="10">1</Case>
+    <Case value="11">1</Case>
   </ConditionalInvocation>
 </Definition>

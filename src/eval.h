@@ -3,6 +3,7 @@
 
 #include "sqlite3.h"
 #include <stdint.h>
+#include <ctype.h>
 #define SAFETY_GUARD
 
 // === Forward Declarations ===
@@ -84,8 +85,19 @@ struct Block {
   Definition *definitions; // Linked list of definitions
 };
 
-// === API ===
+typedef struct {
+  char *name;      // "AND", "OR", "XOR", etc.
+  char *filepath;  // ./inv/and.xml
+} DefinitionBlueprint;
 
+typedef struct {
+  DefinitionBlueprint **blueprints;
+  size_t blueprint_count;
+} DefinitionLibrary;
+
+
+// === API ===
+void link_invocations(Block *blk);
 int eval(Block *blk);
 
 #endif

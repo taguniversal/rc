@@ -1,5 +1,5 @@
 <Definition>
-  <name>NOR</name>
+  <Name>NOR</Name>
 
   <SourceList>
     <SourcePlace name="A"/>
@@ -10,26 +10,21 @@
     <DestinationPlace name="Out0"/>
   </DestinationList>
 
-  <PlaceOfResolution>
-    <hasExpressionFragment>
       <Invocation>
-        <invocationName>OR</invocationName>
+        <InvocationName>OR</InvocationName>
         <Inputs>
           <Input>A</Input>
           <Input>B</Input>
         </Inputs>
         <Output>Temp0</Output>
       </Invocation>
-    </hasExpressionFragment>
 
-    <hasExpressionFragment>
       <Invocation>
-        <invocationName>NOT</invocationName>
+        <InvocationName>NOT</InvocationName>
         <Inputs>
           <Input>Temp0</Input>
         </Inputs>
         <Output>Out0</Output>
       </Invocation>
-    </hasExpressionFragment>
-  </PlaceOfResolution>
+
 </Definition>

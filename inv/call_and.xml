@@ -1,5 +1,5 @@
 <Invocation>
-  <name>AND</name>
+  <Name>AND</Name>
 
   <DestinationList>
     <DestinationPlace name="result"/>

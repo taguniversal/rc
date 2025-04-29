@@ -1,16 +1,6 @@
 <Definition>
-  <meta>
-    <xpath>
-      <findInputs>/IO/inputs/input</findInputs>
-      <findOutputs>/IO/outputs/output</findOutputs>
-      <findInputByName>concat('/IO/inputs/input[@name=\"', $inputName, '\"]')</findInputByName>
-      <findOutputByName>concat('/IO/outputs/output[@name=\"', $outputName, '\"]')</findOutputByName>
-    </xpath>
-    <version>1.0</version>
-    <description>Standard single-input NOT gate definition with conditional truth table.</description>
-  </meta>
 
-  <name>NOT</name>
+  <Name>NOT</Name>
 
  <SourceList>
     <SourcePlace name="A"/>
@@ -22,8 +12,8 @@
 
 
   <ConditionalInvocation>
-    <invocationName>$A</invocationName>
-    <case value="0">1</case>
-    <case value="1">0</case>
+    <InvocationName>$A</InvocationName>
+    <Case value="0">1</Case>
+    <Case value="1">0</Case>
   </ConditionalInvocation>
 </Definition>

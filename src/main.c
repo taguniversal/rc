@@ -18,7 +18,6 @@
 #include "tinyosc.h"
 #include "serd.h"
 #include "sqlite3.h"
-#include "rdf.h"
 #include "eval.h"
 #include "osc.h"
 #include "graph.h"
@@ -119,7 +118,6 @@ int main(int argc, char *argv[]) {
 
 
     LOG_INFO("Active Block: %s\n", active_block->psi);
-    drop_old_triples(db, active_block);
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--state") == 0 && i + 1 < argc) {
@@ -156,9 +154,9 @@ int main(int argc, char *argv[]) {
         LOG_INFO("✅ Schema loaded\n");
     }
 
-    // 📥 Load RDF UI triples and Invocation IO mappings
-   // load_rdf_from_dir("ui", db, block);
-    map_io(active_block, inv_dir);
+    DefinitionLibrary *deflib = create_definition_library();
+    parse_block_from_xml(active_block, inv_dir);
+    link_invocations(active_block);
     eval(active_block);
     dump_wiring(active_block);
 

@@ -1,6 +1,6 @@
 <Definition>
 
-  <name>XOR</name>
+  <Name>XOR</Name>
 
   <SourceList>
     <SourcePlace name="A"/>
@@ -12,12 +12,12 @@
   </DestinationList>
 
 <ConditionalInvocation>
-  <invocationName>$A$B</invocationName>
+  <InvocationName>$A$B</InvocationName>
 
-  <case value="00">0</case>
-  <case value="01">1</case>
-  <case value="10">1</case>
-  <case value="11">0</case>
+  <Case value="00">0</Case>
+  <Case value="01">1</Case>
+  <Case value="10">1</Case>
+  <Case value="11">0</Case>
 </ConditionalInvocation>
 
 </Definition>

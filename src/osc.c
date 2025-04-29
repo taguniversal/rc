@@ -2,7 +2,6 @@
 #include "eval.h"
 #include "log.h"
 #include "mkrand.h"
-#include "rdf.h"
 #include "sqlite3.h"
 #include "tinyosc.h"
 #include "util.h"

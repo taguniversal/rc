@@ -3,7 +3,7 @@ CFLAGS = -Wall @@CFLAGS_EXTRA@@ -Iexternal/serd -Iexternal/mkrand -Iexternal/tin
 LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm -lmxml4 -L/usr/local/lib
 
 # For rcnode
-rcnode_SRC = src/util.c src/main.c src/eval.c src/rdf.c \
+rcnode_SRC = src/util.c src/main.c src/eval.c  \
    src/udp_send.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c \
    src/osc.c  src/graph.c  src/invocation.c src/wiring.c
 

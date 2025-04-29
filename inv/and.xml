@@ -1,5 +1,5 @@
 <Definition>
-  <name>AND</name>
+  <Name>AND</Name>
 
   <!-- Internally read from these -->
   <SourceList>
@@ -12,11 +12,11 @@
     <destination name="$out"/>
   </DestinationList>
 
-  <Conditionalocation>
-   <ocationName>$A$B</ocationName>
-    <case value="00">0</case>
-    <case value="01">0</case>
-    <case value="10">0</case>
-    <case value="11">1</case>
-  </Conditionalocation>
+  <ConditionalInvocation>
+   <InvocationName>$A$B</InvocationName>
+    <Case value="00">0</Case>
+    <Case value="01">0</Case>
+    <Case value="10">0</Case>
+    <Case value="11">1</Case>
+  </ConditionalInvocation>
 </Definition>

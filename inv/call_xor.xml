@@ -1,5 +1,5 @@
 <Invocation>
-  <name>XOR</name>
+  <Name>XOR</Name>
 
   <SourceList>
     <SourcePlace value="1"/>

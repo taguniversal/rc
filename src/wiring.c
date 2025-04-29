@@ -1,6 +1,5 @@
 #include "wiring.h"
 #include "log.h"
-#include "rdf.h"
 #include "eval.h"
 #include <stdio.h>
 #include <stdlib.h>
