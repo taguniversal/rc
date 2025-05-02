@@ -155,7 +155,14 @@ int main(int argc, char *argv[]) {
     }
 
     DefinitionLibrary *deflib = create_definition_library();
+    if (validate_snippets(inv_dir) != 0) {
+        fprintf(stderr, "❌ Validation failed");
+    } else {
+        LOG_INFO("✅ Snippets validated.\n");
+    }
+
     parse_block_from_xml(active_block, inv_dir);
+    write_network_json(active_block, "./graph.json");
     link_invocations(active_block);
     eval(active_block);
     dump_wiring(active_block);
@@ -181,7 +188,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (strcmp(argv[1], "--export-graph") == 0) {
-            export_dot(db, "graph.dot");
+            write_network_json(active_block, "./graph.json");
             return 0;
         }
 

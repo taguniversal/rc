@@ -77,31 +77,32 @@ static bool all_inputs_ready(Definition *def) {
 
 void link_invocations(Block *blk) {
   if (!blk)
-      return;
+    return;
 
   for (Invocation *inv = blk->invocations; inv; inv = inv->next) {
-      for (Definition *def = blk->definitions; def; def = def->next) {
-          if (strcmp(inv->name, def->name) == 0) {
-              inv->definition = def;
-              LOG_INFO("🔗 Linked Invocation %s → Definition %s", inv->name, def->name);
-              break;
-          }
+    for (Definition *def = blk->definitions; def; def = def->next) {
+      if (strcmp(inv->name, def->name) == 0) {
+        inv->definition = def;
+        LOG_INFO("🔗 Linked Invocation %s → Definition %s", inv->name,
+                 def->name);
+        break;
       }
-      if (!inv->definition) {
-          LOG_WARN("⚠️ No matching Definition found for Invocation %s", inv->name);
-      }
+    }
+    if (!inv->definition) {
+      LOG_WARN("⚠️ No matching Definition found for Invocation %s", inv->name);
+    }
   }
 }
 
 int eval_invocation(Invocation *inv, Block *blk) {
   if (!inv) {
-      LOG_WARN("⚠️ Null Invocation passed to eval_invocation, skipping.");
-      return 0;
+    LOG_WARN("⚠️ Null Invocation passed to eval_invocation, skipping.");
+    return 0;
   }
 
   if (!inv->definition) {
-      LOG_WARN("⚠️ Invocation %s has no linked Definition — skipping", inv->name);
-      return 0;
+    LOG_WARN("⚠️ Invocation %s has no linked Definition — skipping", inv->name);
+    return 0;
   }
 
   LOG_INFO("🚀 Evaluating Invocation: %s", inv->name);
@@ -112,37 +113,38 @@ int eval_invocation(Invocation *inv, Block *blk) {
   SourcePlace *def_src = inv->definition->sources;
 
   while (inv_src && def_src) {
-      if (inv_src->signal != &NULL_SIGNAL && inv_src->signal->content) {
-          // Literal or named content
-          if (def_src->signal == &NULL_SIGNAL) {
-              Signal *new_sig = (Signal *)calloc(1, sizeof(Signal));
-              new_sig->name = def_src->name ? strdup(def_src->name) : NULL;
-              new_sig->content = strdup(inv_src->signal->content);
-              new_sig->next = NULL;
+    if (inv_src->signal != &NULL_SIGNAL && inv_src->signal->content) {
+      // Literal or named content
+      if (def_src->signal == &NULL_SIGNAL) {
+        Signal *new_sig = (Signal *)calloc(1, sizeof(Signal));
+        new_sig->name = def_src->name ? strdup(def_src->name) : NULL;
+        new_sig->content = strdup(inv_src->signal->content);
+        new_sig->next = NULL;
 
-              def_src->signal = new_sig;
-              side_effects++;
+        def_src->signal = new_sig;
+        side_effects++;
 
-              if (inv_src->name) {
-                  LOG_INFO("📥 Injected named signal [%s] → Definition SourcePlace %s", inv_src->name, def_src->name);
-              } else {
-                  LOG_INFO("💎 Injected literal [%s] → Definition SourcePlace %s", inv_src->signal->content, def_src->name);
-              }
-          } else {
-              LOG_INFO("🚫 Definition SourcePlace %s already has signal — skipping", def_src->name);
-          }
+        if (inv_src->name) {
+          LOG_INFO("📥 Injected named signal [%s] → Definition SourcePlace %s",
+                   inv_src->name, def_src->name);
+        } else {
+          LOG_INFO("💎 Injected literal [%s] → Definition SourcePlace %s",
+                   inv_src->signal->content, def_src->name);
+        }
       } else {
-          LOG_WARN("⚠️ Invocation SourcePlace missing content — skipping");
+        LOG_INFO("🚫 Definition SourcePlace %s already has signal — skipping",
+                 def_src->name);
       }
+    } else {
+      LOG_WARN("⚠️ Invocation SourcePlace missing content — skipping");
+    }
 
-      inv_src = inv_src->next;
-      def_src = def_src->next;
+    inv_src = inv_src->next;
+    def_src = def_src->next;
   }
 
   return side_effects;
 }
-
-
 
 int eval_definition(Definition *def, Block *blk) {
   if (!def || !def->conditional_invocation) {
@@ -181,19 +183,47 @@ int eval_definition(Definition *def, Block *blk) {
 
   for (SourcePlace *src = def->sources; src; src = src->next) {
     if (src->signal && src->signal != &NULL_SIGNAL && src->signal->content) {
-      strcat(pattern, src->signal->content);
+      // ✨ Sanitize: trim newline or carriage returns
+      char *clean = strdup(src->signal->content);
+      if (clean) {
+        clean[strcspn(clean, "\r\n")] = '\0'; // truncate at newline/carriage
+        strcat(pattern, clean);
+        free(clean);
+      }
     }
   }
 
   LOG_INFO("🔎 Evaluating definition %s with input pattern [%s]", def->name,
            pattern);
+  if (!def->conditional_invocation->cases) {
+    LOG_ERROR("🚨 No cases loaded for definition %s!", def->name);
+    free(pattern);
+    return 0;
+  }
 
   // Find matching case
   ConditionalInvocationCase *match = def->conditional_invocation->cases;
   while (match) {
+    LOG_INFO("🧪 Comparing input pattern: '%s' with case pattern: '%s'",
+             pattern, match->pattern);
+
+    LOG_INFO("🔎 HEX dump input: ");
+    for (size_t i = 0; i < strlen(pattern); i++) {
+      printf("%02X ", pattern[i]);
+    }
+    printf("\n");
+
+    LOG_INFO("🔎 HEX dump match: ");
+    for (size_t i = 0; i < strlen(match->pattern); i++) {
+      printf("%02X ", match->pattern[i]);
+    }
+    printf("\n");
+
     if (strcmp(match->pattern, pattern) == 0) {
       // MATCH FOUND
       LOG_INFO("✅ Pattern matched: %s → %s", match->pattern, match->result);
+      LOG_INFO("🔎 Lengths — input: %zu, case: %zu", strlen(pattern),
+               strlen(match->pattern));
 
       // Set result to first destination
       DestinationPlace *dst = def->destinations;

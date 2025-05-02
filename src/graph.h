@@ -1,3 +1,4 @@
 #include "sqlite3.h"
+#include "eval.h"
 
-void export_dot(sqlite3 *db, const char *filename);
+void write_network_json(Block *blk, const char *filename) ;

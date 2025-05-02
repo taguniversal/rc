@@ -1,9 +1,9 @@
 CC = gcc
-CFLAGS = -Wall -I/usr/local/include/libmxml4 -Iexternal/serd -Iexternal/mkrand -Iexternal/tinyosc
-LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm -lmxml4 -L/usr/local/lib
+CFLAGS = -Wall -I/usr/local/include/libmxml4 -Iexternal/cJSON -Iexternal/serd -Iexternal/mkrand -Iexternal/tinyosc
+LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm  -lxml2 -L/usr/local/lib
 
 # For rcnode
-rcnode_SRC = src/util.c src/main.c src/eval.c \
+rcnode_SRC = src/util.c src/main.c src/eval.c  external/cJSON/cJSON.c \
    src/udp_send.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c \
    src/osc.c  src/graph.c  src/invocation.c src/wiring.c
 
