@@ -4,6 +4,8 @@
 #include "sqlite3.h"
 #include <stdint.h>
 #include <ctype.h>
+#include <stddef.h>  // for size_t
+
 #define SAFETY_GUARD
 
 // === Forward Declarations ===

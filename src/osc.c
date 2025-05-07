@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <signal.h>  // for sig_atomic_t
+
 
 #define OSC_BUFFER_SIZE 1024
 
