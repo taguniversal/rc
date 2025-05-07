@@ -1,6 +1,5 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -Werror=missing-include-dirs -O2 \
-         -I/usr/local/include/libmxml4 \
          -Iexternal/cJSON -Iexternal/serd -Iexternal/mkrand -Iexternal/tinyosc \
 		 -I/usr/include/libxml2
 
