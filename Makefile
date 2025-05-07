@@ -1,7 +1,9 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -Werror=missing-include-dirs -O2 \
          -I/usr/local/include/libmxml4 \
-         -Iexternal/cJSON -Iexternal/serd -Iexternal/mkrand -Iexternal/tinyosc
+         -Iexternal/cJSON -Iexternal/serd -Iexternal/mkrand -Iexternal/tinyosc \
+		 -I/usr/include/libxml2
+
 LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm -lxml2 -L/usr/local/lib
 
 # Source and object files
@@ -15,6 +17,9 @@ rcnode_BIN = build/rcnode
 .PHONY: all clean check-ttl build_dirs
 # Default target
 all: $(rcnode_BIN)
+	@echo "✅ Build completed successfully."
+
+
 
 # Create build directories automatically
 $(rcnode_OBJ): | build
