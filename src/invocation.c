@@ -217,60 +217,66 @@ void parse_sources(xmlNodePtr parent, void **list_head, bool is_definition) {
   if (!parent) return;
 
   for (xmlNodePtr src = parent->children; src; src = src->next) {
-      if (src->type != XML_ELEMENT_NODE) continue;
-      if (xmlStrcmp(src->name, (const xmlChar *)"SourcePlace") != 0) continue;
+    if (src->type != XML_ELEMENT_NODE) continue;
+    if (xmlStrcmp(src->name, (const xmlChar *)"SourcePlace") != 0) continue;
 
-      if (is_definition) {
-          xmlChar *name_attr = xmlGetProp(src, (const xmlChar *)"name");
-          if (!name_attr) {
-              LOG_ERROR("❌ Definition SourcePlace missing 'name' attribute");
-              return;
-          }
+    SourcePlace *place = (SourcePlace *)calloc(1, sizeof(SourcePlace));
+    if (!place) {
+      LOG_ERROR("❌ Failed to allocate SourcePlace");
+      continue;
+    }
+    
+    place->signal = &NULL_SIGNAL;  // ✅ Default to safe null signal
 
-          SourcePlace *place = calloc(1, sizeof(SourcePlace));
-          place->name = strdup((const char *)name_attr);
-          place->signal = &NULL_SIGNAL;
-          place->next = *(SourcePlace **)list_head;
-          *(SourcePlace **)list_head = place;
-          LOG_INFO("📎 Definition source added: %s", place->name);
-
-          xmlFree(name_attr);
-      } else {
-          xmlChar *from_attr = xmlGetProp(src, (const xmlChar *)"from");
-          xmlChar *value_attr = xmlGetProp(src, (const xmlChar *)"value");
-
-          if (value_attr) {
-              // Literal signal
-              Signal *sig = calloc(1, sizeof(Signal));
-              sig->content = strdup((const char *)value_attr);
-
-              SourcePlace *place = calloc(1, sizeof(SourcePlace));
-              place->name = NULL; // No name for literal
-              place->signal = sig;
-              place->next = *(SourcePlace **)list_head;
-              *(SourcePlace **)list_head = place;
-
-              LOG_INFO("💎 Invocation source (literal) added: [%s]", value_attr);
-
-              xmlFree(value_attr);
-          } else if (from_attr) {
-              // Referenced signal
-              SourcePlace *place = calloc(1, sizeof(SourcePlace));
-              place->name = strdup((const char *)from_attr);
-              place->signal = &NULL_SIGNAL;
-              place->next = *(SourcePlace **)list_head;
-              *(SourcePlace **)list_head = place;
-
-              LOG_INFO("🔗 Invocation source (from): %s", from_attr);
-
-              xmlFree(from_attr);
-          } else {
-              LOG_ERROR("❌ Invocation SourcePlace must have either 'from' or 'value'");
-              return;
-          }
+    if (is_definition) {
+      xmlChar *name_attr = xmlGetProp(src, (const xmlChar *)"name");
+      if (!name_attr) {
+        LOG_ERROR("❌ Definition SourcePlace missing 'name' attribute");
+        free(place);
+        return;
       }
+
+      place->name = strdup((const char *)name_attr);
+      LOG_INFO("📎 Definition source added: %s", place->name);
+      xmlFree(name_attr);
+    } else {
+      xmlChar *from_attr = xmlGetProp(src, (const xmlChar *)"from");
+      xmlChar *value_attr = xmlGetProp(src, (const xmlChar *)"value");
+
+      if (value_attr) {
+        // Literal signal
+        Signal *sig = (Signal *)calloc(1, sizeof(Signal));
+        if (!sig) {
+          LOG_ERROR("❌ Failed to allocate Signal for literal");
+          free(place);
+          xmlFree(value_attr);
+          continue;
+        }
+
+        sig->content = strdup((const char *)value_attr);
+        place->signal = sig;
+        place->name = NULL;  // No name for literals
+        LOG_INFO("💎 Invocation source (literal) added: [%s]", value_attr);
+        xmlFree(value_attr);
+
+      } else if (from_attr) {
+        place->name = strdup((const char *)from_attr);
+        // signal remains NULL_SIGNAL
+        LOG_INFO("🔗 Invocation source (from): %s", from_attr);
+        xmlFree(from_attr);
+      } else {
+        LOG_ERROR("❌ Invocation SourcePlace must have either 'from' or 'value'");
+        free(place);
+        return;
+      }
+    }
+
+    place->next = *(SourcePlace **)list_head;
+    *(SourcePlace **)list_head = place;
   }
 }
+
+
 
 void parse_destinations(xmlNodePtr parent, void **list_head, bool is_definition) {
   if (!parent) return;

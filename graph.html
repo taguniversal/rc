@@ -1,99 +1,128 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <title>Logic Network Visualization</title>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
-    body { font-family: sans-serif; background: #111; color: #ddd; }
-    .link { stroke: #888; stroke-opacity: 0.9; }
-    .node circle { fill: #1e90ff; stroke: #fff; stroke-width: 1.5px; }
-    .node text { fill: #fff; font-size: 12px; pointer-events: none; }
+    body {
+      font-family: sans-serif;
+      background: #111;
+      color: #ddd;
+    }
+
+    .link {
+      stroke: #888;
+      stroke-opacity: 0.9;
+    }
+
+    .node circle {
+      fill: #1e90ff;
+      stroke: #fff;
+      stroke-width: 1.5px;
+    }
+
+    .node text {
+      fill: #fff;
+      font-size: 12px;
+      pointer-events: none;
+    }
   </style>
 </head>
-<body>
-<svg width="1000" height="800"></svg>
 
-<script>
+<body>
+  <svg width="1000" height="800"></svg>
+
+  <script>
     d3.json("graph.json").then(data => {
-      const svg = d3.select("svg");
-      const width = +svg.attr("width");
-      const height = +svg.attr("height");
+  console.log("Loaded data:", data);  // 👈 LOG the whole JSON object
   
-      const zoomLayer = svg.append("g"); // All nodes and links will go here
-  
-      svg.call(d3.zoom()
-        .scaleExtent([0.1, 5])
-        .on("zoom", (event) => {
-          zoomLayer.attr("transform", event.transform);
-        }));
-  
-      const simulation = d3.forceSimulation(data.nodes)
-        .force("link", d3.forceLink(data.links).id(d => d.id).distance(50))
-        .force("charge", d3.forceManyBody().strength(-100))
-        .force("center", d3.forceCenter(width / 2, height / 2));
-  
-      const link = zoomLayer.append("g")
-        .attr("stroke", "#fff")
-        .attr("stroke-opacity", 0.9)
-        .attr("stroke-width", 1.5)
-        .selectAll("line")
-        .data(data.links)
-        .join("line")
-        .attr("class", "link");
-  
-      const node = zoomLayer.append("g")
-        .selectAll("g")
-        .data(data.nodes)
-        .join("g")
-        .attr("class", "node")
-        .call(d3.drag()
-          .on("start", dragstart)
-          .on("drag", dragged)
-          .on("end", dragend));
-  
-      node.append("circle")
-        .attr("r", 20)
-        .attr("fill", d => {
-          if (d.type === "Invocation") return "#1e90ff";
-          if (d.type === "Definition") return "#32cd32";
-          if (d.type === "Signal") return "#ffa500";
-          return "#aaa";
-        });
-  
-      node.append("text")
-        .attr("dy", 5)
-        .attr("text-anchor", "middle")
-        .text(d => d.id);
-  
-      simulation.on("tick", () => {
-        link
-          .attr("x1", d => d.source.x)
-          .attr("y1", d => d.source.y)
-          .attr("x2", d => d.target.x)
-          .attr("y2", d => d.target.y);
-  
-        node
-          .attr("transform", d => `translate(${d.x},${d.y})`);
-      });
-  
-      function dragstart(event, d) {
-        if (!event.active) simulation.alphaTarget(0.3).restart();
-        d.fx = d.x; d.fy = d.y;
+  const svg = d3.select("svg");
+  const width = +svg.attr("width");
+  const height = +svg.attr("height");
+
+  const zoomLayer = svg.append("g");
+
+  svg.call(d3.zoom()
+    .scaleExtent([0.1, 5])
+    .on("zoom", (event) => {
+      zoomLayer.attr("transform", event.transform);
+    }));
+
+  const simulation = d3.forceSimulation(data.nodes)
+    .force("link", d3.forceLink(data.links).id(d => d.id).distance(50))
+    .force("charge", d3.forceManyBody().strength(-100))
+    .force("center", d3.forceCenter(width / 2, height / 2));
+
+  const link = zoomLayer.append("g")
+    .attr("stroke", "#fff")
+    .attr("stroke-opacity", 0.9)
+    .attr("stroke-width", 1.5)
+    .selectAll("line")
+    .data(data.links)
+    .join("line")
+    .attr("class", "link");
+
+  const node = zoomLayer.append("g")
+    .selectAll("g")
+    .data(data.nodes)
+    .join("g")
+    .attr("class", "node")
+    .call(d3.drag()
+      .on("start", dragstart)
+      .on("drag", dragged)
+      .on("end", dragend));
+
+  node.append("circle")
+    .attr("r", 20)
+    .attr("fill", d => {
+      console.log("Drawing node:", d); // 👈 LOG each node it tries to draw
+      if (d.type === "Invocation") return "#1e90ff";
+      if (d.type === "Definition") return "#32cd32";
+      if (d.type === "Signal") {
+        if (d.state === "1") return "lime";  // Bright green for active
+        else if (d.state === "0") return "red"; // Red for inactive
+        else return "#ffa500";  // Default orange
       }
-  
-      function dragged(event, d) {
-        d.fx = event.x; d.fy = event.y;
-      }
-  
-      function dragend(event, d) {
-        if (!event.active) simulation.alphaTarget(0);
-        d.fx = null; d.fy = null;
-      }
-    }).catch(error => {
-      console.error("Failed to load graph.json:", error);
+      return "#aaa";
     });
+
+  node.append("text")
+    .attr("dy", 5)
+    .attr("text-anchor", "middle")
+    .text(d => d.id);
+
+  simulation.on("tick", () => {
+    link
+      .attr("x1", d => d.source.x)
+      .attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x)
+      .attr("y2", d => d.target.y);
+
+    node
+      .attr("transform", d => `translate(${d.x},${d.y})`);
+  });
+
+  function dragstart(event, d) {
+    if (!event.active) simulation.alphaTarget(0.3).restart();
+    d.fx = d.x; d.fy = d.y;
+  }
+
+  function dragged(event, d) {
+    d.fx = event.x; d.fy = event.y;
+  }
+
+  function dragend(event, d) {
+    if (!event.active) simulation.alphaTarget(0);
+    d.fx = null; d.fy = null;
+  }
+}).catch(error => {
+  console.error("Failed to load graph.json:", error);
+});
+
   </script>
-  
+
 </body>
+
 </html>

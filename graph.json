@@ -1,35 +1,5 @@
 {
 	"nodes":	[{
-			"id":	"AND",
-			"type":	"Invocation"
-		}, {
-			"id":	"result",
-			"type":	"Signal"
-		}, {
-			"id":	"XOR",
-			"type":	"Invocation"
-		}, {
-			"id":	"XOR_Out",
-			"type":	"Signal"
-		}, {
-			"id":	"OR",
-			"type":	"Invocation"
-		}, {
-			"id":	"Or_Out",
-			"type":	"Signal"
-		}, {
-			"id":	"NOR",
-			"type":	"Invocation"
-		}, {
-			"id":	"Nor_Out",
-			"type":	"Signal"
-		}, {
-			"id":	"NOT",
-			"type":	"Invocation"
-		}, {
-			"id":	"Out0",
-			"type":	"Signal"
-		}, {
 			"id":	"NOT",
 			"type":	"Definition"
 		}, {
@@ -47,28 +17,74 @@
 		}, {
 			"id":	"AND",
 			"type":	"Definition"
+		}, {
+			"id":	"AND",
+			"type":	"Invocation"
+		}, {
+			"id":	"0",
+			"type":	"Literal",
+			"value":	"0"
+		}, {
+			"id":	"1",
+			"type":	"Literal",
+			"value":	"1"
+		}, {
+			"id":	"result",
+			"type":	"Signal"
+		}, {
+			"id":	"XOR",
+			"type":	"Invocation"
+		}, {
+			"id":	"0",
+			"type":	"Literal",
+			"value":	"0"
+		}, {
+			"id":	"1",
+			"type":	"Literal",
+			"value":	"1"
+		}, {
+			"id":	"XOR_Out",
+			"type":	"Signal"
+		}, {
+			"id":	"OR",
+			"type":	"Invocation"
+		}, {
+			"id":	"0",
+			"type":	"Literal",
+			"value":	"0"
+		}, {
+			"id":	"1",
+			"type":	"Literal",
+			"value":	"1"
+		}, {
+			"id":	"Or_Out",
+			"type":	"Signal"
+		}, {
+			"id":	"NOR",
+			"type":	"Invocation"
+		}, {
+			"id":	"0",
+			"type":	"Literal",
+			"value":	"0"
+		}, {
+			"id":	"1",
+			"type":	"Literal",
+			"value":	"1"
+		}, {
+			"id":	"Nor_Out",
+			"type":	"Signal"
+		}, {
+			"id":	"NOT",
+			"type":	"Invocation"
+		}, {
+			"id":	"1",
+			"type":	"Literal",
+			"value":	"1"
+		}, {
+			"id":	"Out0",
+			"type":	"Signal"
 		}],
 	"links":	[{
-			"source":	"AND",
-			"target":	"result",
-			"type":	"output"
-		}, {
-			"source":	"XOR",
-			"target":	"XOR_Out",
-			"type":	"output"
-		}, {
-			"source":	"OR",
-			"target":	"Or_Out",
-			"type":	"output"
-		}, {
-			"source":	"NOR",
-			"target":	"Nor_Out",
-			"type":	"output"
-		}, {
-			"source":	"NOT",
-			"target":	"Out0",
-			"type":	"output"
-		}, {
 			"source":	"NOT",
 			"target":	"NOT",
 			"type":	"uses"
@@ -88,5 +104,61 @@
 			"source":	"AND",
 			"target":	"AND",
 			"type":	"uses"
+		}, {
+			"source":	"0",
+			"target":	"AND",
+			"type":	"input"
+		}, {
+			"source":	"1",
+			"target":	"AND",
+			"type":	"input"
+		}, {
+			"source":	"AND",
+			"target":	"result",
+			"type":	"output"
+		}, {
+			"source":	"0",
+			"target":	"XOR",
+			"type":	"input"
+		}, {
+			"source":	"1",
+			"target":	"XOR",
+			"type":	"input"
+		}, {
+			"source":	"XOR",
+			"target":	"XOR_Out",
+			"type":	"output"
+		}, {
+			"source":	"0",
+			"target":	"OR",
+			"type":	"input"
+		}, {
+			"source":	"1",
+			"target":	"OR",
+			"type":	"input"
+		}, {
+			"source":	"OR",
+			"target":	"Or_Out",
+			"type":	"output"
+		}, {
+			"source":	"0",
+			"target":	"NOR",
+			"type":	"input"
+		}, {
+			"source":	"1",
+			"target":	"NOR",
+			"type":	"input"
+		}, {
+			"source":	"NOR",
+			"target":	"Nor_Out",
+			"type":	"output"
+		}, {
+			"source":	"1",
+			"target":	"NOT",
+			"type":	"input"
+		}, {
+			"source":	"NOT",
+			"target":	"Out0",
+			"type":	"output"
 		}]
 }
