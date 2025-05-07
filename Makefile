@@ -1,34 +1,41 @@
 CC = gcc
-CFLAGS = -Wall -I/usr/local/include/libmxml4 -Iexternal/cJSON -Iexternal/serd -Iexternal/mkrand -Iexternal/tinyosc
-LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm  -lxml2 -L/usr/local/lib
+CFLAGS = -Wall -Wextra -Werror=missing-include-dirs -O2 \
+         -I/usr/local/include/libmxml4 \
+         -Iexternal/cJSON -Iexternal/serd -Iexternal/mkrand -Iexternal/tinyosc
+LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm -lxml2 -L/usr/local/lib
 
-# For rcnode
-rcnode_SRC = src/util.c src/main.c src/eval.c  external/cJSON/cJSON.c \
-   src/udp_send.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c \
-   src/osc.c  src/graph.c  src/invocation.c src/wiring.c
+# Source and object files
+rcnode_SRC = src/util.c src/main.c src/eval.c external/cJSON/cJSON.c \
+             src/udp_send.c external/mkrand/mkrand.c external/tinyosc/tinyosc.c \
+             src/osc.c src/graph.c src/invocation.c src/wiring.c
 
-rcnode_OBJ = $(rcnode_SRC:.c=.o)
-rcnode_OBJ := $(patsubst %, build/%, $(rcnode_OBJ))
+rcnode_OBJ = $(patsubst %.c, build/%.o, $(rcnode_SRC))
 rcnode_BIN = build/rcnode
 
-# Ensure build + output directories exist
-$(shell mkdir -p build/src output/time_series output/plotly)
+.PHONY: all clean check-ttl build_dirs
+# Default target
+all: $(rcnode_BIN)
 
-all: $(rcnode_BIN) $(serdtest_BIN)
+# Create build directories automatically
+$(rcnode_OBJ): | build
 
-$(serdtest_BIN): $(serdtest_OBJ)
-	$(CC) $(serdtest_OBJ) -o $(serdtest_BIN) $(LDFLAGS)
+build:
+	mkdir -p build/src 
 
+# Link the final binary
 $(rcnode_BIN): $(rcnode_OBJ)
-	$(CC) $(rcnode_OBJ) -o $(rcnode_BIN) $(LDFLAGS)
+	$(CC) $(rcnode_OBJ) -o $@ $(LDFLAGS)
 
+# Compile each object file
 build/%.o: %.c
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Clean up build artifacts
 clean:
-	rm -rf build output hugo-site/static/plots/*.html
+	rm -rf build 
 
+# TTL checker
 check-ttl:
 	@echo "🧠 Validating Turtle files in ontology..."
 	@find ontology -name "*.ttl" | while read file; do \
@@ -37,4 +44,4 @@ check-ttl:
 	done
 	@echo "✅ All TTL files are valid."
 
-.PHONY: all clean generate-plotly check-ttl
+
