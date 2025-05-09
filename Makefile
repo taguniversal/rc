@@ -29,10 +29,16 @@ SPIRV_VALIDATE := $(SPIRV_BIN:.spv=.validated)
 
 .PHONY: all clean check-ttl build_dirs fpga flash spirv spirv-emit validate-spirv
 
+HOST_SYNC_DIR := /Users/eflores/src/digitalblockchain
+
 all: $(rcnode_BIN)
 	@echo "✅ Build completed successfully."
-	@echo "📦 Syncing inv/ snippets to DigitalBlockchain project..."
-	cp -r inv /Users/eflores/src/digitalblockchain/
+	@if [ -d "$(HOST_SYNC_DIR)" ]; then \
+		echo "📦 Syncing inv/ snippets to DigitalBlockchain project..."; \
+		cp -r inv "$(HOST_SYNC_DIR)"; \
+	else \
+		echo "⚠️  Skipping sync: '$(HOST_SYNC_DIR)' not found."; \
+	fi
 
 $(rcnode_OBJ): | build
 
