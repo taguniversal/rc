@@ -21,13 +21,13 @@
 			"id":	"AND",
 			"type":	"Invocation"
 		}, {
-			"id":	"0",
-			"type":	"Literal",
-			"value":	"0"
-		}, {
 			"id":	"1",
 			"type":	"Literal",
 			"value":	"1"
+		}, {
+			"id":	"0",
+			"type":	"Literal",
+			"value":	"0"
 		}, {
 			"id":	"result",
 			"type":	"Signal"
@@ -35,13 +35,13 @@
 			"id":	"XOR",
 			"type":	"Invocation"
 		}, {
-			"id":	"0",
-			"type":	"Literal",
-			"value":	"0"
-		}, {
 			"id":	"1",
 			"type":	"Literal",
 			"value":	"1"
+		}, {
+			"id":	"0",
+			"type":	"Literal",
+			"value":	"0"
 		}, {
 			"id":	"XOR_Out",
 			"type":	"Signal"
@@ -49,13 +49,13 @@
 			"id":	"OR",
 			"type":	"Invocation"
 		}, {
-			"id":	"0",
-			"type":	"Literal",
-			"value":	"0"
-		}, {
 			"id":	"1",
 			"type":	"Literal",
 			"value":	"1"
+		}, {
+			"id":	"0",
+			"type":	"Literal",
+			"value":	"0"
 		}, {
 			"id":	"Or_Out",
 			"type":	"Signal"
@@ -63,13 +63,13 @@
 			"id":	"NOR",
 			"type":	"Invocation"
 		}, {
-			"id":	"0",
-			"type":	"Literal",
-			"value":	"0"
-		}, {
 			"id":	"1",
 			"type":	"Literal",
 			"value":	"1"
+		}, {
+			"id":	"0",
+			"type":	"Literal",
+			"value":	"0"
 		}, {
 			"id":	"Nor_Out",
 			"type":	"Signal"
@@ -105,11 +105,11 @@
 			"target":	"AND",
 			"type":	"uses"
 		}, {
-			"source":	"0",
+			"source":	"1",
 			"target":	"AND",
 			"type":	"input"
 		}, {
-			"source":	"1",
+			"source":	"0",
 			"target":	"AND",
 			"type":	"input"
 		}, {
@@ -117,11 +117,11 @@
 			"target":	"result",
 			"type":	"output"
 		}, {
-			"source":	"0",
+			"source":	"1",
 			"target":	"XOR",
 			"type":	"input"
 		}, {
-			"source":	"1",
+			"source":	"0",
 			"target":	"XOR",
 			"type":	"input"
 		}, {
@@ -129,11 +129,11 @@
 			"target":	"XOR_Out",
 			"type":	"output"
 		}, {
-			"source":	"0",
+			"source":	"1",
 			"target":	"OR",
 			"type":	"input"
 		}, {
-			"source":	"1",
+			"source":	"0",
 			"target":	"OR",
 			"type":	"input"
 		}, {
@@ -141,11 +141,11 @@
 			"target":	"Or_Out",
 			"type":	"output"
 		}, {
-			"source":	"0",
+			"source":	"1",
 			"target":	"NOR",
 			"type":	"input"
 		}, {
-			"source":	"1",
+			"source":	"0",
 			"target":	"NOR",
 			"type":	"input"
 		}, {

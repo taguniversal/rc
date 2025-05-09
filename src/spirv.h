@@ -1,0 +1,1 @@
+int spirv_parse_block(Block* blk, const char* spirv_dir);

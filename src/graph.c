@@ -7,19 +7,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "log.h"
 
 cJSON *find_node_by_id(cJSON *nodes, const char *id)
 {
-  cJSON *node = NULL;
-  cJSON_ArrayForEach(node, nodes)
-  {
-    cJSON *node_id = cJSON_GetObjectItem(node, "id");
-    if (node_id && strcmp(node_id->valuestring, id) == 0)
+    cJSON *node = NULL;
+    cJSON_ArrayForEach(node, nodes)
     {
-      return node;
+        cJSON *node_id = cJSON_GetObjectItem(node, "id");
+        if (node_id && strcmp(node_id->valuestring, id) == 0)
+        {
+            return node;
+        }
     }
-  }
-  return NULL;
+    return NULL;
 }
 
 void write_network_json(Block *blk, const char *filename)
@@ -71,9 +72,14 @@ void write_network_json(Block *blk, const char *filename)
 
         for (SourcePlace *src = inv->sources; src; src = src->next)
         {
+            LOG_INFO("🔍 Inspecting SourcePlace for Invocation '%s'", inv->name);
+            LOG_INFO("    ➤ src->name: %s", src->name ? src->name : "(null)");
+            LOG_INFO("    ➤ src->signal: %s", src->signal ? src->signal->content : "null");
+
             if (src->name)
             {
-                // Normal external connection
+                LOG_INFO("🔗 SourcePlace with name: %s → %s", src->name, inv->name);
+
                 cJSON *edge = cJSON_CreateObject();
                 cJSON_AddStringToObject(edge, "source", src->name);
                 cJSON_AddStringToObject(edge, "target", inv->name);
@@ -85,14 +91,12 @@ void write_network_json(Block *blk, const char *filename)
                 char literal_id[64];
                 snprintf(literal_id, sizeof(literal_id), "%s", src->signal->content);
 
-                // Create Literal node
                 cJSON *lit_node = cJSON_CreateObject();
                 cJSON_AddStringToObject(lit_node, "id", literal_id);
                 cJSON_AddStringToObject(lit_node, "type", "Literal");
                 cJSON_AddStringToObject(lit_node, "value", src->signal->content);
                 cJSON_AddItemToArray(nodes, lit_node);
 
-                // Link Literal to Invocation
                 cJSON *edge = cJSON_CreateObject();
                 cJSON_AddStringToObject(edge, "source", literal_id);
                 cJSON_AddStringToObject(edge, "target", inv->name);
@@ -103,7 +107,19 @@ void write_network_json(Block *blk, const char *filename)
             }
             else
             {
-                LOG_WARN("⚠️ SourcePlace has neither name nor value — ignoring");
+                LOG_WARN("⚠️ SourcePlace has neither name nor usable signal — ignoring");
+                if (!src->signal)
+                {
+                    LOG_INFO("    ➤ src->signal is NULL");
+                }
+                else if (src->signal == &NULL_SIGNAL)
+                {
+                    LOG_INFO("    ➤ src->signal is &NULL_SIGNAL");
+                }
+                else if (!src->signal->content)
+                {
+                    LOG_INFO("    ➤ src->signal->content is NULL");
+                }
             }
         }
 
@@ -165,4 +181,3 @@ void write_network_json(Block *blk, const char *filename)
 
     LOG_INFO("🧠 Logic graph written to: %s", filename);
 }
-

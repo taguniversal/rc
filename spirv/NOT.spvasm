@@ -1,0 +1,17 @@
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+
+%int = OpTypeInt 32 1
+%void = OpTypeVoid
+%void_fn = OpTypeFunction %void
+%ptr_int = OpTypePointer Function %int
+
+; Function: NOT
+%f = OpFunction %void None %void_fn
+%entry = OpLabel
+%var_(null) = OpVariable %ptr_int Function
+%val_(null) = OpLoad %int %var_(null)
+%var_Out0 = OpVariable %ptr_int Function
+OpStore %var_Out0 %sum
+OpReturn
+OpFunctionEnd
