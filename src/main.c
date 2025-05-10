@@ -122,6 +122,19 @@ int main(int argc, char *argv[])
     sqlite3 *db = NULL;
 
     LOG_INFO("Reality Compiler CLI\n");
+
+    int pipeline_status = 0;
+
+    if (check_spirv_gpu_support())
+    {
+        LOG_INFO("🟢 SPIR-V compatible GPU detected — enabling GPU acceleration.");
+        pipeline_status = create_pipeline();
+    }
+    else
+    {
+        LOG_WARN("🟠 No SPIR-V capable GPU found — running in CPU fallback mode.");
+    }
+
     // 🧱 Genesis Block
     Block *active_block = start_block();
 
@@ -197,9 +210,7 @@ int main(int argc, char *argv[])
 
     parse_block_from_xml(active_block, inv_dir);
     spirv_parse_block(active_block, spirv_dir);
-    link_invocations(active_block);
     write_network_json(active_block, "./graph.json");
-
 
     if (compile_only)
     {

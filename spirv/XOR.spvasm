@@ -6,15 +6,37 @@ OpMemoryModel Logical GLSL450
 %void_fn = OpTypeFunction %void
 %ptr_int = OpTypePointer Function %int
 
-; Function: XOR
+; Conditional Invocation: XOR
 %f = OpFunction %void None %void_fn
 %entry = OpLabel
-%var_(null) = OpVariable %ptr_int Function
-%val_(null) = OpLoad %int %var_(null)
-%var_(null) = OpVariable %ptr_int Function
-%val_(null) = OpLoad %int %var_(null)
-%sum = OpIAdd %int %val_(null) %val_(null)
-%var_XOR_Out = OpVariable %ptr_int Function
-OpStore %var_XOR_Out %sum
+%var_A = OpVariable %ptr_int Function
+%val_A = OpLoad %int %var_A
+%var_B = OpVariable %ptr_int Function
+%val_B = OpLoad %int %var_B
+%tmp = %val_A
+%tmp_shift_1 = OpShiftLeftLogical %int %tmp 1
+%tmp = OpBitwiseOr %int %tmp_shift_1 %val_B
+%key = %tmp
+%const_0 = OpConstant %int 0
+%const_1 = OpConstant %int 1
+%const_1 = OpConstant %int 1
+%const_0 = OpConstant %int 0
+OpSelectionMerge %merge None
+OpSwitch %key %default 3 %case0 2 %case1 1 %case2 0 %case3
+%case0 = OpLabel
+OpStore %out_var %const_0
+OpBranch %merge
+%case1 = OpLabel
+OpStore %out_var %const_1
+OpBranch %merge
+%case2 = OpLabel
+OpStore %out_var %const_1
+OpBranch %merge
+%case3 = OpLabel
+OpStore %out_var %const_0
+OpBranch %merge
+%default = OpLabel
+OpBranch %merge
+%merge = OpLabel
 OpReturn
 OpFunctionEnd

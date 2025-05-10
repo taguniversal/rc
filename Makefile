@@ -4,6 +4,8 @@ CFLAGS = -Wall -Wextra -Werror=missing-include-dirs -O2 \
          -I/usr/include/libxml2
 
 LDFLAGS = -lcrypto -ldl -lpthread -lsqlite3 -lm -lxml2 -L/usr/local/lib
+CFLAGS += -DVK_ENABLE_BETA_EXTENSIONS
+LDLIBS += -lvulkan
 
 rcnode_SRC = \
   src/main.c \
@@ -46,7 +48,7 @@ build:
 	mkdir -p build/src build/external/cJSON build/external/mkrand build/external/tinyosc $(SPIRV_OUT)
 
 $(rcnode_BIN): $(rcnode_OBJ)
-	$(CC) $(rcnode_OBJ) -o $@ $(LDFLAGS)
+	$(CC) $(rcnode_OBJ) -o $@ $(LDFLAGS) $(LDLIBS)
 
 build/src/%.o: src/%.c
 	@mkdir -p $(dir $@)
@@ -55,25 +57,33 @@ build/src/%.o: src/%.c
 build/external/%.o: external/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
-
 # --- SPIR-V compilation pipeline ---
 
-spirv: spirv-emit $(SPIRV_BIN)
-	@echo "✅ All SPIR-V binaries assembled."
-
-spirv-emit: $(rcnode_BIN)
-	@echo "🔧 Generating SPIR-V assembly from XML..."
-	@$(rcnode_BIN) --compile --inv inv --spirv_dir $(SPIRV_OUT)
-
+# Assemble each .spvasm to .spv
 $(SPIRV_OUT)/%.spv: $(SPIRV_OUT)/%.spvasm
 	@echo "⚙️  Assembling $< -> $@"
 	spirv-as $< -o $@
 
+# Emit .spvasm from XML and assemble all .spv
+spirv: spirv-emit $(SPIRV_BIN)
+	@echo "✅ All SPIR-V binaries assembled."
+
+# Run the compiler to generate .spvasm files
+spirv-emit: $(rcnode_BIN)
+	@echo "🔧 Generating SPIR-V assembly from XML..."
+	@$(rcnode_BIN) --compile --inv inv --spirv_dir $(SPIRV_OUT)
+
+# Optional validation pass (can be used to verify .spv correctness)
 validate-spirv: $(SPIRV_VALIDATE)
 	@echo "✅ All SPIR-V binaries validated."
 
 $(SPIRV_OUT)/%.validated: $(SPIRV_OUT)/%.spv
 	spirv-val $< && touch $@
+
+rebuild-spirv:
+	rm -f $(SPIRV_OUT)/*.spv $(SPIRV_OUT)/*.validated
+	make spirv
+
 
 # --- FPGA flow ---
 
@@ -96,3 +106,4 @@ build/top.bin: build/top.asc
 
 clean:
 	rm -rf build
+	rm -f $(SPIRV_OUT)/*.validated

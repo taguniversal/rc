@@ -6,12 +6,24 @@ OpMemoryModel Logical GLSL450
 %void_fn = OpTypeFunction %void
 %ptr_int = OpTypePointer Function %int
 
-; Function: NOT
+; Conditional Invocation: NOT
 %f = OpFunction %void None %void_fn
 %entry = OpLabel
-%var_(null) = OpVariable %ptr_int Function
-%val_(null) = OpLoad %int %var_(null)
-%var_Out0 = OpVariable %ptr_int Function
-OpStore %var_Out0 %sum
+%var_A = OpVariable %ptr_int Function
+%val_A = OpLoad %int %var_A
+%key = %val_A
+%const_0 = OpConstant %int 0
+%const_1 = OpConstant %int 1
+OpSelectionMerge %merge None
+OpSwitch %key %default 1 %case0 0 %case1
+%case0 = OpLabel
+OpStore %out_var %const_0
+OpBranch %merge
+%case1 = OpLabel
+OpStore %out_var %const_1
+OpBranch %merge
+%default = OpLabel
+OpBranch %merge
+%merge = OpLabel
 OpReturn
 OpFunctionEnd

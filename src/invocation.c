@@ -605,27 +605,12 @@ void parse_block_from_xml(Block *blk, const char *inv_dir)
       exit(1);
     }
 
-    // Optional: move this block outside loop if you only want to link *after* all are parsed
-    for (Invocation *inv = blk->invocations; inv; inv = inv->next)
-    {
-      char def_path[256];
-      snprintf(def_path, sizeof(def_path), "%s/%s.xml", inv_dir, inv->name);
-      inv->definition = parse_definition_from_file(def_path);
-
-      if (!inv->definition)
-      {
-        LOG_ERROR("❌ Definition missing for Invocation: %s", inv->name);
-        xmlFreeDoc(doc);
-        exit(1);
-      }
-
-      LOG_INFO("🔗 Linked Invocation %s → Definition %s", inv->name, inv->definition->name);
-    }
-
     xmlFreeDoc(doc);
   }
 
   closedir(dir);
+
+  link_invocations(blk);
   LOG_INFO("✅ Block population from XML completed.");
 }
 
