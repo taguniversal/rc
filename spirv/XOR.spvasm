@@ -7,33 +7,50 @@ OpMemoryModel Logical GLSL450
 %ptr_int = OpTypePointer Function %int
 
 ; Conditional Invocation: XOR
+
+; Function: XOR
+OpEntryPoint GLCompute %f "main" %in_data %out_data
+OpDecorate %in_data DescriptorSet 0
+OpDecorate %in_data Binding 0
+OpDecorate %out_data DescriptorSet 0
+OpDecorate %out_data Binding 1
+%buf = OpTypeStruct %int
+%buf_ptr = OpTypePointer StorageBuffer %buf
+%in_data = OpVariable %buf_ptr StorageBuffer
+%out_data = OpVariable %buf_ptr StorageBuffer
+%int_0 = OpConstant %int 0
+%int_1 = OpConstant %int 1
 %f = OpFunction %void None %void_fn
 %entry = OpLabel
-%var_A = OpVariable %ptr_int Function
-%val_A = OpLoad %int %var_A
-%var_B = OpVariable %ptr_int Function
-%val_B = OpLoad %int %var_B
-%tmp = %val_A
-%tmp_shift_1 = OpShiftLeftLogical %int %tmp 1
-%tmp = OpBitwiseOr %int %tmp_shift_1 %val_B
-%key = %tmp
+%idx_0 = OpConstant %int 0
+%ptr_0 = OpAccessChain %ptr_int %in_data %idx_0
+%val_0 = OpLoad %int %ptr_0
+%idx_1 = OpConstant %int 1
+%ptr_1 = OpAccessChain %ptr_int %in_data %idx_1
+%val_1 = OpLoad %int %ptr_1
+%tmp0 = OpCopyObject %int %val_0
+%tmp_shift_1 = OpShiftLeftLogical %int %tmp0 1
+%tmp1 = OpBitwiseOr %int %tmp_shift_1 %val_1
+%key = %tmp1
 %const_0 = OpConstant %int 0
 %const_1 = OpConstant %int 1
-%const_1 = OpConstant %int 1
-%const_0 = OpConstant %int 0
 OpSelectionMerge %merge None
 OpSwitch %key %default 3 %case0 2 %case1 1 %case2 0 %case3
 %case0 = OpLabel
-OpStore %out_var %const_0
+%out_ptr = OpAccessChain %ptr_int %out_data %int_0
+OpStore %out_ptr %const_0
 OpBranch %merge
 %case1 = OpLabel
-OpStore %out_var %const_1
+%out_ptr = OpAccessChain %ptr_int %out_data %int_0
+OpStore %out_ptr %const_1
 OpBranch %merge
 %case2 = OpLabel
-OpStore %out_var %const_1
+%out_ptr = OpAccessChain %ptr_int %out_data %int_0
+OpStore %out_ptr %const_1
 OpBranch %merge
 %case3 = OpLabel
-OpStore %out_var %const_0
+%out_ptr = OpAccessChain %ptr_int %out_data %int_0
+OpStore %out_ptr %const_0
 OpBranch %merge
 %default = OpLabel
 OpBranch %merge

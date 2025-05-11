@@ -1,0 +1,17 @@
+(Definition
+  (Name NOT)
+
+  (SourceList
+    (SourcePlace A)
+  )
+
+  (DestinationList
+    (DestinationPlace Out0)
+  )
+
+  (ConditionalInvocation
+    (InvocationName "$A")
+    (Case 0 1)
+    (Case 1 0)
+  )
+)

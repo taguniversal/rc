@@ -1,0 +1,20 @@
+(Definition
+  (Name XOR)
+
+  (SourceList
+    (SourcePlace A)
+    (SourcePlace B)
+  )
+
+  (DestinationList
+    (DestinationPlace Out0)
+  )
+
+  (ConditionalInvocation
+    (InvocationName "$A$B")
+    (Case 00 0)
+    (Case 01 1)
+    (Case 10 1)
+    (Case 11 0)
+  )
+)

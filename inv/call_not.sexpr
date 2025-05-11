@@ -1,0 +1,11 @@
+(Invocation
+  (Name NOT)
+
+  (SourceList
+    (SourcePlace "1")
+  )
+
+  (DestinationList
+    (DestinationPlace Out0)
+  )
+)

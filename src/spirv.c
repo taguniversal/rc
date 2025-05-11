@@ -15,7 +15,7 @@
     fprintf(stderr, "❌ Vulkan error at line %d: %d\n", __LINE__, result); \
     exit(1);                                                               \
   }
-  
+
 typedef struct
 {
   VkInstance instance;
@@ -178,39 +178,59 @@ void emit_types(FILE *f)
   fprintf(f, "%%void_fn = OpTypeFunction %%void\n");
   fprintf(f, "%%ptr_int = OpTypePointer Function %%int\n");
 }
-
 void emit_function_start(FILE *f, const char *name)
 {
   fprintf(f, "\n; Function: %s\n", name);
+
+  // Entry point
+  fprintf(f, "OpEntryPoint GLCompute %%f \"main\" %%in_data %%out_data\n");
+
+  // Decorations
+  fprintf(f, "OpDecorate %%in_data DescriptorSet 0\n");
+  fprintf(f, "OpDecorate %%in_data Binding 0\n");
+  fprintf(f, "OpDecorate %%out_data DescriptorSet 0\n");
+  fprintf(f, "OpDecorate %%out_data Binding 1\n");
+
+  // Type declarations
+  fprintf(f, "%%buf = OpTypeStruct %%int\n");
+  fprintf(f, "%%buf_ptr = OpTypePointer StorageBuffer %%buf\n");
+
+  // I/O variables
+  fprintf(f, "%%in_data = OpVariable %%buf_ptr StorageBuffer\n");
+  fprintf(f, "%%out_data = OpVariable %%buf_ptr StorageBuffer\n");
+
+  // Constants commonly used
+  fprintf(f, "%%int_0 = OpConstant %%int 0\n");
+  fprintf(f, "%%int_1 = OpConstant %%int 1\n");
+
+  // Function declaration
   fprintf(f, "%%f = OpFunction %%void None %%void_fn\n");
   fprintf(f, "%%entry = OpLabel\n");
 }
 
+
 void emit_conditional_invocation(FILE *f, const Invocation *inv)
 {
   Definition *def = inv->definition;
-
   if (!def || !def->conditional_invocation || !def->sources)
     return;
 
   fprintf(f, "\n; Conditional Invocation: %s\n", def->name);
-  fprintf(f, "%%f = OpFunction %%void None %%void_fn\n");
-  fprintf(f, "%%entry = OpLabel\n");
+  emit_function_start(f, def->name);
 
-  // === 1. Load Inputs ===
+  // === 1. Load Inputs from in_data buffer ===
   const SourcePlace *src = def->sources;
   char input_vars[8][32] = {0};
   int input_count = 0;
 
   while (src && input_count < 8)
   {
-    if (src->name)
-    {
-      fprintf(f, "%%var_%s = OpVariable %%ptr_int Function\n", src->name);
-      fprintf(f, "%%val_%s = OpLoad %%int %%var_%s\n", src->name, src->name);
-      snprintf(input_vars[input_count++], sizeof(input_vars[0]), "%%val_%s", src->name);
-    }
+    fprintf(f, "%%idx_%d = OpConstant %%int %d\n", input_count, input_count);
+    fprintf(f, "%%ptr_%d = OpAccessChain %%ptr_int %%in_data %%idx_%d\n", input_count, input_count);
+    fprintf(f, "%%val_%d = OpLoad %%int %%ptr_%d\n", input_count, input_count);
+    snprintf(input_vars[input_count], sizeof(input_vars[0]), "%%val_%d", input_count);
     src = src->next;
+    input_count++;
   }
 
   if (input_count == 0)
@@ -232,18 +252,23 @@ void emit_conditional_invocation(FILE *f, const Invocation *inv)
     for (int i = 1; i < input_count; ++i)
     {
       fprintf(f, "%%tmp_shift_%d = OpShiftLeftLogical %%int %%tmp%d 1\n", i, i - 1);
-      fprintf(f, "%%tmp%d = OpBitwiseOr %%int %%tmp_shift_%d %%%s\n", i, i, &input_vars[i][1]);
+      fprintf(f, "%%tmp%d = OpBitwiseOr %%int %%tmp_shift_%d %s\n", i, i, input_vars[i]);
     }
 
     fprintf(f, "%%key = %%tmp%d\n", input_count - 1);
   }
 
-  // === 3. Emit Constants
+  // === 3. Emit Constants without duplication
+  bool emitted_consts[256] = { false };
   ConditionalInvocationCase *c = def->conditional_invocation->cases;
   while (c)
   {
     int val = atoi(c->result);
-    fprintf(f, "%%const_%d = OpConstant %%int %d\n", val, val);
+    if (!emitted_consts[val])
+    {
+      fprintf(f, "%%const_%d = OpConstant %%int %d\n", val, val);
+      emitted_consts[val] = true;
+    }
     c = c->next;
   }
 
@@ -262,14 +287,15 @@ void emit_conditional_invocation(FILE *f, const Invocation *inv)
   }
   fprintf(f, "\n");
 
-  // === 5. Case Blocks
+  // === 5. Case Blocks (write to out_data[0])
   c = def->conditional_invocation->cases;
   case_idx = 0;
   while (c)
   {
     int val = atoi(c->result);
     fprintf(f, "%%case%d = OpLabel\n", case_idx);
-    fprintf(f, "OpStore %%out_var %%const_%d\n", val);
+    fprintf(f, "%%out_ptr = OpAccessChain %%ptr_int %%out_data %%int_0\n");
+    fprintf(f, "OpStore %%out_ptr %%const_%d\n", val);
     fprintf(f, "OpBranch %%merge\n");
     c = c->next;
     case_idx++;
@@ -292,48 +318,42 @@ void emit_invocation(FILE *f, const Invocation *inv)
   const SourcePlace *src = inv->sources;
   int input_index = 0;
   char input_vars[2][32] = {0};
+  bool emitted_consts[256] = { false };  // <-- Track emitted constants
 
   while (src && input_index < 2)
   {
-    if (src->name)
-    {
-      fprintf(f, "%%var_%s = OpVariable %%ptr_int Function\n", src->name);
-      fprintf(f, "%%val_%s = OpLoad %%int %%var_%s\n", src->name, src->name);
-      snprintf(input_vars[input_index++], 32, "%%val_%s", src->name);
-    }
-    else if (src->value)
-    {
+    if (src->value) {
       int val = atoi(src->value);
-      fprintf(f, "%%const_%d = OpConstant %%int %d\n", val, val);
-      snprintf(input_vars[input_index++], 32, "%%const_%d", val);
+      if (!emitted_consts[val]) {
+        fprintf(f, "%%const_%d = OpConstant %%int %d\n", val, val);
+        emitted_consts[val] = true;
+      }
+      snprintf(input_vars[input_index], sizeof(input_vars[0]), "%%const_%d", val);
+    } else {
+      fprintf(f, "%%idx_%d = OpConstant %%int %d\n", input_index, input_index);
+      fprintf(f, "%%ptr_%d = OpAccessChain %%ptr_int %%in_data %%idx_%d\n", input_index, input_index);
+      fprintf(f, "%%val_%d = OpLoad %%int %%ptr_%d\n", input_index, input_index);
+      snprintf(input_vars[input_index], sizeof(input_vars[0]), "%%val_%d", input_index);
     }
-    else
-    {
-      LOG_WARN("⚠️ Skipping SourcePlace with null name and value in Invocation '%s'", inv->name);
-    }
+
+    input_index++;
     src = src->next;
   }
 
-  if (input_index == 2)
-  {
+  if (input_index == 2) {
     fprintf(f, "%%sum = OpIAdd %%int %s %s\n", input_vars[0], input_vars[1]);
-  }
-  else
-  {
+  } else {
     LOG_WARN("⚠️ Not enough valid sources for Invocation '%s'", inv->name);
     fprintf(f, "OpReturn\nOpFunctionEnd\n");
     return;
   }
 
-  const DestinationPlace *dst = inv->destinations;
-  if (dst)
-  {
-    fprintf(f, "%%var_%s = OpVariable %%ptr_int Function\n", dst->name);
-    fprintf(f, "OpStore %%var_%s %%sum\n", dst->name);
-  }
-
+  fprintf(f, "%%out_ptr = OpAccessChain %%ptr_int %%out_data %%int_0\n");
+  fprintf(f, "OpStore %%out_ptr %%sum\n");
   fprintf(f, "OpReturn\nOpFunctionEnd\n");
 }
+
+
 
 int spirv_parse_block(Block *blk, const char *spirv_dir)
 {

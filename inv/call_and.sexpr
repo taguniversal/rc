@@ -1,0 +1,12 @@
+(Invocation
+  (Name AND)
+
+  (DestinationList
+    (DestinationPlace result)
+  )
+
+  (SourceList
+    (SourcePlace "1")
+    (SourcePlace "0")
+  )
+)

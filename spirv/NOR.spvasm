@@ -7,12 +7,23 @@ OpMemoryModel Logical GLSL450
 %ptr_int = OpTypePointer Function %int
 
 ; Function: NOR
+OpEntryPoint GLCompute %f "main" %in_data %out_data
+OpDecorate %in_data DescriptorSet 0
+OpDecorate %in_data Binding 0
+OpDecorate %out_data DescriptorSet 0
+OpDecorate %out_data Binding 1
+%buf = OpTypeStruct %int
+%buf_ptr = OpTypePointer StorageBuffer %buf
+%in_data = OpVariable %buf_ptr StorageBuffer
+%out_data = OpVariable %buf_ptr StorageBuffer
+%int_0 = OpConstant %int 0
+%int_1 = OpConstant %int 1
 %f = OpFunction %void None %void_fn
 %entry = OpLabel
 %const_1 = OpConstant %int 1
 %const_0 = OpConstant %int 0
 %sum = OpIAdd %int %const_1 %const_0
-%var_Nor_Out = OpVariable %ptr_int Function
-OpStore %var_Nor_Out %sum
+%out_ptr = OpAccessChain %ptr_int %out_data %int_0
+OpStore %out_ptr %sum
 OpReturn
 OpFunctionEnd

@@ -1,0 +1,24 @@
+(Definition
+  (Name NOR)
+
+  (SourceList
+    (SourcePlace A)
+    (SourcePlace B)
+  )
+
+  (DestinationList
+    (DestinationPlace Out0)
+  )
+
+  (Invocation
+    (InvocationName OR)
+    (Inputs A B)
+    (Output Temp0)
+  )
+
+  (Invocation
+    (InvocationName NOT)
+    (Inputs Temp0)
+    (Output Out0)
+  )
+)

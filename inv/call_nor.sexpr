@@ -1,0 +1,12 @@
+(Invocation
+  (Name NOR)
+
+  (SourceList
+    (SourcePlace "1")
+    (SourcePlace "0")
+  )
+
+  (DestinationList
+    (DestinationPlace Nor_Out)
+  )
+)

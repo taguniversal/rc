@@ -20,10 +20,10 @@
 #include "eval.h"
 #include "osc.h"
 #include "graph.h"
-#include "invocation.h"
 #include "log.h"
 #include "wiring.h"
 #include "spirv.h"
+#include "sexpr_parser.h"
 
 #define PSI_BLOCK_LEN 39
 #define OSC_PORT_XMIT 4242
@@ -128,7 +128,6 @@ int main(int argc, char *argv[])
     if (check_spirv_gpu_support())
     {
         LOG_INFO("🟢 SPIR-V compatible GPU detected — enabling GPU acceleration.");
-        pipeline_status = create_pipeline();
     }
     else
     {
@@ -169,6 +168,10 @@ int main(int argc, char *argv[])
         {
             compile_only = 1;
         }
+        else if (argc > 1 && strcmp(argv[1], "--run_spirv") == 0)
+        {
+            return create_pipeline(); // This now runs only when .spv files are ready
+        }
     }
 
     // 🗂️ Ensure state and spirv directories exist
@@ -197,24 +200,19 @@ int main(int argc, char *argv[])
     {
         LOG_INFO("✅ Schema loaded\n");
     }
-
-    DefinitionLibrary *deflib = create_definition_library();
-    if (validate_snippets(inv_dir) != 0)
-    {
-        fprintf(stderr, "❌ Validation failed");
-    }
-    else
-    {
-        LOG_INFO("✅ Snippets validated.\n");
-    }
-
-    parse_block_from_xml(active_block, inv_dir);
-    spirv_parse_block(active_block, spirv_dir);
+    int parse_status = parse_block_from_sexpr(active_block, inv_dir);
+    LOG_INFO("Parse status: %d", parse_status);
+    //parse_block_from_xml(active_block, inv_dir);
     write_network_json(active_block, "./graph.json");
 
     if (compile_only)
     {
         LOG_INFO("🎯 SPIR-V generation only mode: emitting to %s", spirv_dir);
+        LOG_INFO("🔍 Parsing S-Expression...");
+        const char *input = "(Definition (Name AND) (Sources A B) (Destinations $out))";
+        SExpr *root = parse_sexpr(input);
+        print_sexpr(root, 0);
+        free_sexpr(root);
         spirv_parse_block(active_block, spirv_dir);
         return 0;
     }

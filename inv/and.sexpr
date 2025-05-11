@@ -1,0 +1,20 @@
+(Definition
+  (Name AND)
+
+  (SourceList
+    (SourcePlace A)
+    (SourcePlace B)
+  )
+
+  (DestinationList
+    (DestinationPlace $out)
+  )
+
+  (ConditionalInvocation
+    (InvocationName "$A$B")
+    (Case 00 0)
+    (Case 01 0)
+    (Case 10 0)
+    (Case 11 1)
+  )
+)

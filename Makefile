@@ -13,7 +13,7 @@ rcnode_SRC = \
   src/util.c \
   src/osc.c \
   src/graph.c \
-  src/invocation.c \
+  src/sexpr_parser.c \
   src/wiring.c \
   src/udp_send.c \
   src/spirv.c \
@@ -72,13 +72,17 @@ spirv: spirv-emit $(SPIRV_BIN)
 spirv-emit: $(rcnode_BIN)
 	@echo "🔧 Generating SPIR-V assembly from XML..."
 	@$(rcnode_BIN) --compile --inv inv --spirv_dir $(SPIRV_OUT)
-
+	@make -s spirv-assemble
 # Optional validation pass (can be used to verify .spv correctness)
 validate-spirv: $(SPIRV_VALIDATE)
 	@echo "✅ All SPIR-V binaries validated."
 
 $(SPIRV_OUT)/%.validated: $(SPIRV_OUT)/%.spv
 	spirv-val $< && touch $@
+
+.PHONY: spirv-assemble
+spirv-assemble: $(SPIRV_BIN)
+	@echo "✅ SPIR-V binaries assembled."
 
 rebuild-spirv:
 	rm -f $(SPIRV_OUT)/*.spv $(SPIRV_OUT)/*.validated

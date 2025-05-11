@@ -3,73 +3,23 @@
 			"id":	"NOT",
 			"type":	"Definition"
 		}, {
-			"id":	"OR",
-			"type":	"Definition"
-		}, {
 			"id":	"NOR",
 			"type":	"Definition"
 		}, {
 			"id":	"Rule30Cell",
 			"type":	"Definition"
 		}, {
-			"id":	"XOR",
-			"type":	"Definition"
-		}, {
-			"id":	"AND",
-			"type":	"Definition"
-		}, {
-			"id":	"AND",
-			"type":	"Invocation"
-		}, {
-			"id":	"1",
-			"type":	"Literal",
-			"value":	"1"
-		}, {
-			"id":	"0",
-			"type":	"Literal",
-			"value":	"0"
-		}, {
-			"id":	"result",
-			"type":	"Signal"
-		}, {
-			"id":	"XOR",
-			"type":	"Invocation"
-		}, {
-			"id":	"1",
-			"type":	"Literal",
-			"value":	"1"
-		}, {
-			"id":	"0",
-			"type":	"Literal",
-			"value":	"0"
-		}, {
-			"id":	"XOR_Out",
-			"type":	"Signal"
-		}, {
 			"id":	"OR",
-			"type":	"Invocation"
+			"type":	"Definition"
 		}, {
-			"id":	"1",
-			"type":	"Literal",
-			"value":	"1"
+			"id":	"XOR",
+			"type":	"Definition"
 		}, {
-			"id":	"0",
-			"type":	"Literal",
-			"value":	"0"
-		}, {
-			"id":	"Or_Out",
-			"type":	"Signal"
+			"id":	"AND",
+			"type":	"Definition"
 		}, {
 			"id":	"NOR",
 			"type":	"Invocation"
-		}, {
-			"id":	"1",
-			"type":	"Literal",
-			"value":	"1"
-		}, {
-			"id":	"0",
-			"type":	"Literal",
-			"value":	"0"
 		}, {
 			"id":	"Nor_Out",
 			"type":	"Signal"
@@ -77,11 +27,25 @@
 			"id":	"NOT",
 			"type":	"Invocation"
 		}, {
-			"id":	"1",
-			"type":	"Literal",
-			"value":	"1"
-		}, {
 			"id":	"Out0",
+			"type":	"Signal"
+		}, {
+			"id":	"XOR",
+			"type":	"Invocation"
+		}, {
+			"id":	"XOR_Out",
+			"type":	"Signal"
+		}, {
+			"id":	"AND",
+			"type":	"Invocation"
+		}, {
+			"id":	"result",
+			"type":	"Signal"
+		}, {
+			"id":	"OR",
+			"type":	"Invocation"
+		}, {
+			"id":	"Or_Out",
 			"type":	"Signal"
 		}],
 	"links":	[{
@@ -89,76 +53,40 @@
 			"target":	"NOT",
 			"type":	"uses"
 		}, {
-			"source":	"OR",
-			"target":	"OR",
-			"type":	"uses"
-		}, {
 			"source":	"NOR",
 			"target":	"NOR",
 			"type":	"uses"
 		}, {
-			"source":	"XOR",
-			"target":	"XOR",
-			"type":	"uses"
-		}, {
-			"source":	"AND",
-			"target":	"AND",
-			"type":	"uses"
-		}, {
-			"source":	"1",
-			"target":	"AND",
-			"type":	"input"
-		}, {
-			"source":	"0",
-			"target":	"AND",
-			"type":	"input"
-		}, {
-			"source":	"AND",
-			"target":	"result",
-			"type":	"output"
-		}, {
-			"source":	"1",
-			"target":	"XOR",
-			"type":	"input"
-		}, {
-			"source":	"0",
-			"target":	"XOR",
-			"type":	"input"
-		}, {
-			"source":	"XOR",
-			"target":	"XOR_Out",
-			"type":	"output"
-		}, {
-			"source":	"1",
-			"target":	"OR",
-			"type":	"input"
-		}, {
-			"source":	"0",
-			"target":	"OR",
-			"type":	"input"
-		}, {
 			"source":	"OR",
-			"target":	"Or_Out",
-			"type":	"output"
+			"target":	"OR",
+			"type":	"uses"
 		}, {
-			"source":	"1",
-			"target":	"NOR",
-			"type":	"input"
+			"source":	"XOR",
+			"target":	"XOR",
+			"type":	"uses"
 		}, {
-			"source":	"0",
-			"target":	"NOR",
-			"type":	"input"
+			"source":	"AND",
+			"target":	"AND",
+			"type":	"uses"
 		}, {
 			"source":	"NOR",
 			"target":	"Nor_Out",
 			"type":	"output"
 		}, {
-			"source":	"1",
-			"target":	"NOT",
-			"type":	"input"
-		}, {
 			"source":	"NOT",
 			"target":	"Out0",
+			"type":	"output"
+		}, {
+			"source":	"XOR",
+			"target":	"XOR_Out",
+			"type":	"output"
+		}, {
+			"source":	"AND",
+			"target":	"result",
+			"type":	"output"
+		}, {
+			"source":	"OR",
+			"target":	"Or_Out",
 			"type":	"output"
 		}]
 }
