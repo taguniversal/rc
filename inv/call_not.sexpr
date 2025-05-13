@@ -2,7 +2,7 @@
   (Name NOT)
 
   (SourceList
-    (SourcePlace "1")
+    (SourcePlace 1)
   )
 
   (DestinationList

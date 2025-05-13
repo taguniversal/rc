@@ -11,14 +11,23 @@
   )
 
   (Invocation
-    (InvocationName OR)
-    (Inputs A B)
-    (Output Temp0)
+    (Name OR)
+    (SourceList 
+      (SourcePlace A)
+      (SourcePlace B)
+    )
+    (DestinationList
+      (DestinationPlace Temp0)
+    )
   )
 
   (Invocation
-    (InvocationName NOT)
-    (Inputs Temp0)
-    (Output Out0)
+    (Name NOT)
+    (SourceList 
+      (SourcePlace Temp0)
+    )
+    (DestinationList
+      (DestinationPlace Out0)
+    )
   )
 )

@@ -12,7 +12,7 @@
   )
 
   (ConditionalInvocation
-    (InvocationName "$L$C$R")
+    (Template L C R  )
     (Case 111 0)
     (Case 110 0)
     (Case 101 0)

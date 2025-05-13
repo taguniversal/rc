@@ -10,7 +10,7 @@
   )
 
   (ConditionalInvocation
-    (InvocationName "$A")
+    (Template A)
     (Case 0 1)
     (Case 1 0)
   )

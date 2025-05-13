@@ -24,6 +24,7 @@
 #include "wiring.h"
 #include "spirv.h"
 #include "sexpr_parser.h"
+#include "vulkan_driver.h"
 
 #define PSI_BLOCK_LEN 39
 #define OSC_PORT_XMIT 4242
@@ -118,6 +119,8 @@ int main(int argc, char *argv[])
     const char *state_dir = "./state";
     const char *inv_dir = "./inv";
     const char *spirv_dir = "./spirv";
+    const char *inv_out_dir = "build/out";
+
     char buffer[BUFFER_SIZE];
     sqlite3 *db = NULL;
 
@@ -138,7 +141,7 @@ int main(int argc, char *argv[])
     Block *active_block = start_block();
 
     LOG_INFO("Active Block: %s\n", active_block->psi);
-
+    int compile_only = 0;
     for (int i = 1; i < argc; ++i)
     {
         if (strcmp(argv[i], "--state") == 0 && i + 1 < argc)
@@ -148,19 +151,13 @@ int main(int argc, char *argv[])
         else if (strcmp(argv[i], "--inv") == 0 && i + 1 < argc)
         {
             inv_dir = argv[++i];
-            // 🗂️ Ensure inv directory exists
-            if (inv_dir)
-            {
-                mkdir(inv_dir, 0755);
-            }
+            mkdir(inv_dir, 0755);
         }
-    }
-    LOG_INFO("Using state directory %s, invocation directory %s\n", state_dir, inv_dir);
-
-    int compile_only = 0;
-    for (int i = 1; i < argc; ++i)
-    {
-        if (strcmp(argv[i], "--spirv_dir") == 0 && i + 1 < argc)
+        else if (strcmp(argv[i], "--output") == 0 && i + 1 < argc)
+        {
+            inv_out_dir = argv[++i];
+        }
+        else if (strcmp(argv[i], "--spirv_dir") == 0 && i + 1 < argc)
         {
             spirv_dir = argv[++i];
         }
@@ -168,15 +165,18 @@ int main(int argc, char *argv[])
         {
             compile_only = 1;
         }
-        else if (argc > 1 && strcmp(argv[1], "--run_spirv") == 0)
+        else if (strcmp(argv[i], "--run_spirv") == 0)
         {
-            return create_pipeline(); // This now runs only when .spv files are ready
+            return create_pipeline(); // Only run if .spv files are ready
         }
     }
+
+    LOG_INFO("Using state directory %s, invocation directory %s\n", state_dir, inv_dir);
 
     // 🗂️ Ensure state and spirv directories exist
     mkdir(state_dir, 0755);
     mkdir(spirv_dir, 0755);
+
     char db_path[256];
     snprintf(db_path, sizeof(db_path), "%s/db.sqlite3", state_dir);
 
@@ -202,20 +202,25 @@ int main(int argc, char *argv[])
     }
     int parse_status = parse_block_from_sexpr(active_block, inv_dir);
     LOG_INFO("Parse status: %d", parse_status);
-    //parse_block_from_xml(active_block, inv_dir);
+    emit_all_definitions(active_block, inv_out_dir);
+
+    // parse_block_from_xml(active_block, inv_dir);
     write_network_json(active_block, "./graph.json");
 
     if (compile_only)
     {
-        LOG_INFO("🎯 SPIR-V generation only mode: emitting to %s", spirv_dir);
-        LOG_INFO("🔍 Parsing S-Expression...");
-        const char *input = "(Definition (Name AND) (Sources A B) (Destinations $out))";
-        SExpr *root = parse_sexpr(input);
-        print_sexpr(root, 0);
-        free_sexpr(root);
-        spirv_parse_block(active_block, spirv_dir);
+        LOG_INFO("🎯 Compile-only mode enabled");
+        LOG_INFO("📂 Emitting definitions to: %s", inv_out_dir);
+        mkdir(inv_out_dir, 0755);
+
+        emit_all_definitions(active_block, inv_out_dir);
+        parse_block_from_sexpr(active_block, inv_out_dir);
+
+        spirv_parse_block(active_block, "build/spirv_out");
+
         return 0;
     }
+
     eval(active_block);
     dump_wiring(active_block);
 

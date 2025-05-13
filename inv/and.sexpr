@@ -7,11 +7,11 @@
   )
 
   (DestinationList
-    (DestinationPlace $out)
+    (DestinationPlace out)
   )
 
   (ConditionalInvocation
-    (InvocationName "$A$B")
+    (Template A B)
     (Case 00 0)
     (Case 01 0)
     (Case 10 0)

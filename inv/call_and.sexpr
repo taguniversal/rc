@@ -6,7 +6,7 @@
   )
 
   (SourceList
-    (SourcePlace "1")
-    (SourcePlace "0")
+    (SourcePlace 1)
+    (SourcePlace 0)
   )
 )

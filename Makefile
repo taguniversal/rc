@@ -14,6 +14,7 @@ rcnode_SRC = \
   src/osc.c \
   src/graph.c \
   src/sexpr_parser.c \
+  src/vulkan_driver.c \
   src/wiring.c \
   src/udp_send.c \
   src/spirv.c \
@@ -21,14 +22,19 @@ rcnode_SRC = \
   external/mkrand/mkrand.c \
   external/tinyosc/tinyosc.c
 
+VALIDATOR_BIN = build/validate_sexpr
+VALIDATOR_SRC = src/validate_sexpr.c src/sexpr_parser.c src/eval.c
+VALIDATOR_OBJ = $(patsubst %.c, build/%.o, $(VALIDATOR_SRC))
+
+$(VALIDATOR_BIN): $(VALIDATOR_OBJ)
+	$(CC) $(VALIDATOR_OBJ) -o $@ $(LDFLAGS)
+
+
 rcnode_OBJ = $(patsubst %.c, build/%.o, $(rcnode_SRC))
 rcnode_BIN = build/rcnode
 
 SPIRV_OUT = build/spirv_out
-SPIRV_SRC := $(wildcard $(SPIRV_OUT)/*.spvasm)
-SPIRV_BIN := $(SPIRV_SRC:.spvasm=.spv)
-SPIRV_VALIDATE := $(SPIRV_BIN:.spv=.validated)
-
+SPIRV_SRC := $(filter-out %.spvasm.sexpr, $(wildcard $(SPIRV_OUT)/*.spvasm*))
 .PHONY: all clean check-ttl build_dirs fpga flash spirv spirv-emit validate-spirv
 
 HOST_SYNC_DIR := /Users/eflores/src/digitalblockchain
@@ -57,6 +63,14 @@ build/src/%.o: src/%.c
 build/external/%.o: external/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(validate_sexpr_BIN): $(validate_sexpr_OBJ)
+	$(CC) $(validate_sexpr_OBJ) -o $@ $(LDFLAGS)
+
+.PHONY: validate-sexpr
+validate-sexpr: $(validate_sexpr_BIN)
+	@$(validate_sexpr_BIN) build/sexpr_out
+
 # --- SPIR-V compilation pipeline ---
 
 # Assemble each .spvasm to .spv
@@ -69,10 +83,16 @@ spirv: spirv-emit $(SPIRV_BIN)
 	@echo "✅ All SPIR-V binaries assembled."
 
 # Run the compiler to generate .spvasm files
-spirv-emit: $(rcnode_BIN)
-	@echo "🔧 Generating SPIR-V assembly from XML..."
-	@$(rcnode_BIN) --compile --inv inv --spirv_dir $(SPIRV_OUT)
+spirv-emit: $(rcnode_BIN) $(VALIDATOR_BIN)
+	@echo "🔧 Generating SPIR-V assembly from .sexpr files."
+	@$(rcnode_BIN) --compile --inv inv --spirv_dir $(SPIRV_OUT) --output build/sexpr_out
+	@echo "🔎 Validating S-expression files..."
+	@echo "Running validator: $(VALIDATOR_BIN) build/sexpr_out"
+	@$(VALIDATOR_BIN) build/sexpr_out || (echo '❌ S-expression validation failed.' && exit 1)
 	@make -s spirv-assemble
+
+
+
 # Optional validation pass (can be used to verify .spv correctness)
 validate-spirv: $(SPIRV_VALIDATE)
 	@echo "✅ All SPIR-V binaries validated."
