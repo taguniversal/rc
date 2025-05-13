@@ -25,12 +25,9 @@
 #include "spirv.h"
 #include "sexpr_parser.h"
 #include "vulkan_driver.h"
+#include "spirv_asm.h"
 
-#define PSI_BLOCK_LEN 39
-#define OSC_PORT_XMIT 4242
-#define OSC_PORT_RECV 4243
-#define BUFFER_SIZE 1024
-#define IPV6_ADDR "fc00::1"
+#include "config.h"
 
 const char *default_schema =
     "CREATE TABLE IF NOT EXISTS triples ("
@@ -53,7 +50,7 @@ void handle_signal(int sig)
     }
 }
 
-void daemonize()
+void daemonize(void)
 {
     pid_t pid = fork();
     if (pid < 0)
@@ -114,12 +111,31 @@ Block *start_block(void)
     return blk;
 }
 
+char sexpr_out_dir[256];
+char spirv_sexpr_dir[256];
+char spirv_asm_dir[256];
+char spirv_unified_dir[256];
+
+void init_output_dirs(const char *base)
+{
+    snprintf(sexpr_out_dir, sizeof(sexpr_out_dir), "%s/sexpr", base);
+    snprintf(spirv_sexpr_dir, sizeof(spirv_sexpr_dir), "%s/spirv_sexpr", base);
+    snprintf(spirv_asm_dir, sizeof(spirv_asm_dir), "%s/spirv_asm", base);
+    snprintf(spirv_unified_dir, sizeof(spirv_unified_dir), "%s/spirv_unified", base);
+
+    mkdir(base, 0755);
+    mkdir(sexpr_out_dir, 0755);
+    mkdir(spirv_sexpr_dir, 0755);
+    mkdir(spirv_asm_dir, 0755);
+    mkdir(spirv_unified_dir, 0755);
+}
+
 int main(int argc, char *argv[])
 {
     const char *state_dir = "./state";
     const char *inv_dir = "./inv";
-    const char *spirv_dir = "./spirv";
-    const char *inv_out_dir = "build/out";
+    const char *out_dir = "build/out";
+    int output_flag_provided = 0;
 
     char buffer[BUFFER_SIZE];
     sqlite3 *db = NULL;
@@ -155,11 +171,9 @@ int main(int argc, char *argv[])
         }
         else if (strcmp(argv[i], "--output") == 0 && i + 1 < argc)
         {
-            inv_out_dir = argv[++i];
-        }
-        else if (strcmp(argv[i], "--spirv_dir") == 0 && i + 1 < argc)
-        {
-            spirv_dir = argv[++i];
+            out_dir = argv[++i];
+            output_flag_provided = 1;
+            init_output_dirs(out_dir);
         }
         else if (strcmp(argv[i], "--compile") == 0)
         {
@@ -167,7 +181,11 @@ int main(int argc, char *argv[])
         }
         else if (strcmp(argv[i], "--run_spirv") == 0)
         {
-            return create_pipeline(); // Only run if .spv files are ready
+            if (!output_flag_provided)
+            {
+                init_output_dirs(out_dir); // ensure spirv_asm_dir is populated
+            }
+            return create_pipeline(spirv_asm_dir);
         }
     }
 
@@ -175,7 +193,6 @@ int main(int argc, char *argv[])
 
     // 🗂️ Ensure state and spirv directories exist
     mkdir(state_dir, 0755);
-    mkdir(spirv_dir, 0755);
 
     char db_path[256];
     snprintf(db_path, sizeof(db_path), "%s/db.sqlite3", state_dir);
@@ -202,22 +219,34 @@ int main(int argc, char *argv[])
     }
     int parse_status = parse_block_from_sexpr(active_block, inv_dir);
     LOG_INFO("Parse status: %d", parse_status);
-    emit_all_definitions(active_block, inv_out_dir);
 
     // parse_block_from_xml(active_block, inv_dir);
+    char graph_path[256];
+    snprintf(graph_path, sizeof(graph_path), "%s/graph.json", out_dir);
+    write_network_json(active_block, graph_path);
+
     write_network_json(active_block, "./graph.json");
 
     if (compile_only)
     {
         LOG_INFO("🎯 Compile-only mode enabled");
-        LOG_INFO("📂 Emitting definitions to: %s", inv_out_dir);
-        mkdir(inv_out_dir, 0755);
+        LOG_INFO("📂 Emitting definitions to: %s", out_dir);
+        LOG_INFO("📂 Outputs:");
+        LOG_INFO("   S-expressions: %s", sexpr_out_dir);
+        LOG_INFO("   SPIR-V S-expr: %s", spirv_sexpr_dir);
+        LOG_INFO("   SPIR-V Asm   : %s", spirv_asm_dir);
 
-        emit_all_definitions(active_block, inv_out_dir);
-        parse_block_from_sexpr(active_block, inv_out_dir);
+        emit_all_definitions(active_block, sexpr_out_dir);
+        parse_block_from_sexpr(active_block, sexpr_out_dir);
 
-        spirv_parse_block(active_block, "build/spirv_out");
+        spirv_parse_block(active_block, spirv_sexpr_dir);
 
+        char main_sexpr_path[256], main_spvasm_path[256];
+        snprintf(main_sexpr_path, sizeof(main_sexpr_path), "%s/main.spvasm.sexpr", spirv_unified_dir);
+        snprintf(main_spvasm_path, sizeof(main_spvasm_path), "%s/main.spvasm", spirv_asm_dir);
+
+        emit_spirv_block(active_block, spirv_sexpr_dir, main_sexpr_path);
+        emit_spirv_asm_file(main_sexpr_path, main_spvasm_path);
         return 0;
     }
 
@@ -233,7 +262,7 @@ int main(int argc, char *argv[])
             daemonize();
             signal(SIGTERM, handle_signal);
             signal(SIGINT, handle_signal);
-            LOG_INFO("🔍 Final DB Pointer before loop: %p\n", db);
+            LOG_INFO("🔍 Final DB Pointer before loop: %p\n", (void *)db);
             run_osc_listener(active_block, &keep_running);
             return 0;
         }
@@ -244,12 +273,6 @@ int main(int argc, char *argv[])
             signal(SIGINT, handle_signal);
             LOG_INFO("🧪 Debug Mode: Entering OSC Loop...\n");
             run_osc_listener(active_block, &keep_running);
-            return 0;
-        }
-
-        if (strcmp(argv[1], "--export-graph") == 0)
-        {
-            write_network_json(active_block, "./graph.json");
             return 0;
         }
     }

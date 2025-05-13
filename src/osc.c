@@ -9,10 +9,11 @@
 #include <arpa/inet.h>
 #include <openssl/sha.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <time.h>
 #include <signal.h>  // for sig_atomic_t
-
+#include "config.h"
 
 #define OSC_BUFFER_SIZE 1024
 

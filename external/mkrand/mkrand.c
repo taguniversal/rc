@@ -79,7 +79,7 @@ void halt(char* msg)
 }
 
 /* Allocate vector memory slot */
-vec128bec_t* vec_alloc() { 
+vec128bec_t* vec_alloc(void) { 
   vec128bec_t* r = malloc(sizeof(vec128bec_t));
   if (r) {
     vset(r, CELL_NULL);
@@ -89,7 +89,7 @@ vec128bec_t* vec_alloc() {
 }
 
 /* Allocate frame pointer and vector memory slots */
-frame_t* frame_alloc() {
+frame_t* frame_alloc(void) {
   int i;
   frame_t* f = malloc(sizeof(frame_t));
 
@@ -760,7 +760,7 @@ static uint32_t ts_cycle = 0;
 static cell_proc_t *cp = NULL;  // Global pointer
 
 
-TimeSeed time_seed()
+TimeSeed time_seed(void)
 {
   struct timeval tv; 
   ts_cycle += 1;
@@ -773,7 +773,7 @@ TimeSeed time_seed()
   return (r);
 }
 
-void initialize_mkrand() {
+void initialize_mkrand(void) {
   if (!initialized) {
     if (cp == NULL) {
         cp_init();  // Initialize processor
@@ -1315,7 +1315,7 @@ void popGP(cell_proc_t* restrict cp) {
 /* Check clocks
  * Return 0 if OK, print error and halts otherwise
  */
-int check_clocks()
+int check_clocks(void)
 {  
   int r = 0;
 
@@ -1672,7 +1672,7 @@ char* new_block(void) {
         LOG_ERROR("❌ Error: vec_alloc() returned NULL!\n");
         return NULL;
     }
-    LOG_INFO("✅ Allocated memory for seed vector: %p\n", seed_vec);
+    LOG_INFO("✅ Allocated memory for seed vector: %p\n", (void *)seed_vec);
 
     seed_vec = time_seed_to_vec(time_seed());
     if (!seed_vec) {
@@ -1680,7 +1680,7 @@ char* new_block(void) {
         free(seed_vec);
         return NULL;
     }
-    LOG_INFO("✅ Time-seeded vector generated: %p\n", seed_vec);
+    LOG_INFO("✅ Time-seeded vector generated: %p\n", (void *) seed_vec);
 
     // ✅ Check cp->SDR30 after initialization
     if (!cp) {
@@ -1741,7 +1741,7 @@ void mkrand_generate_ipv6(const uint8_t* hash_seed, uint8_t out[16]) {
         printf("❌ Error: vec_alloc() returned NULL!\n");
         return;
     }
-    LOG_INFO("✅ Allocated memory for seed vector: %p\n", seed_vec);
+    LOG_INFO("✅ Allocated memory for seed vector: %p\n", (void *) seed_vec);
 
     seed_vec = hash_seed_to_vec(hash_seed);
     if (!seed_vec) {
@@ -1749,7 +1749,7 @@ void mkrand_generate_ipv6(const uint8_t* hash_seed, uint8_t out[16]) {
         free(seed_vec);
         return;
     }
-    LOG_INFO("✅ Time-seeded vector generated: %p\n", seed_vec);
+    LOG_INFO("✅ Time-seeded vector generated: %p\n", (void *) seed_vec);
 
     // ✅ Check cp->SDR30 after initialization
     if (!cp) {

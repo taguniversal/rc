@@ -10,7 +10,7 @@
 #include "spirv.h"
 
 int id_counter = 1;
-int next_id()
+int next_id(void)
 {
   return id_counter++;
 }
@@ -87,7 +87,7 @@ void write_spirv_module(FILE *out, SPIRVOp *head)
   }
 }
 
-SPIRVOp *build_sample_spirv()
+SPIRVOp *build_sample_spirv(void)
 {
   SPIRVOp *head = NULL, *tail = NULL;
 
@@ -292,3 +292,51 @@ void spirv_parse_block(Block *blk, const char *spirv_out_dir)
     LOG_INFO("✅ Wrote SPIR-V to %s", path);
   }
 }
+
+void emit_spirv_block(Block *blk, const char *spirv_frag_dir, const char *out_path) {
+    FILE *out = fopen(out_path, "w");
+    if (!out) {
+        LOG_ERROR("❌ Failed to open output SPIR-V file: %s", out_path);
+        return;
+    }
+
+    // Emit preamble
+    fprintf(out, "(OpCapability Shader)\n");
+    fprintf(out, "(OpMemoryModel Logical GLSL450)\n");
+    fprintf(out, "(OpEntryPoint GLCompute %%main \"main\")\n");
+
+    // Emit void type and function wrapper
+    fprintf(out, "(OpTypeVoid %%void)\n");
+    fprintf(out, "(OpTypeFunction %%void_fn %%void)\n");
+    fprintf(out, "(OpFunction %%void None %%void_fn)\n");
+    fprintf(out, "(OpLabel %%entry)\n");
+
+    // Concatenate fragments
+    for (Definition *def = blk->definitions; def; def = def->next) {
+        char frag_path[512];
+        snprintf(frag_path, sizeof(frag_path), "%s/%s.spvasm.sexpr", spirv_frag_dir, def->name);
+        FILE *frag = fopen(frag_path, "r");
+        if (!frag) {
+            LOG_WARN("⚠️ Could not open fragment for %s", def->name);
+            continue;
+        }
+
+        char line[512];
+        while (fgets(line, sizeof(line), frag)) {
+            // Only emit instructions inside functions
+            if (strstr(line, "OpFunction") || strstr(line, "OpLabel") || strstr(line, "OpFunctionEnd"))
+                continue;
+            fputs(line, out);
+        }
+
+        fclose(frag);
+    }
+
+    // Emit return and function end
+    fprintf(out, "(OpReturn)\n");
+    fprintf(out, "(OpFunctionEnd)\n");
+
+    fclose(out);
+    LOG_INFO("✅ Emitted unified SPIR-V block to %s", out_path);
+}
+

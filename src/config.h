@@ -1,0 +1,5 @@
+#define PSI_BLOCK_LEN 39
+#define OSC_PORT_XMIT 4242
+#define OSC_PORT_RECV 4243
+#define BUFFER_SIZE 1024
+#define IPV6_ADDR "fc00::1"

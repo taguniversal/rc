@@ -149,7 +149,7 @@ bool init_vulkan(VulkanContext *ctx, bool require_device)
 
 
 
-bool check_spirv_gpu_support()
+bool check_spirv_gpu_support(void)
 {
   VulkanContext ctx;
   if (!init_vulkan(&ctx, false))
@@ -221,16 +221,16 @@ VkShaderModule load_shader_module(VkDevice device, const char *path)
   return shader;
 }
 
-int create_pipeline()
+int create_pipeline(const char *spirv_dir)
 {
   VulkanContext ctx;
   if (!init_vulkan(&ctx, true))
     return 1;
 
-  DIR *dir = opendir("build/spirv_out");
+  DIR *dir = opendir(spirv_dir);
   if (!dir)
   {
-    fprintf(stderr, "❌ Could not open SPIR-V directory.\n");
+    fprintf(stderr, "❌ Could not open SPIR-V directory: %s\n", spirv_dir);
     exit(1);
   }
 
@@ -240,7 +240,7 @@ int create_pipeline()
     if (strstr(entry->d_name, ".spv"))
     {
       char path[512];
-      snprintf(path, sizeof(path), "build/spirv_out/%s", entry->d_name);
+      snprintf(path, sizeof(path), "%s/%s", spirv_dir, entry->d_name);
 
       if (access(path, R_OK) != 0)
       {
@@ -263,3 +263,4 @@ int create_pipeline()
   vkDestroyInstance(ctx.instance, NULL);
   return 0;
 }
+

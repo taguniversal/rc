@@ -31,7 +31,7 @@ typedef struct vec128bec_t {
   cell c [(16 * 8) + 1]; 
 } vec128bec_t;
 
-vec128bec_t* vec_alloc();
+vec128bec_t* vec_alloc(void);
 
 /* Little-endian version for display */
 typedef struct vec128lec_t {
@@ -43,7 +43,7 @@ typedef struct frame_t {
     vec128bec_t* rows[128];
 } frame_t;
 
-frame_t* frame_alloc();
+frame_t* frame_alloc(void);
 void frame_free(frame_t* f);
 void frame_clear(frame_t* f);
 
@@ -149,10 +149,10 @@ typedef struct TimeSeed {
   uint32_t   cyclic;
 } TimeSeed;
 
-TimeSeed time_seed();
+TimeSeed time_seed(void);
 char* timeseed_tostr(TimeSeed* ts);
 vec128bec_t* time_seed_to_vec(TimeSeed seed);
-int check_clocks();
+int check_clocks(void);
 
 uint16_t cp_init(void);
 void cp_reset(struct cell_proc_t* cp);
