@@ -22,6 +22,7 @@ rcnode_sources = files(
   'src/spirv.c',
   'src/sexpr_parser.c',
   'src/spirv_asm.c',
+  'src/spirv_passes.c',
   'src/util.c',
   'src/log.c',
   'src/graph.c',
@@ -39,13 +40,13 @@ external_sources = files(
 
 rcnode_bin = executable('rcnode',
   rcnode_sources + external_sources,
-  include_directories: include_directories('src', 'external','external/mkrand',
-    'external/tinyosc', 'external/cJSON'),
+  include_directories: include_directories('src', 'external', 'external/mkrand',
+                                           'external/tinyosc', 'external/cJSON'),
   dependencies: deps,
   install: true
 )
 
-# --- Validator (optional) ---
+# --- Validator ---
 validate_sources = files(
   'src/validate_sexpr.c',
   'src/sexpr_parser.c',
@@ -55,26 +56,47 @@ validate_sources = files(
 
 validate_bin = executable('validate_sexpr',
   validate_sources,
-  include_directories: include_directories('src', 'external', 'external/tinyosc', 'external/mkrand', 'external/sqlite'),
+  include_directories: include_directories('src', 'external'),
   dependencies: deps
 )
 
-# --- Output directory root ---
-output_dir = 'build/out'
+# --- Output directories ---
+out_root = join_paths(meson.current_build_dir(), 'out')
+out_dirs = [
+  join_paths(out_root, 'sexpr'),
+  join_paths(out_root, 'spirv_sexpr'),
+  join_paths(out_root, 'spirv_unified'),
+  join_paths(out_root, 'spirv_compiled'),
+  join_paths(out_root, 'state')
+]
 
-# --- Compilation step that emits all files ---
+# Create out directories at configure time
+foreach d : out_dirs
+  run_command('mkdir', '-p', d, check: true)
+endforeach
+
+# --- Compilation step ---
 compile_output = custom_target('compile-all',
-  output: ['main.sexpr', 'main.spvasm.sexpr', 'main.spvasm'],
+  output: 'main.spvasm.sexpr', 
   command: [rcnode_bin, '--compile',
             '--inv', join_paths(meson.source_root(), 'inv'),
-            '--output', meson.current_build_dir()],
+            '--output', out_root],
   build_by_default: true
 )
 
 
-# --- SPIR-V binary (from main.spvasm) ---
+# --- SPIR-V binary ---
+spirv_asm_path = join_paths(out_root, 'spirv_unified', 'main.spvasm')
+spirv_bin_path = join_paths(out_root, 'spirv_compiled', 'main.spv')
+spirv_compiled_file = join_paths(out_root, 'spirv_compiled', 'main.spv')
+
+spirv_asm_file = join_paths(out_root, 'spirv_asm', 'main.spvasm')
 spirv_bin = custom_target('spirv-bin',
   input: compile_output,
   output: 'main.spv',
-  command: ['spirv-as', output_dir + '/spirv_asm/main.spvasm', '-o', '@OUTPUT@']
+  command: ['spirv-as', spirv_asm_file, '-o', spirv_compiled_file],
+  build_by_default: true
 )
+
+
+

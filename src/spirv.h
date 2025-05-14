@@ -1,9 +1,12 @@
 #ifndef SPIRV_H
 #define SPIRV_H
-
+#include <stddef.h>
+#include <stdio.h>
+#include "eval.h"
 typedef struct SPIRVOp {
     char *opcode;
     char **operands;
+    char *result_id;
     size_t operand_count;
     struct SPIRVOp *next;
 } SPIRVOp;
