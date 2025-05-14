@@ -113,5 +113,5 @@ typedef struct
 // === API ===
 void link_invocations(Block *blk);
 int eval(Block *blk);
-
+int count_invocations(Definition *def);
 #endif

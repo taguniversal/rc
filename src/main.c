@@ -123,16 +123,14 @@ void init_output_dirs(const char *base)
     snprintf(spirv_asm_dir, sizeof(spirv_asm_dir), "%s/spirv_asm", base);
     snprintf(spirv_unified_dir, sizeof(spirv_unified_dir), "%s/spirv_unified", base);
 
-    mkdir(base, 0755);  // harmless if it already exists
+    mkdir(base, 0755); // harmless if it already exists
     mkdir(sexpr_out_dir, 0755);
     mkdir(spirv_sexpr_dir, 0755);
     mkdir(spirv_asm_dir, 0755);
     mkdir(spirv_unified_dir, 0755);
-   
 
     // Don't mkdir(base) if meson already guarantees it exists.
 }
-
 
 int main(int argc, char *argv[])
 {
@@ -242,7 +240,7 @@ int main(int argc, char *argv[])
 
         emit_all_definitions(active_block, sexpr_out_dir);
         parse_block_from_sexpr(active_block, sexpr_out_dir);
-
+        link_invocations(active_block);
         spirv_parse_block(active_block, spirv_sexpr_dir);
 
         char main_sexpr_path[256], main_spvasm_path[256];

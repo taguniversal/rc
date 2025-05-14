@@ -2,11 +2,11 @@
   (Name NOT)
 
   (SourceList
-    (SourcePlace A)
+    (SourcePlace (Name A))
   )
 
   (DestinationList
-    (DestinationPlace Out0)
+    (DestinationPlace (Name Out0))
   )
 
   (ConditionalInvocation

@@ -1,12 +1,12 @@
 (Invocation
   (Name NOR)
 
-  (SourceList
-    (SourcePlace 1)
-    (SourcePlace 0)
+  (DestinationList
+    (DestinationPlace (Value 1))
+    (DestinationPlace (Value 0))
   )
 
-  (DestinationList
-    (DestinationPlace Nor_Out)
+  (SourceList
+    (SourcePlace (Name Nor_Out))
   )
 )

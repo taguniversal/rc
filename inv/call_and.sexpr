@@ -2,11 +2,11 @@
   (Name AND)
 
   (DestinationList
-    (DestinationPlace result)
-  )
+    (DestinationPlace (Value 1))
+    (DestinationPlace (Value 0))
+    )
 
   (SourceList
-    (SourcePlace 1)
-    (SourcePlace 0)
+    (SourcePlace (Name AndOut))
   )
 )

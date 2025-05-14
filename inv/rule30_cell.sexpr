@@ -2,13 +2,13 @@
   (Name Rule30Cell)
 
   (SourceList
-    (SourcePlace L)
-    (SourcePlace C)
-    (SourcePlace R)
+    (SourcePlace (Name L))
+    (SourcePlace (Name C))
+    (SourcePlace (Name R))
   )
 
   (DestinationList
-    (DestinationPlace Out)
+    (DestinationPlace (Name Out))
   )
 
   (ConditionalInvocation

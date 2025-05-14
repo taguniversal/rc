@@ -2,32 +2,32 @@
   (Name NOR)
 
   (SourceList
-    (SourcePlace A)
-    (SourcePlace B)
+    (SourcePlace (Name A))
+    (SourcePlace (Name B))
   )
 
   (DestinationList
-    (DestinationPlace Out0)
+    (DestinationPlace (Name Out0))
   )
 
   (Invocation
     (Name OR)
     (SourceList 
-      (SourcePlace A)
-      (SourcePlace B)
+      (SourcePlace (Name A))
+      (SourcePlace (Name B))
     )
     (DestinationList
-      (DestinationPlace Temp0)
+      (DestinationPlace (Name Temp0))
     )
   )
 
   (Invocation
     (Name NOT)
     (SourceList 
-      (SourcePlace Temp0)
+      (SourcePlace (Name Temp0))
     )
     (DestinationList
-      (DestinationPlace Out0)
+      (DestinationPlace (Name Out0))
     )
   )
 )

@@ -8,6 +8,7 @@
 #include "log.h"
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <stdbool.h>
 
 static struct SExpr *parse_expr(const char **input);
 
@@ -166,6 +167,7 @@ Definition *parse_definition(SExpr *expr, const char *filename)
     }
 
     def->name = strdup(name);
+
     // 2. Get SourceList
     SExpr *src_list = get_child_by_tag(expr, "SourceList");
     if (src_list)
@@ -173,16 +175,37 @@ Definition *parse_definition(SExpr *expr, const char *filename)
         for (size_t i = 1; i < src_list->count; ++i)
         {
             SExpr *place = src_list->list[i];
-            const char *pname = get_atom_value(place, 1);
-            if (!pname)
+            if (place->type != S_EXPR_LIST)
                 continue;
 
             SourcePlace *sp = calloc(1, sizeof(SourcePlace));
-            sp->name = strdup(pname);
             sp->signal = &NULL_SIGNAL;
+
+            // 🔧 Properly extract (Name ...) or (Value ...)
+            for (size_t j = 1; j < place->count; ++j)
+            {
+                SExpr *field = place->list[j];
+                if (field->type != S_EXPR_LIST || field->count < 2)
+                    continue;
+
+                const char *tag = get_atom_value(field, 0);
+                const char *val = get_atom_value(field, 1);
+                if (!tag || !val)
+                    continue;
+
+                if (strcmp(tag, "Name") == 0)
+                    sp->name = strdup(val);
+                else if (strcmp(tag, "Value") == 0)
+                    sp->value = strdup(val);
+            }
 
             sp->next = def->sources;
             def->sources = sp;
+
+            LOG_INFO("🧩 Parsed SourcePlace in def %s: name=%s, value=%s",
+                     def->name,
+                     sp->name ? sp->name : "null",
+                     sp->value ? sp->value : "null");
         }
     }
     else
@@ -214,6 +237,7 @@ Definition *parse_definition(SExpr *expr, const char *filename)
         LOG_ERROR("❌ [Definition:%s] Missing DestinationList", def->name);
     }
 
+    // 4. ConditionalInvocation
     SExpr *ci_expr = get_child_by_tag(expr, "ConditionalInvocation");
     if (ci_expr)
     {
@@ -228,7 +252,7 @@ Definition *parse_definition(SExpr *expr, const char *filename)
         }
     }
 
-    // 5. Parse inline Invocation blocks (e.g., inside NOR)
+    // 5. Inline Invocations
     for (size_t i = 1; i < expr->count; ++i)
     {
         SExpr *item = expr->list[i];
@@ -239,7 +263,6 @@ Definition *parse_definition(SExpr *expr, const char *filename)
         if (head->type != S_EXPR_ATOM || strcmp(head->atom, "Invocation") != 0)
             continue;
 
-        // Parse it as a regular invocation
         Invocation *inv = parse_invocation_from_expr(item);
         if (!inv)
         {
@@ -247,7 +270,7 @@ Definition *parse_definition(SExpr *expr, const char *filename)
             continue;
         }
 
-        inv->next = def->invocations; // NOTE: You'll need to add this field!
+        inv->next = def->invocations;
         def->invocations = inv;
 
         LOG_INFO("🔹 Parsed inline Invocation: %s in %s", inv->name, def->name);
@@ -255,11 +278,12 @@ Definition *parse_definition(SExpr *expr, const char *filename)
 
     return def;
 }
+
 Invocation *parse_invocation_from_expr(SExpr *expr)
 {
     Invocation *inv = calloc(1, sizeof(Invocation));
 
-    // Name
+    // ✅ Name
     SExpr *name_expr = get_child_by_tag(expr, "Name");
     const char *name = get_atom_value(name_expr, 1);
     if (!name)
@@ -270,43 +294,7 @@ Invocation *parse_invocation_from_expr(SExpr *expr)
     }
     inv->name = strdup(name);
 
-    // SourceList
-    SExpr *src_list = get_child_by_tag(expr, "SourceList");
-    if (src_list)
-    {
-        for (size_t i = 1; i < src_list->count; ++i)
-        {
-            SExpr *place = src_list->list[i];
-            if (place->type != S_EXPR_LIST || place->count < 2)
-                continue;
-
-            SExpr *tag = place->list[0];
-            SExpr *value = place->list[1];
-            if (tag->type != S_EXPR_ATOM || value->type != S_EXPR_ATOM)
-                continue;
-
-            SourcePlace *sp = calloc(1, sizeof(SourcePlace));
-            sp->signal = &NULL_SIGNAL;
-
-            if (isdigit(value->atom[0]) || value->atom[0] == '"')
-            {
-                sp->value = strdup(value->atom);
-            }
-            else
-            {
-                sp->name = strdup(value->atom);
-            }
-
-            sp->next = inv->sources;
-            inv->sources = sp;
-        }
-    }
-    else
-    {
-        LOG_ERROR("❌ [Invocation:%s] Missing SourceList", inv->name);
-    }
-
-    // DestinationList
+    // First find DestinationList and parse it
     SExpr *dst_list = get_child_by_tag(expr, "DestinationList");
     if (dst_list)
     {
@@ -330,6 +318,49 @@ Invocation *parse_invocation_from_expr(SExpr *expr)
         LOG_ERROR("❌ [Invocation:%s] Missing DestinationList", inv->name);
     }
 
+    // Then find SourceList and parse it
+    SExpr *src_list = get_child_by_tag(expr, "SourceList");
+    if (src_list)
+    {
+        for (size_t i = 1; i < src_list->count; ++i)
+        {
+            SExpr *place = src_list->list[i];
+            if (place->type != S_EXPR_LIST)
+                continue;
+
+            SourcePlace *sp = calloc(1, sizeof(SourcePlace));
+            sp->signal = &NULL_SIGNAL;
+
+            for (size_t j = 1; j < place->count; ++j)
+            {
+                SExpr *field = place->list[j];
+                if (field->type != S_EXPR_LIST || field->count < 2)
+                    continue;
+
+                const char *tag = get_atom_value(field, 0);
+                const char *val = get_atom_value(field, 1);
+                if (!tag || !val)
+                    continue;
+
+                if (strcmp(tag, "Name") == 0)
+                    sp->name = strdup(val);
+                else if (strcmp(tag, "Value") == 0)
+                    sp->value = strdup(val);
+            }
+
+            sp->next = inv->sources;
+            inv->sources = sp;
+
+            LOG_INFO("🧩 Parsed SourcePlace: name=%s, value=%s",
+                     sp->name ? sp->name : "null",
+                     sp->value ? sp->value : "null");
+        }
+    }
+    else
+    {
+        LOG_ERROR("❌ [Invocation:%s] Missing SourceList", inv->name);
+    }
+
     return inv;
 }
 
@@ -344,6 +375,75 @@ Invocation *parse_invocation(SExpr *expr, const char *filename)
     return inv;
 }
 
+bool validate_sexpr(SExpr *expr, const char *filename)
+{
+    if (!expr || expr->type != S_EXPR_LIST || expr->count < 1)
+        return false;
+
+    const char *tag = expr->list[0]->atom;
+    if (strcmp(tag, "Invocation") != 0)
+        return true; // We only validate invocations for now
+
+    bool found_dest = false;
+    bool found_source = false;
+
+    for (size_t i = 1; i < expr->count; ++i)
+    {
+        SExpr *child = expr->list[i];
+        if (child->type != S_EXPR_LIST || child->count < 1)
+            continue;
+
+        const char *subtag = child->list[0]->atom;
+
+        if (strcmp(subtag, "DestinationList") == 0)
+        {
+            if (found_dest || found_source)
+            {
+                LOG_ERROR("❌ [%s] DestinationList must appear once and before SourceList", filename);
+                return false;
+            }
+            found_dest = true;
+
+            for (size_t j = 1; j < child->count; ++j)
+            {
+                SExpr *dp = child->list[j];
+                if (!get_child_by_tag(dp, "Value"))
+                {
+                    LOG_ERROR("❌ [%s] DestinationPlace missing 'Value'", filename);
+                    return false;
+                }
+            }
+        }
+        else if (strcmp(subtag, "SourceList") == 0)
+        {
+            if (!found_dest)
+            {
+                LOG_ERROR("❌ [%s] SourceList must come after DestinationList", filename);
+                return false;
+            }
+            found_source = true;
+
+            for (size_t j = 1; j < child->count; ++j)
+            {
+                SExpr *sp = child->list[j];
+                if (!get_child_by_tag(sp, "Name"))
+                {
+                    LOG_ERROR("❌ [%s] SourcePlace missing 'Name'", filename);
+                    return false;
+                }
+            }
+        }
+    }
+
+    if (!found_dest || !found_source)
+    {
+        LOG_ERROR("❌ [%s] Invocation must include both DestinationList and SourceList", filename);
+        return false;
+    }
+
+    return true;
+}
+
 int parse_block_from_sexpr(Block *blk, const char *inv_dir)
 {
     DIR *dir = opendir(inv_dir);
@@ -353,7 +453,7 @@ int parse_block_from_sexpr(Block *blk, const char *inv_dir)
         exit(1);
     }
 
-    LOG_INFO("🔍 Parsing block contents from directory: %s", inv_dir);
+    LOG_INFO("🔍 parse_block_from_sexpr Parsing block contents from directory: %s", inv_dir);
 
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL)
@@ -374,6 +474,12 @@ int parse_block_from_sexpr(Block *blk, const char *inv_dir)
 
         SExpr *expr = parse_sexpr(contents);
         free(contents);
+        if (!validate_sexpr(expr, path))
+        {
+            LOG_ERROR("❌ Validation failed for: %s", path);
+            free_sexpr(expr);
+            exit(1);
+        }
 
         if (!expr || expr->type != S_EXPR_LIST || expr->count == 0)
         {
@@ -531,18 +637,35 @@ static void emit_atom(FILE *out, const char *atom)
     else
         fputs(atom, out);
 }
-
 static void emit_source_list(FILE *out, SourcePlace *src, int indent)
 {
     emit_indent(out, indent);
     fputs("(SourceList\n", out);
+
     for (; src; src = src->next)
     {
         emit_indent(out, indent + 2);
-        fprintf(out, "(SourcePlace ");
-        emit_atom(out, src->name ? src->name : src->value);
+        fputs("(SourcePlace\n", out);
+
+        if (src->name)
+        {
+            emit_indent(out, indent + 4);
+            fputs("(Name ", out);
+            emit_atom(out, src->name);
+            fputs(")\n", out);
+        }
+        else if (src->value)
+        {
+            emit_indent(out, indent + 4);
+            fputs("(Value ", out);
+            emit_atom(out, src->value);
+            fputs(")\n", out);
+        }
+
+        emit_indent(out, indent + 2);
         fputs(")\n", out);
     }
+
     emit_indent(out, indent);
     fputs(")\n", out);
 }
@@ -585,6 +708,7 @@ static void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
     emit_indent(out, indent);
     fputs(")\n", out);
 }
+
 static void emit_invocation(FILE *out, Invocation *inv, int indent)
 {
     emit_indent(out, indent);
@@ -595,8 +719,9 @@ static void emit_invocation(FILE *out, Invocation *inv, int indent)
     emit_atom(out, inv->name);
     fputs(")\n", out);
 
-    emit_source_list(out, inv->sources, indent + 2);
+    // ⚠️ This is the correct order per spec:
     emit_destination_list(out, inv->destinations, indent + 2);
+    emit_source_list(out, inv->sources, indent + 2);
 
     emit_indent(out, indent);
     fputs(")\n", out);

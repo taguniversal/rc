@@ -30,6 +30,13 @@ int eval_invocation(Invocation *inv, Block *blk);
 int pull_outputs_from_definition(Block *blk, Invocation *inv);
 static DestinationPlace *find_destination(Block *blk, const char *name);
 
+int count_invocations(Definition *def) {
+    int count = 0;
+    for (Invocation *inv = def->invocations; inv; inv = inv->next)
+        count++;
+    return count;
+}
+
 int pull_outputs_from_definition(Block *blk, Invocation *inv)
 {
   if (!inv || !inv->definition)

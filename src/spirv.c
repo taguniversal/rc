@@ -27,6 +27,7 @@ bool opcode_has_result_id(const char *opcode)
          strcmp(opcode, "OpSelectionMerge") != 0;
 }
 
+// For deduplicating SPIR-V ops
 typedef struct UsageEntry
 {
   const char *def_name;
@@ -35,6 +36,29 @@ typedef struct UsageEntry
 } UsageEntry;
 
 UsageEntry *usage_head = NULL;
+
+ExternalSignal *external_signal_table = NULL;
+
+void register_external_signal(const char *external_name, const char *internal_id)
+{
+  ExternalSignal *entry = calloc(1, sizeof(ExternalSignal));
+  entry->external_name = strdup(external_name);
+  entry->internal_id = strdup(internal_id);
+  entry->next = external_signal_table;
+  external_signal_table = entry;
+}
+
+const char *lookup_internal_id(const char *external_name)
+{
+  for (ExternalSignal *e = external_signal_table; e; e = e->next)
+  {
+    if (strcmp(e->external_name, external_name) == 0)
+    {
+      return e->internal_id;
+    }
+  }
+  return NULL;
+}
 
 SPIRVModule *spirv_module_new(void)
 {
@@ -195,25 +219,50 @@ void emit_conditional_invocation(SPIRVModule *mod, const char *prefix, Condition
   emit_op(mod, "OpConstant", (const char *[]){"%bool", "%false", "0"}, 3);
 
   // ─── 2. Input Variables and Loads ────────────────────────────────────
+
   for (size_t i = 0; i < ci->arg_count; ++i)
   {
-    const char *arg = ci->template_args[i];
+    const char *arg_name = ci->template_args[i];
 
-    snprintf(tmp, sizeof(tmp), "%%%svar_%s", prefix, arg);
-    char *var_id = strdup(tmp);
-    emit_op(mod, "OpVariable", (const char *[]){var_id, "%bool", "Input"}, 3);
+    // This is the external input to this definition
+    for (SourcePlace *sp = mod->current_invocation->sources; sp; sp = sp->next)
+    {
+      if (sp->signal == &NULL_SIGNAL)
+      {
+        LOG_WARN("⚠️ SourcePlace '%s' is unwired", sp->name);
+        continue;
+      }
 
-    snprintf(tmp, sizeof(tmp), "%%%s%s", prefix, arg);
-    char *load_id = strdup(tmp);
-    emit_op(mod, "OpLoad", (const char *[]){load_id, "%bool", var_id}, 3);
-
-    free(var_id);
-    free(load_id);
+      if (strcmp(sp->name, arg_name) == 0)
+      {
+        const char *resolved = lookup_internal_id(sp->signal->name);
+        if (!resolved)
+        {
+          LOG_ERROR("❌ Could not resolve signal '%s'", sp->signal->name);
+        }
+        else
+        {
+          snprintf(tmp, sizeof(tmp), "%%%s%s", prefix, arg_name);
+          emit_op(mod, "OpLoad", (const char *[]){tmp, "%bool", resolved}, 3);
+        }
+        break;
+      }
+    }
   }
 
   // After emitting all input variables and loads:
   snprintf(tmp, sizeof(tmp), "%%%s_var_out", prefix);
   emit_op(mod, "OpVariable", (const char *[]){tmp, "%bool", "Output"}, 3);
+
+  // Register output signal for wiring
+  if (mod->current_invocation && mod->current_definition)
+  {
+    for (DestinationPlace *dp = mod->current_invocation->destinations; dp; dp = dp->next)
+    {
+      LOG_INFO("🔁 Registering external signal: %s => %s", dp->name, tmp);
+      register_external_signal(dp->name, tmp);
+    }
+  }
 
   // ─── 3. Emit Each Case ───────────────────────────────────────────────
   char acc_result[128] = "%false"; // Accumulator starts false
@@ -311,6 +360,29 @@ int get_definition_instance_id(const char *name)
   return 0;
 }
 
+void free_external_signal_table(void)
+{
+  ExternalSignal *e = external_signal_table;
+  while (e)
+  {
+    ExternalSignal *next = e->next;
+    free(e->external_name);
+    free(e->internal_id);
+    free(e);
+    e = next;
+  }
+  external_signal_table = NULL;
+}
+
+void print_external_signals(void)
+{
+  printf("🔌 External signal table:\n");
+  for (ExternalSignal *e = external_signal_table; e; e = e->next)
+  {
+    printf("   %s => %s\n", e->external_name, e->internal_id);
+  }
+}
+
 void spirv_parse_block(Block *blk, const char *spirv_out_dir)
 {
 
@@ -318,6 +390,7 @@ void spirv_parse_block(Block *blk, const char *spirv_out_dir)
   {
     char path[512];
     snprintf(path, sizeof(path), "%s/%s.spvasm.sexpr", spirv_out_dir, def->name);
+    LOG_INFO("✅ Linked definition '%s' to %d invocation(s)", def->name, count_invocations(def));
 
     FILE *f = fopen(path, "w");
     if (!f)
@@ -327,21 +400,39 @@ void spirv_parse_block(Block *blk, const char *spirv_out_dir)
     }
 
     LOG_INFO("🌀 Generating SPIR-V S-expression for %s", def->name);
-    int instance_id = get_definition_instance_id(def->name);
-    char prefix[64];
-    snprintf(prefix, sizeof(prefix), "%s_%d_", def->name, instance_id);
 
     SPIRVModule mod = {0};
+    mod.current_definition = def;
     emit_spirv_header(&mod);
 
     if (def->conditional_invocation)
     {
-      emit_conditional_invocation(&mod, prefix, def->conditional_invocation);
+      int inv_count = 0;
+      for (Invocation *inv = def->invocations; inv != NULL; inv = inv->next)
+      {
+        inv_count++;
+      }
+      LOG_INFO("🧩 %s has %d invocations", def->name, inv_count);
+
+      for (Invocation *inv = def->invocations; inv != NULL; inv = inv->next)
+      {
+        mod.current_invocation = inv;
+
+        int instance_id = get_definition_instance_id(def->name);
+        char prefix[64];
+        snprintf(prefix, sizeof(prefix), "%s_%d_", def->name, instance_id);
+
+        // 👇 This is where you call it!
+        emit_conditional_invocation(&mod, prefix, def->conditional_invocation);
+      }
     }
+
     dedupe_prelude_ops(&mod);
     write_spirv_module(f, mod.head);
     fclose(f);
     free_spirv_module(&mod);
+    print_external_signals();
+    free_external_signal_table();
 
     LOG_INFO("✅ Wrote SPIR-V to %s", path);
   }
