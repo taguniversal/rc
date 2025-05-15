@@ -2,10 +2,17 @@
   (Name NOT)
 
   (DestinationList
-    (DestinationPlace (Value 1))
+    (DestinationPlace
+      (Name out0)
+      (Signal
+        (Content 1)
+      )
+    )
   )
 
   (SourceList
-    (SourcePlace (Name Out0))
+    (SourcePlace
+      (Name Out0)
+    )
   )
 )

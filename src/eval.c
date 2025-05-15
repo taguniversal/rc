@@ -16,7 +16,6 @@
 #include "eval.h"
 
 struct Signal NULL_SIGNAL = {
-    .name = "NULL",
     .content = NULL,
     .next = NULL,
 #ifdef SAFETY_GUARD
@@ -57,7 +56,7 @@ int pull_outputs_from_definition(Block *blk, Invocation *inv)
         LOG_ERROR("❌ Memory allocation failed while copying Definition output");
         continue;
       }
-      new_sig->name = strdup(inv_dst->name); // Use Invocation's destination name
+     
       new_sig->content = strdup(def_dst->signal->content);
       new_sig->next = NULL;
       inv_dst->signal = new_sig;
@@ -144,6 +143,7 @@ void link_invocations(Block *blk)
 
 int eval_invocation(Invocation *inv, Block *blk)
 {
+  (void)blk;
   if (!inv)
   {
     LOG_WARN("⚠️ Null Invocation passed to eval_invocation, skipping.");
@@ -214,7 +214,6 @@ int eval_invocation(Invocation *inv, Block *blk)
           LOG_ERROR("❌ Memory allocation failed for new Signal");
           break;
         }
-        new_sig->name = def_src->name ? strdup(def_src->name) : NULL;
         new_sig->content = strdup(inv_src->signal->content);
         new_sig->next = NULL;
 
@@ -252,6 +251,7 @@ int eval_invocation(Invocation *inv, Block *blk)
 
 int eval_definition(Definition *def, Block *blk)
 {
+  (void)blk;
   if (!def || !def->conditional_invocation)
   {
     return 0; // Nothing to do if no logic defined
@@ -340,7 +340,7 @@ int eval_definition(Definition *def, Block *blk)
       if (dst && dst->signal == &NULL_SIGNAL)
       {
         Signal *new_sig = (Signal *)calloc(1, sizeof(Signal));
-        new_sig->name = strdup(dst->name);
+       
         new_sig->content = strdup(match->result);
         new_sig->next = NULL;
 

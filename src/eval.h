@@ -21,7 +21,6 @@ typedef struct Block Block;
 
 struct Signal
 {
-  char *name;
   char *content;
   struct Signal *next;
 #ifdef SAFETY_GUARD
@@ -36,7 +35,7 @@ extern struct Signal NULL_SIGNAL;
 struct SourcePlace
 {
   char *name;     // If pulling from a place, this is set (from=...)
-  char *value;    // If injecting a literal, this is set (value=...)
+  int spirv_id;
   Signal *signal; // Points to actual signal (or &NULL_SIGNAL)
   SourcePlace *next;
 };
@@ -44,6 +43,7 @@ struct SourcePlace
 struct DestinationPlace
 {
   char *name;     // Name of the destination
+  int spirv_id;
   Signal *signal; // Points to actual signal (or &NULL_SIGNAL)
   DestinationPlace *next;
 };

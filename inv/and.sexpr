@@ -2,12 +2,18 @@
   (Name AND)
 
   (SourceList
-    (SourcePlace (Name A))
-    (SourcePlace (Name B))
+    (SourcePlace
+      (Name A)
+    )
+    (SourcePlace
+      (Name B)
+    )
   )
 
   (DestinationList
-    (DestinationPlace (Name out))
+    (DestinationPlace
+      (Name out)
+    )
   )
 
   (ConditionalInvocation

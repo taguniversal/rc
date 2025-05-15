@@ -2,11 +2,23 @@
   (Name OR)
 
   (DestinationList
-    (DestinationPlace (Value 1))
-    (DestinationPlace (Value 0))
+    (DestinationPlace
+      (Name out0)
+      (Signal
+        (Content 1)
+      )
+    )
+    (DestinationPlace
+      (Name out1)
+      (Signal
+        (Content 0)
+      )
+    )
   )
 
   (SourceList
-    (SourcePlace (Name Or_Out))
+    (SourcePlace
+      (Name Or_Out)
+    )
   )
 )

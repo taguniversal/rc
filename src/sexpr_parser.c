@@ -181,7 +181,6 @@ Definition *parse_definition(SExpr *expr, const char *filename)
             SourcePlace *sp = calloc(1, sizeof(SourcePlace));
             sp->signal = &NULL_SIGNAL;
 
-            // 🔧 Properly extract (Name ...) or (Value ...)
             for (size_t j = 1; j < place->count; ++j)
             {
                 SExpr *field = place->list[j];
@@ -194,18 +193,23 @@ Definition *parse_definition(SExpr *expr, const char *filename)
                     continue;
 
                 if (strcmp(tag, "Name") == 0)
+                {
                     sp->name = strdup(val);
-                else if (strcmp(tag, "Value") == 0)
-                    sp->value = strdup(val);
+                }
+                else if (strcmp(tag, "Signal") == 0)
+                {
+                    sp->signal = calloc(1, sizeof(Signal));
+                    sp->signal->content = strdup(val);
+                }
             }
 
             sp->next = def->sources;
             def->sources = sp;
 
-            LOG_INFO("🧩 Parsed SourcePlace in def %s: name=%s, value=%s",
+            LOG_INFO("🧩 Parsed SourcePlace in def %s: name=%s signal_content=%s",
                      def->name,
                      sp->name ? sp->name : "null",
-                     sp->value ? sp->value : "null");
+                     (sp->signal && sp->signal != &NULL_SIGNAL && sp->signal->content) ? sp->signal->content : "null");
         }
     }
     else
@@ -220,13 +224,33 @@ Definition *parse_definition(SExpr *expr, const char *filename)
         for (size_t i = 1; i < dst_list->count; ++i)
         {
             SExpr *place = dst_list->list[i];
-            const char *pname = get_atom_value(place, 1);
-            if (!pname)
+            if (place->type != S_EXPR_LIST)
                 continue;
 
             DestinationPlace *dp = calloc(1, sizeof(DestinationPlace));
-            dp->name = strdup(pname);
             dp->signal = &NULL_SIGNAL;
+
+            for (size_t j = 1; j < place->count; ++j)
+            {
+                SExpr *field = place->list[j];
+                if (field->type != S_EXPR_LIST || field->count < 2)
+                    continue;
+
+                const char *tag = get_atom_value(field, 0);
+                const char *val = get_atom_value(field, 1);
+                if (!tag || !val)
+                    continue;
+
+                if (strcmp(tag, "Name") == 0)
+                {
+                    dp->name = strdup(val);
+                }
+                else if (strcmp(tag, "Signal") == 0)
+                {
+                    dp->signal = calloc(1, sizeof(Signal));
+                    dp->signal->content = strdup(val);
+                }
+            }
 
             dp->next = def->destinations;
             def->destinations = dp;
@@ -294,20 +318,40 @@ Invocation *parse_invocation_from_expr(SExpr *expr)
     }
     inv->name = strdup(name);
 
-    // First find DestinationList and parse it
+    // ✅ DestinationList
     SExpr *dst_list = get_child_by_tag(expr, "DestinationList");
     if (dst_list)
     {
         for (size_t i = 1; i < dst_list->count; ++i)
         {
             SExpr *place = dst_list->list[i];
-            const char *pname = get_atom_value(place, 1);
-            if (!pname)
+            if (place->type != S_EXPR_LIST)
                 continue;
 
             DestinationPlace *dp = calloc(1, sizeof(DestinationPlace));
-            dp->name = strdup(pname);
             dp->signal = &NULL_SIGNAL;
+
+            for (size_t j = 1; j < place->count; ++j)
+            {
+                SExpr *field = place->list[j];
+                if (field->type != S_EXPR_LIST || field->count < 2)
+                    continue;
+
+                const char *tag = get_atom_value(field, 0);
+                const char *val = get_atom_value(field, 1);
+                if (!tag || !val)
+                    continue;
+
+                if (strcmp(tag, "Name") == 0)
+                {
+                    dp->name = strdup(val);
+                }
+                else if (strcmp(tag, "Signal") == 0)
+                {
+                    dp->signal = calloc(1, sizeof(Signal));
+                    dp->signal->content = strdup(val);
+                }
+            }
 
             dp->next = inv->destinations;
             inv->destinations = dp;
@@ -318,7 +362,7 @@ Invocation *parse_invocation_from_expr(SExpr *expr)
         LOG_ERROR("❌ [Invocation:%s] Missing DestinationList", inv->name);
     }
 
-    // Then find SourceList and parse it
+    // ✅ SourceList
     SExpr *src_list = get_child_by_tag(expr, "SourceList");
     if (src_list)
     {
@@ -343,17 +387,22 @@ Invocation *parse_invocation_from_expr(SExpr *expr)
                     continue;
 
                 if (strcmp(tag, "Name") == 0)
+                {
                     sp->name = strdup(val);
-                else if (strcmp(tag, "Value") == 0)
-                    sp->value = strdup(val);
+                }
+                else if (strcmp(tag, "Signal") == 0)
+                {
+                    sp->signal = calloc(1, sizeof(Signal));
+                    sp->signal->content = strdup(val);
+                }
             }
 
             sp->next = inv->sources;
             inv->sources = sp;
 
-            LOG_INFO("🧩 Parsed SourcePlace: name=%s, value=%s",
+            LOG_INFO("🧩 Parsed SourcePlace: name=%s, content=%s",
                      sp->name ? sp->name : "null",
-                     sp->value ? sp->value : "null");
+                     (sp->signal && sp->signal != &NULL_SIGNAL && sp->signal->content) ? sp->signal->content : "null");
         }
     }
     else
@@ -363,6 +412,7 @@ Invocation *parse_invocation_from_expr(SExpr *expr)
 
     return inv;
 }
+
 
 Invocation *parse_invocation(SExpr *expr, const char *filename)
 {
@@ -375,6 +425,11 @@ Invocation *parse_invocation(SExpr *expr, const char *filename)
     return inv;
 }
 
+/*
+ * Validates Invocation structure:
+ * - DestinationPlace must include 'Name' and may optionally include 'Signal'
+ * - SourcePlace must include 'Name' only; signals are resolved at runtime
+ */
 bool validate_sexpr(SExpr *expr, const char *filename)
 {
     if (!expr || expr->type != S_EXPR_LIST || expr->count < 1)
@@ -382,7 +437,7 @@ bool validate_sexpr(SExpr *expr, const char *filename)
 
     const char *tag = expr->list[0]->atom;
     if (strcmp(tag, "Invocation") != 0)
-        return true; // We only validate invocations for now
+        return true; // Only validate Invocation nodes for now
 
     bool found_dest = false;
     bool found_source = false;
@@ -407,9 +462,15 @@ bool validate_sexpr(SExpr *expr, const char *filename)
             for (size_t j = 1; j < child->count; ++j)
             {
                 SExpr *dp = child->list[j];
-                if (!get_child_by_tag(dp, "Value"))
+                if (!get_child_by_tag(dp, "Name"))
                 {
-                    LOG_ERROR("❌ [%s] DestinationPlace missing 'Value'", filename);
+                    LOG_ERROR("❌ [%s] DestinationPlace missing 'Name'", filename);
+                    return false;
+                }
+
+                if (get_child_by_tag(dp, "Value"))
+                {
+                    LOG_ERROR("❌ [%s] DestinationPlace must not contain 'Value' (use Signal with Content instead)", filename);
                     return false;
                 }
             }
@@ -428,8 +489,19 @@ bool validate_sexpr(SExpr *expr, const char *filename)
                 SExpr *sp = child->list[j];
                 if (!get_child_by_tag(sp, "Name"))
                 {
-                    LOG_ERROR("❌ [%s] SourcePlace missing 'Name'", filename);
+                    LOG_ERROR("❌ [%s] SourcePlace must contain 'Name'", filename);
                     return false;
+                }
+
+                if (get_child_by_tag(sp, "Value"))
+                {
+                    LOG_ERROR("❌ [%s] SourcePlace must not contain 'Value'", filename);
+                    return false;
+                }
+
+                if (get_child_by_tag(sp, "Signal"))
+                {
+                    LOG_WARN("⚠️ [%s] SourcePlace contains unexpected 'Signal' — will be ignored at parse time", filename);
                 }
             }
         }
@@ -441,8 +513,10 @@ bool validate_sexpr(SExpr *expr, const char *filename)
         return false;
     }
 
+    LOG_INFO("✅ [%s] Invocation validated successfully", filename);
     return true;
 }
+
 
 int parse_block_from_sexpr(Block *blk, const char *inv_dir)
 {
@@ -654,12 +728,17 @@ static void emit_source_list(FILE *out, SourcePlace *src, int indent)
             emit_atom(out, src->name);
             fputs(")\n", out);
         }
-        else if (src->value)
+        else if (src->signal && src->signal != &NULL_SIGNAL && src->signal->content)
         {
             emit_indent(out, indent + 4);
             fputs("(Value ", out);
-            emit_atom(out, src->value);
+            emit_atom(out, src->signal->content);
             fputs(")\n", out);
+        }
+        else
+        {
+            emit_indent(out, indent + 4);
+            fputs(";; ⚠️ Unwired SourcePlace\n", out);
         }
 
         emit_indent(out, indent + 2);
@@ -674,16 +753,19 @@ static void emit_destination_list(FILE *out, DestinationPlace *dst, int indent)
 {
     emit_indent(out, indent);
     fputs("(DestinationList\n", out);
+
     for (; dst; dst = dst->next)
     {
         emit_indent(out, indent + 2);
-        fprintf(out, "(DestinationPlace ");
+        fputs("(DestinationPlace ", out);
         emit_atom(out, dst->name);
         fputs(")\n", out);
     }
+
     emit_indent(out, indent);
     fputs(")\n", out);
 }
+
 
 static void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
 {

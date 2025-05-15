@@ -235,10 +235,10 @@ void emit_conditional_invocation(SPIRVModule *mod, const char *prefix, Condition
 
       if (strcmp(sp->name, arg_name) == 0)
       {
-        const char *resolved = lookup_internal_id(sp->signal->name);
+        const char *resolved = lookup_internal_id(sp->name);
         if (!resolved)
         {
-          LOG_ERROR("❌ Could not resolve signal '%s'", sp->signal->name);
+          LOG_ERROR("❌ Could not resolve signal '%s'", sp->name);
         }
         else
         {

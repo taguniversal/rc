@@ -12,22 +12,22 @@
 
   (Invocation
     (Name OR)
+    (DestinationList
+      (DestinationPlace (Name Temp0))
+    )
     (SourceList 
       (SourcePlace (Name A))
       (SourcePlace (Name B))
-    )
-    (DestinationList
-      (DestinationPlace (Name Temp0))
     )
   )
 
   (Invocation
     (Name NOT)
-    (SourceList 
-      (SourcePlace (Name Temp0))
-    )
     (DestinationList
       (DestinationPlace (Name Out0))
+    )
+    (SourceList 
+      (SourcePlace (Name Temp0))
     )
   )
 )
