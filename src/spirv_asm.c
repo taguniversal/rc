@@ -8,6 +8,7 @@
 #include <vulkan/vulkan.h>
 #include <assert.h>
 #include "spirv.h"
+
 void emit_spirv_asm_file(const char *sexpr_path, const char *spvasm_path)
 {
     FILE *in = fopen(sexpr_path, "r");

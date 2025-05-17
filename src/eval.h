@@ -35,6 +35,7 @@ extern struct Signal NULL_SIGNAL;
 struct SourcePlace
 {
   char *name;     // If pulling from a place, this is set (from=...)
+  char *resolved_name; //De-conflicted for entire block by rewrite_signals
   int spirv_id;
   Signal *signal; // Points to actual signal (or &NULL_SIGNAL)
   SourcePlace *next;
@@ -43,6 +44,7 @@ struct SourcePlace
 struct DestinationPlace
 {
   char *name;     // Name of the destination
+  char *resolved_name;  //De-conflicted for entire block by rewrite_signals
   int spirv_id;
   Signal *signal; // Points to actual signal (or &NULL_SIGNAL)
   DestinationPlace *next;
@@ -62,7 +64,7 @@ struct ConditionalInvocation
   char *invocation_template; // e.g., "$A$B"
   char **template_args;      // Array of input names (e.g., L, C, R)
   size_t arg_count;
-
+  char* output;
   ConditionalInvocationCase *cases; // Linked list
 };
 
@@ -71,7 +73,7 @@ struct ConditionalInvocation
 struct Invocation
 {
   char *name; // Unique name of invocation
-
+  int instance_id; // Assigned during signal rewriting for uniqueness
   SourcePlace *sources;           // Boundary input points
   DestinationPlace *destinations; // Boundary output points
 
@@ -113,5 +115,6 @@ typedef struct
 // === API ===
 void link_invocations(Block *blk);
 int eval(Block *blk);
+void allocate_signals(Block *blk);
 int count_invocations(Definition *def);
 #endif

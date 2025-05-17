@@ -21,8 +21,11 @@ const char *get_atom_value(SExpr *list, size_t index);
 SExpr *get_child_by_tag(SExpr *parent, const char *tag);
 void free_sexpr(SExpr *expr);
 int parse_block_from_sexpr(Block *blk, const char *inv_dir);
-Invocation *parse_invocation_from_expr(SExpr *expr);
-ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr, const char *filename);
+Invocation *parse_invocation(SExpr *expr);
+ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr);
+int rewrite_signals(Block *blk);
 void emit_all_definitions(Block *blk, const char *dirpath);
+void emit_all_invocations(Block *blk, const char *dirpath);
 char *load_file(const char *filename);
+void validate_invocation_wiring(Block *blk) ;
 #endif // SEXPR_PARSER_H

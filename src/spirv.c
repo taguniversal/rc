@@ -100,6 +100,7 @@ void free_spirv_module(SPIRVModule *mod)
   mod->head = NULL;
   mod->tail = NULL;
 }
+
 SPIRVOp *make_op(const char *opcode, const char **operands, size_t count)
 {
   SPIRVOp *op = calloc(1, sizeof(SPIRVOp));
@@ -198,167 +199,123 @@ void emit_spirv_header(SPIRVModule *mod)
   emit_op(mod, "OpTypeFunction", (const char *[]){"%void_fn", "%void"}, 2);
 }
 
-void emit_conditional_invocation(SPIRVModule *mod, const char *prefix, ConditionalInvocation *ci)
+void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
 {
-  char tmp[128]; // Increased buffer for prefix usage
+    if (!mod || !ci || !ci->arg_count || !ci->template_args || !ci->cases) {
+        LOG_ERROR("❌ Invalid ConditionalInvocation input");
+        return;
+    }
 
-  if (!mod || !ci || !ci->arg_count || !ci->template_args || !ci->cases)
-  {
-    LOG_ERROR("❌ Invalid ConditionalInvocation for prefix %s", prefix);
-    return;
-  }
+    Invocation *inv = mod->current_invocation;
+    if (!inv) {
+        LOG_ERROR("❌ No current invocation set on module");
+        return;
+    }
 
-  LOG_INFO("📊 Emitting SPIR-V for invocation with prefix: %s", prefix);
+    LOG_INFO("📊 Emitting SPIR-V for invocation: %s", inv->name);
 
-  // ─── 1. Function Setup ───────────────────────────────────────────────
-  emit_op(mod, "OpFunction", (const char *[]){"%void", "None", "%void_fn"}, 3);
-  snprintf(tmp, sizeof(tmp), "%%%sentry", prefix);
-  emit_op(mod, "OpLabel", (const char *[]){tmp}, 1);
+    // ─── 1. Function Setup ───────────────────────────────────────────────
+    emit_op(mod, "OpFunction", (const char *[]){"%void", "None", "%void_fn"}, 3);
+    emit_op(mod, "OpLabel", (const char *[]){"%entry"}, 1);
 
-  emit_op(mod, "OpConstant", (const char *[]){"%bool", "%true", "1"}, 3);
-  emit_op(mod, "OpConstant", (const char *[]){"%bool", "%false", "0"}, 3);
+    emit_op(mod, "OpConstant", (const char *[]){"%bool", "%true", "1"}, 3);
+    emit_op(mod, "OpConstant", (const char *[]){"%bool", "%false", "0"}, 3);
 
-  // ─── 2. Input Variables and Loads ────────────────────────────────────
+    // ─── 2. Input Variables and Loads ────────────────────────────────────
+    for (size_t i = 0; i < ci->arg_count; ++i) {
+        const char *arg_name = ci->template_args[i];
 
-  for (size_t i = 0; i < ci->arg_count; ++i)
-  {
-    const char *arg_name = ci->template_args[i];
+        for (SourcePlace *sp = inv->sources; sp; sp = sp->next) {
+            if (sp->signal == &NULL_SIGNAL || !sp->resolved_name)
+                continue;
 
-    // This is the external input to this definition
-    for (SourcePlace *sp = mod->current_invocation->sources; sp; sp = sp->next)
-    {
-      if (sp->signal == &NULL_SIGNAL)
-      {
-        LOG_WARN("⚠️ SourcePlace '%s' is unwired", sp->name);
-        continue;
-      }
+            if (strcmp(sp->name, arg_name) == 0) {
+                const char *resolved_id = lookup_internal_id(sp->resolved_name);
+                if (!resolved_id) {
+                    LOG_ERROR("❌ Could not resolve signal '%s'", sp->resolved_name);
+                    continue;
+                }
 
-      if (strcmp(sp->name, arg_name) == 0)
-      {
-        const char *resolved = lookup_internal_id(sp->name);
-        if (!resolved)
-        {
-          LOG_ERROR("❌ Could not resolve signal '%s'", sp->name);
+                char tmp[128];
+                snprintf(tmp, sizeof(tmp), "%%%s", sp->resolved_name);
+                emit_op(mod, "OpLoad", (const char *[]){tmp, "%bool", resolved_id}, 3);
+                break;
+            }
         }
-        else
-        {
-          snprintf(tmp, sizeof(tmp), "%%%s%s", prefix, arg_name);
-          emit_op(mod, "OpLoad", (const char *[]){tmp, "%bool", resolved}, 3);
+    }
+
+    // ─── 3. Output Variable ──────────────────────────────────────────────
+    emit_op(mod, "OpVariable", (const char *[]){"%out_var", "%bool", "Output"}, 3);
+
+    for (DestinationPlace *dp = inv->destinations; dp; dp = dp->next) {
+        if (dp->resolved_name) {
+            LOG_INFO("🔁 Registering external signal: %s => %%out_var", dp->resolved_name);
+            register_external_signal(dp->resolved_name, "%out_var");
         }
-        break;
-      }
-    }
-  }
-
-  // After emitting all input variables and loads:
-  snprintf(tmp, sizeof(tmp), "%%%s_var_out", prefix);
-  emit_op(mod, "OpVariable", (const char *[]){tmp, "%bool", "Output"}, 3);
-
-  // Register output signal for wiring
-  if (mod->current_invocation && mod->current_definition)
-  {
-    for (DestinationPlace *dp = mod->current_invocation->destinations; dp; dp = dp->next)
-    {
-      LOG_INFO("🔁 Registering external signal: %s => %s", dp->name, tmp);
-      register_external_signal(dp->name, tmp);
-    }
-  }
-
-  // ─── 3. Emit Each Case ───────────────────────────────────────────────
-  char acc_result[128] = "%false"; // Accumulator starts false
-  bool has_result = false;
-
-  int case_idx = 0;
-  for (ConditionalInvocationCase *c = ci->cases; c != NULL; c = c->next, ++case_idx)
-  {
-    if (!c->pattern || !c->result)
-    {
-      LOG_ERROR("❌ Malformed case %d in prefix %s", case_idx, prefix);
-      continue;
     }
 
-    size_t n = strlen(c->pattern);
-    char *and_result = NULL;
+    // ─── 4. Emit Each Case ───────────────────────────────────────────────
+    char acc_result[128] = "%false";
+    bool has_result = false;
 
-    for (size_t i = 0; i < n; ++i)
-    {
-      const char *bit = (c->pattern[i] == '1') ? "%true" : "%false";
+    int case_idx = 0;
+    for (ConditionalInvocationCase *c = ci->cases; c; c = c->next, ++case_idx) {
+        if (!c->pattern || !c->result) continue;
 
-      snprintf(tmp, sizeof(tmp), "%%%scmp_%d_%zu", prefix, case_idx, i);
-      char *cmp = strdup(tmp);
+        char *and_result = NULL;
+        size_t n = strlen(c->pattern);
 
-      snprintf(tmp, sizeof(tmp), "%%%s%s", prefix, ci->template_args[i]);
-      char *input = strdup(tmp);
+        for (size_t i = 0; i < n; ++i) {
+            const char *bit = (c->pattern[i] == '1') ? "%true" : "%false";
 
-      emit_op(mod, "OpIEqual", (const char *[]){cmp, "%bool", input, bit}, 4);
+            char input_var[128];
+            snprintf(input_var, sizeof(input_var), "%%%s", inv->sources->resolved_name);  // fallback
 
-      if (i == 0)
-      {
-        and_result = strdup(cmp);
-      }
-      else
-      {
-        snprintf(tmp, sizeof(tmp), "%%%sand_%d_%zu", prefix, case_idx, i);
-        char *next_and = strdup(tmp);
-        emit_op(mod, "OpLogicalAnd", (const char *[]){next_and, and_result, cmp}, 3);
+            for (SourcePlace *sp = inv->sources; sp; sp = sp->next) {
+                if (strcmp(sp->name, ci->template_args[i]) == 0 && sp->resolved_name) {
+                    snprintf(input_var, sizeof(input_var), "%%%s", sp->resolved_name);
+                    break;
+                }
+            }
+
+            char cmp_var[128];
+            snprintf(cmp_var, sizeof(cmp_var), "%%cmp_%d_%zu", case_idx, i);
+            emit_op(mod, "OpIEqual", (const char *[]){cmp_var, "%bool", input_var, bit}, 4);
+
+            if (!and_result) {
+                and_result = strdup(cmp_var);
+            } else {
+                char next_and[128];
+                snprintf(next_and, sizeof(next_and), "%%and_%d_%zu", case_idx, i);
+                emit_op(mod, "OpLogicalAnd", (const char *[]){next_and, and_result, cmp_var}, 3);
+                free(and_result);
+                and_result = strdup(next_and);
+            }
+        }
+
+        char sel_result[128];
+        snprintf(sel_result, sizeof(sel_result), "%%case_%d_result", case_idx);
+        const char *value = (strcmp(c->result, "1") == 0) ? "%true" : "%false";
+        emit_op(mod, "OpSelect", (const char *[]){sel_result, "%bool", and_result, value, "%false"}, 5);
         free(and_result);
-        and_result = next_and;
-      }
 
-      free(cmp);
-      free(input);
+        if (!has_result) {
+            snprintf(acc_result, sizeof(acc_result), "%s", sel_result);
+            has_result = true;
+        } else {
+            char tmp[128];
+            snprintf(tmp, sizeof(tmp), "%%result_%d", case_idx);
+            emit_op(mod, "OpLogicalOr", (const char *[]){tmp, "%bool", acc_result, sel_result}, 4);
+            snprintf(acc_result, sizeof(acc_result), "%s", tmp);
+        }
     }
 
-    snprintf(tmp, sizeof(tmp), "%%%scase_%d_result", prefix, case_idx);
-    char *sel_result = strdup(tmp);
-
-    const char *value = (strcmp(c->result, "1") == 0) ? "%true" : "%false";
-    emit_op(mod, "OpSelect", (const char *[]){sel_result, "%bool", and_result, value, "%false"}, 5);
-
-    free(and_result);
-
-    if (!has_result)
-    {
-      snprintf(acc_result, sizeof(acc_result), "%s", sel_result);
-      has_result = true;
-    }
-    else
-    {
-      snprintf(tmp, sizeof(tmp), "%%%sresult_%d", prefix, case_idx);
-      char *next_result = strdup(tmp);
-      emit_op(mod, "OpLogicalOr", (const char *[]){next_result, "%bool", acc_result, sel_result}, 4);
-      snprintf(acc_result, sizeof(acc_result), "%s", tmp);
-      free(next_result);
-    }
-
-    free(sel_result);
-  }
-
-  // ─── 4. Output ───────────────────────────────────────────────────────
-  snprintf(tmp, sizeof(tmp), "%%%s_var_out", prefix); // use actual variable name
-  emit_op(mod, "OpStore", (const char *[]){tmp, acc_result}, 2);
-
-  emit_op(mod, "OpReturn", NULL, 0);
-  emit_op(mod, "OpFunctionEnd", NULL, 0);
+    // ─── 5. Store Result ─────────────────────────────────────────────────
+    emit_op(mod, "OpStore", (const char *[]){"%out_var", acc_result}, 2);
+    emit_op(mod, "OpReturn", NULL, 0);
+    emit_op(mod, "OpFunctionEnd", NULL, 0);
 }
 
-int get_definition_instance_id(const char *name)
-{
-  for (UsageEntry *e = usage_head; e; e = e->next)
-  {
-    if (strcmp(e->def_name, name) == 0)
-    {
-      return e->count++;
-    }
-  }
-  // First time seeing this definition
-  UsageEntry *new_entry = calloc(1, sizeof(UsageEntry));
-  new_entry->def_name = strdup(name);
-  new_entry->count = 1;
-  new_entry->next = usage_head;
-  usage_head = new_entry;
-  return 0;
-}
 
 void free_external_signal_table(void)
 {
@@ -376,10 +333,10 @@ void free_external_signal_table(void)
 
 void print_external_signals(void)
 {
-  printf("🔌 External signal table:\n");
+  LOG_INFO("🔌 External signal table:");
   for (ExternalSignal *e = external_signal_table; e; e = e->next)
   {
-    printf("   %s => %s\n", e->external_name, e->internal_id);
+    LOG_INFO("   %s => %s", e->external_name, e->internal_id);
   }
 }
 
@@ -418,12 +375,8 @@ void spirv_parse_block(Block *blk, const char *spirv_out_dir)
       {
         mod.current_invocation = inv;
 
-        int instance_id = get_definition_instance_id(def->name);
-        char prefix[64];
-        snprintf(prefix, sizeof(prefix), "%s_%d_", def->name, instance_id);
+       emit_conditional_invocation(&mod,  def->conditional_invocation);
 
-        // 👇 This is where you call it!
-        emit_conditional_invocation(&mod, prefix, def->conditional_invocation);
       }
     }
 

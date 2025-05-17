@@ -142,9 +142,12 @@ int main(int argc, char *argv[])
     char buffer[BUFFER_SIZE];
     sqlite3 *db = NULL;
 
-    LOG_INFO("Reality Compiler CLI\n");
-
-    int pipeline_status = 0;
+    LOG_INFO("Reality Compiler CLI");
+    LOG_INFO("🚀 Started with %d args:", argc);
+    for (int i = 0; i < argc; ++i)
+    {
+        LOG_INFO("   argv[%d] = %s", i, argv[i]);
+    }
 
     if (check_spirv_gpu_support())
     {
@@ -158,7 +161,7 @@ int main(int argc, char *argv[])
     // 🧱 Genesis Block
     Block *active_block = start_block();
 
-    LOG_INFO("Active Block: %s\n", active_block->psi);
+    LOG_INFO("Active Block: %s", active_block->psi);
     int compile_only = 0;
     for (int i = 1; i < argc; ++i)
     {
@@ -191,7 +194,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    LOG_INFO("Using state directory %s, invocation directory %s\n", state_dir, inv_dir);
+    LOG_INFO("Using state directory %s, invocation directory %s", state_dir, inv_dir);
 
     // 🗂️ Ensure state and spirv directories exist
     mkdir(state_dir, 0755);
@@ -203,21 +206,21 @@ int main(int argc, char *argv[])
     int rc = sqlite3_open(db_path, &db);
     if (rc != SQLITE_OK)
     {
-        LOG_ERROR("Cannot open database: %s\n", sqlite3_errmsg(db));
+        LOG_ERROR("Cannot open database: %s", sqlite3_errmsg(db));
         return 1;
     }
-    LOG_INFO("SQLite initialized in %s/db.sqlite3.\n", state_dir);
+    LOG_INFO("SQLite initialized in %s/db.sqlite3.", state_dir);
 
     // 📜 Load schema
     char *errmsg = 0;
     if (sqlite3_exec(db, default_schema, 0, 0, &errmsg) != SQLITE_OK)
     {
-        fprintf(stderr, "❌ Failed to load schema: %s\n", errmsg);
+        fprintf(stderr, "❌ Failed to load schema: %s", errmsg);
         sqlite3_free(errmsg);
     }
     else
     {
-        LOG_INFO("✅ Schema loaded\n");
+        LOG_INFO("✅ Schema loaded");
     }
     int parse_status = parse_block_from_sexpr(active_block, inv_dir);
     LOG_INFO("Parse status: %d", parse_status);
@@ -226,8 +229,6 @@ int main(int argc, char *argv[])
     char graph_path[256];
     snprintf(graph_path, sizeof(graph_path), "%s/graph.json", out_dir);
     write_network_json(active_block, graph_path);
-
-    write_network_json(active_block, "./graph.json");
 
     if (compile_only)
     {
@@ -238,10 +239,14 @@ int main(int argc, char *argv[])
         LOG_INFO("   SPIR-V S-expr: %s", spirv_sexpr_dir);
         LOG_INFO("   SPIR-V Asm   : %s", spirv_asm_dir);
 
-        emit_all_definitions(active_block, sexpr_out_dir);
-        parse_block_from_sexpr(active_block, sexpr_out_dir);
-        link_invocations(active_block);
-        spirv_parse_block(active_block, spirv_sexpr_dir);
+        parse_block_from_sexpr(active_block, sexpr_out_dir); // 1. Load structure
+        rewrite_signals(active_block);                       // 2. Rewrite names so they are globally unique
+        allocate_signals(active_block);                      // 3. Allocate Signal structs (needed before linking)
+        link_invocations(active_block);                      // 4. Link AND wire signals by index (now that signals exist)
+        validate_invocation_wiring(active_block);            // 5. Validate signal connectivity
+        emit_all_definitions(active_block, sexpr_out_dir);   // 6. Emit definitions
+        emit_all_invocations(active_block, sexpr_out_dir);   // 7. Emit invocations
+        spirv_parse_block(active_block, spirv_sexpr_dir);    // 8. Lower to SPIR-V
 
         char main_sexpr_path[256], main_spvasm_path[256];
         snprintf(main_sexpr_path, sizeof(main_sexpr_path), "%s/main.spvasm.sexpr", spirv_unified_dir);
@@ -249,11 +254,12 @@ int main(int argc, char *argv[])
 
         emit_spirv_block(active_block, spirv_sexpr_dir, main_sexpr_path);
         emit_spirv_asm_file(main_sexpr_path, main_spvasm_path);
+
+        dump_wiring(active_block);
+        eval(active_block);
+
         return 0;
     }
-
-    eval(active_block);
-    dump_wiring(active_block);
 
     // 🎛️ Handle flags
     if (argc > 1)

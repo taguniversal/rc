@@ -58,7 +58,7 @@ int main(int argc, char **argv) {
             continue;
         }
 
-        ConditionalInvocation *ci = parse_conditional_invocation(ci_expr, entry->d_name);
+        ConditionalInvocation *ci = parse_conditional_invocation(ci_expr);
         if (!ci) {
             LOG_ERROR("❌ Invalid ConditionalInvocation in %s", entry->d_name);
             errors++;

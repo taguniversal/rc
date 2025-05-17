@@ -10,6 +10,7 @@
   )
 
   (ConditionalInvocation
+    (Output Out0)
     (Template A)
     (Case 0 1)
     (Case 1 0)

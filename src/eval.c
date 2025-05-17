@@ -29,11 +29,12 @@ int eval_invocation(Invocation *inv, Block *blk);
 int pull_outputs_from_definition(Block *blk, Invocation *inv);
 static DestinationPlace *find_destination(Block *blk, const char *name);
 
-int count_invocations(Definition *def) {
-    int count = 0;
-    for (Invocation *inv = def->invocations; inv; inv = inv->next)
-        count++;
-    return count;
+int count_invocations(Definition *def)
+{
+  int count = 0;
+  for (Invocation *inv = def->invocations; inv; inv = inv->next)
+    count++;
+  return count;
 }
 
 int pull_outputs_from_definition(Block *blk, Invocation *inv)
@@ -56,7 +57,7 @@ int pull_outputs_from_definition(Block *blk, Invocation *inv)
         LOG_ERROR("❌ Memory allocation failed while copying Definition output");
         continue;
       }
-     
+
       new_sig->content = strdup(def_dst->signal->content);
       new_sig->next = NULL;
       inv_dst->signal = new_sig;
@@ -129,11 +130,38 @@ void link_invocations(Block *blk)
       if (strcmp(inv->name, def->name) == 0)
       {
         inv->definition = def;
-        LOG_INFO("🔗 Linked Invocation %s → Definition %s", inv->name,
-                 def->name);
+        LOG_INFO("🔗 Linked Invocation %s → Definition %s", inv->name, def->name);
+
+        // Wire outputs (Invocation SourcePlaces → Definition Destinations)
+        SourcePlace *src = inv->sources;
+        DestinationPlace *dst = def->destinations;
+        int i = 0;
+        while (src && dst)
+        {
+          src->signal = dst->signal;
+          LOG_INFO("🔌 Wired Output [%d]: %s → %s (0x%p)", i, src->name, dst->name, dst->signal);
+          src = src->next;
+          dst = dst->next;
+          i++;
+        }
+
+        // Wire inputs (Invocation Destinations → Definition Sources)
+        DestinationPlace *inv_dst = inv->destinations;
+        SourcePlace *def_src = def->sources;
+        i = 0;
+        while (inv_dst && def_src)
+        {
+          def_src->signal = inv_dst->signal;
+          LOG_INFO("🔌 Wired Input  [%d]: %s ← %s (0x%p)", i, def_src->name, inv_dst->name, inv_dst->signal);
+          inv_dst = inv_dst->next;
+          def_src = def_src->next;
+          i++;
+        }
+
         break;
       }
     }
+
     if (!inv->definition)
     {
       LOG_WARN("⚠️ No matching Definition found for Invocation %s", inv->name);
@@ -246,6 +274,100 @@ int eval_invocation(Invocation *inv, Block *blk)
     def_src = def_src->next;
   }
 
+  // Now that inputs are injected, evaluate ConditionalInvocation if present
+  ConditionalInvocation *ci = inv->definition->conditional_invocation;
+  if (ci)
+  {
+    char pattern[128] = {0};
+    size_t offset = 0;
+
+    // Build pattern string from template_args
+    for (size_t i = 0; i < ci->arg_count; ++i)
+    {
+      const char *arg = ci->template_args[i];
+      SourcePlace *src = inv->sources;
+      while (src)
+      {
+        if (src->name && strcmp(src->name, arg) == 0)
+        {
+          if (src->signal && src->signal->content)
+          {
+            size_t len = strlen(src->signal->content);
+            if (offset + len < sizeof(pattern) - 1)
+            {
+              memcpy(pattern + offset, src->signal->content, len);
+              offset += len;
+            }
+          }
+          else
+          {
+            LOG_WARN("⚠️ Missing signal content for input '%s' in ConditionalInvocation", arg);
+            return side_effects;
+          }
+          break;
+        }
+        src = src->next;
+      }
+    }
+
+    pattern[offset] = '\0';
+    LOG_INFO("🔎 Built input pattern for '%s': %s", inv->name, pattern);
+
+    // Look for matching case
+    const char *result = NULL;
+    for (ConditionalInvocationCase *c = ci->cases; c; c = c->next)
+    {
+      if (strcmp(c->pattern, pattern) == 0)
+      {
+        result = c->result;
+        break;
+      }
+    }
+
+    if (!result)
+    {
+      LOG_WARN("❌ No matching case for pattern: %s", pattern);
+      return side_effects;
+    }
+
+    // Inject result into DestinationPlace in Definition
+    DestinationPlace *dp = inv->definition->destinations;
+    while (dp)
+    {
+      if (ci->output && dp->name && strcmp(dp->name, ci->output) == 0)
+      {
+        if (dp->signal == &NULL_SIGNAL || !dp->signal)
+        {
+          Signal *sig = (Signal *)calloc(1, sizeof(Signal));
+          sig->content = strdup(result);
+          dp->signal = sig;
+          LOG_INFO("✅ Evaluated ConditionalInvocation → '%s' => %s", ci->output, result);
+          side_effects++;
+        }
+        break;
+      }
+      dp = dp->next;
+    }
+
+    // Now copy back into Invocation's SourcePlace if wired
+    SourcePlace *inv_src = inv->sources;
+    while (inv_src)
+    {
+      if (inv_src->name && strcmp(inv_src->name, inv->name) == 0) // match by name, or smarter if needed
+      {
+        if (inv_src->signal == &NULL_SIGNAL || !inv_src->signal)
+        {
+          Signal *sig = (Signal *)calloc(1, sizeof(Signal));
+          sig->content = strdup(result);
+          inv_src->signal = sig;
+          LOG_INFO("📤 Propagated result to Invocation SourcePlace: %s", inv_src->name);
+        }
+        break;
+      }
+      inv_src = inv_src->next;
+    }
+  }
+
   return side_effects;
 }
 
@@ -340,7 +462,7 @@ int eval_definition(Definition *def, Block *blk)
       if (dst && dst->signal == &NULL_SIGNAL)
       {
         Signal *new_sig = (Signal *)calloc(1, sizeof(Signal));
-       
+
         new_sig->content = strdup(match->result);
         new_sig->next = NULL;
 
@@ -364,6 +486,32 @@ int eval_definition(Definition *def, Block *blk)
   LOG_WARN("⚠️ No pattern matched in %s for input [%s]", def->name, pattern);
   free(pattern);
   return 0;
+}
+
+void allocate_signals(Block *blk)
+{
+  LOG_INFO("🔧 Allocating signals for destination places...");
+
+  for (Invocation *inv = blk->invocations; inv != NULL; inv = inv->next)
+  {
+    for (DestinationPlace *dst = inv->destinations; dst != NULL; dst = dst->next)
+    {
+      if (dst->signal == &NULL_SIGNAL)
+      {
+        dst->signal = calloc(1, sizeof(Signal));
+        if (!dst->signal)
+        {
+          LOG_ERROR("❌ Failed to allocate signal for destination '%s' in '%s'", dst->name, inv->name);
+          exit(1);
+        }
+        dst->signal->content = NULL; // Or set default
+        LOG_INFO("✅ Allocated Signal %p for Destination '%s' in Invocation '%s'",
+                 (void *)dst->signal, dst->name, inv->name);
+      }
+    }
+  }
+
+  LOG_INFO("✅ Signal allocation complete.");
 }
 
 int eval(Block *blk)

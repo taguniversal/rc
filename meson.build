@@ -98,5 +98,13 @@ spirv_bin = custom_target('spirv-bin',
   build_by_default: true
 )
 
+custom_target('clean_outdir',
+  output: 'clean.out',
+  command: [
+    'sh', '-c',
+    'rm -rf out/sexpr/* out/spirv_*/* out/graph.json && touch out/clean.out'
+  ],
+  build_by_default: true
+)
 
 

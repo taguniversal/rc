@@ -165,7 +165,7 @@ bool check_spirv_gpu_support(void)
 
 
 
-VkInstance create_instance()
+VkInstance create_instance(void)
 {
   VkApplicationInfo app_info = {
       .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,

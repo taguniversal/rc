@@ -43,28 +43,7 @@
 #include <time.h>
 #include <stdarg.h>
 #include <unistd.h>
-
-// Logging macros
-#define COLOR_RESET   "\x1b[0m"
-#define COLOR_INFO    "\x1b[36m"
-#define COLOR_WARN    "\x1b[33m"
-#define COLOR_ERROR   "\x1b[31m"
-
-#define LOG(level, color, fmt, ...) do { \
-    time_t now = time(NULL); \
-    struct tm *tm_info = localtime(&now); \
-    char time_buf[20]; \
-    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info); \
-    if (isatty(fileno(stderr))) { \
-        fprintf(stderr, "%s[%s] [%s] " fmt "%s\n", color, time_buf, level, ##__VA_ARGS__, COLOR_RESET); \
-    } else { \
-        fprintf(stderr, "[%s] [%s] " fmt "\n", time_buf, level, ##__VA_ARGS__); \
-    } \
-} while (0)
-
-#define LOG_INFO(fmt, ...)  LOG("INFO",  COLOR_INFO,  fmt, ##__VA_ARGS__)
-#define LOG_WARN(fmt, ...)  LOG("WARN",  COLOR_WARN,  fmt, ##__VA_ARGS__)
-#define LOG_ERROR(fmt, ...) LOG("ERROR", COLOR_ERROR, fmt, ##__VA_ARGS__)
+#include "log.h"
 
 
 /* Flag set by ‘--verbose’. */
@@ -940,10 +919,10 @@ uint16_t cp_init(void) {
     if (cp == NULL) {
         cp = (cell_proc_t *)malloc(sizeof(cell_proc_t));
         if (!cp) {
-            LOG_ERROR("❌ cp_init: Memory allocation failed!\n");
+            LOG_ERROR("❌ cp_init: Memory allocation failed!");
             exit(1);
         }
-        LOG_INFO("✅ cp allocated at %p\n", (void *)cp);
+        LOG_INFO("✅ cp allocated at %p", (void *)cp);
     }
 
     cp->A      = vec_alloc();
@@ -959,12 +938,12 @@ uint16_t cp_init(void) {
     cp_setstate(cp, CP_NULL);
 
     if (!((cp->A) && (cp->B) && (cp->C) && (cp->PSI) && (cp->R30) && (cp->R))) {
-        LOG_ERROR("❌ cp_init: Out of Memory!\n");
+        LOG_ERROR("❌ cp_init: Out of Memory!");
         exit(1);
     }
 
     cp_reset(cp);
-    LOG_INFO("✅ cp initialized successfully at %p\n", (void *)cp);
+    LOG_INFO("✅ cp initialized successfully at %p", (void *)cp);
     return 0;
 }
 
@@ -1085,7 +1064,7 @@ void mi0_incSDTIME (cell_proc_t *restrict cp){
   TimeSeed seed = time_seed();
   
   if (verbose_flag) {  
-    LOG_INFO("MI2_INCSDTIME: %s\n",timeseed_tostr(&seed));
+    LOG_INFO("MI2_INCSDTIME: %s",timeseed_tostr(&seed));
   }   
 
   if (mi0_cmpN(cp->R) == CELL_TRUE) {
@@ -1112,7 +1091,7 @@ void mi0_incSDTIME (cell_proc_t *restrict cp){
 
   if (verbose_flag) {  
     out_str = fmt_vecbe(cp->SDTIME, FMT_VEC_BINARY);
-    LOG_INFO("SDTIME: %s\n",out_str);
+    LOG_INFO("SDTIME: %s",out_str);
     free(out_str);
   }  
 
@@ -1122,7 +1101,7 @@ void mi0_incSDTIME (cell_proc_t *restrict cp){
 void mi2_incPSI (cell_proc_t *restrict cp){
 
   if (verbose_flag) {  
-    LOG_INFO("MI2_INCPSI\n");
+    LOG_INFO("MI2_INCPSI");
   }   
 
   vsetN(cp->PSI);
@@ -1163,7 +1142,7 @@ void mi2_sha30 (cell_proc_t *restrict cp){
 
 void mi2_genR (cell_proc_t *restrict cp) {
   if (verbose_flag) {  
-    LOG_INFO("MI2_GENR\n");
+    LOG_INFO("MI2_GENR");
   }   
   vsetN (cp->R);
   vcopy(cp->PSI, cp->A);    // PSI -> A
@@ -1188,7 +1167,7 @@ void mi1_incR30 (cell_proc_t *restrict cp){
   char* out_str = NULL;
 
   if (verbose_flag) {  
-    LOG_INFO("MI1_INCR30\n");
+    LOG_INFO("MI1_INCR30");
   }   
 
   if (cp_getstate(cp) != CP_IDLE)       { cp_halt (cp, "INCR30: Celproc not idle");  }
@@ -1221,7 +1200,7 @@ void mi1_incR30 (cell_proc_t *restrict cp){
 
     if (verbose_flag) {
       out_str = fmt_vecbe(cp->CR, FMT_VEC_BINARY_TEXT);
-      LOG_INFO("[%" PRIu32 "]     %s %c\n", gen, out_str, cell_to_char(get_cell(cp->CR, center_col)));
+      LOG_INFO("[%" PRIu32 "]     %s %c", gen, out_str, cell_to_char(get_cell(cp->CR, center_col)));
       free(out_str);
     }
     
@@ -1247,7 +1226,7 @@ void mi1_incR30 (cell_proc_t *restrict cp){
    Can be reduced by 1 quantum when incR30 is moved to previous cycle
  */
 void mi5_time_quantum(cell_proc_t* restrict cp){
-  if (verbose_flag) { LOG_INFO ("Time Quantum\n");}
+  if (verbose_flag) { LOG_INFO ("Time Quantum");}
 
   if (!(cp_getstate(cp) == CP_IDLE)) { cp_halt(cp, "time_quantum : CellProc not Idle"); }
   /* Increment time seed if not in counter mode */
@@ -1256,18 +1235,18 @@ void mi5_time_quantum(cell_proc_t* restrict cp){
   /* printf("mi5_time_quantum SDR30:\n");
     print_vec(cp->SDR30); */
   } else {
-    if (verbose_flag) { LOG_INFO ("Time Quantum - incSDTIME\n");}
+    if (verbose_flag) { LOG_INFO ("Time Quantum - incSDTIME");}
     mi0_incSDTIME(cp);
   }
   
-  if (verbose_flag) { LOG_INFO ("Time Quantum - incR30\n");}
+  if (verbose_flag) { LOG_INFO ("Time Quantum - incR30");}
   mi1_incR30(cp);  /* SDR30 -> SDR30 */
   vcopy(cp->SDR30, cp->R);
-  if (verbose_flag) { LOG_INFO ("Time Quantum - incPSI\n");}
+  if (verbose_flag) { LOG_INFO ("Time Quantum - incPSI");}
   /* mi2_incPSI(cp); */
-  if (verbose_flag) { LOG_INFO ("Time Quantum - genR\n");}
+  if (verbose_flag) { LOG_INFO ("Time Quantum - genR");}
  /* mi2_genR(cp); */
-  if (verbose_flag) { LOG_INFO ("Time Quantum - end\n");}
+  if (verbose_flag) { LOG_INFO ("Time Quantum - end");}
 }
 
 /* Push Seed Registers onto stack */
@@ -1275,14 +1254,14 @@ void pushSD(cell_proc_t* restrict cp) {
   frame_push(cp->SDTIME, cp->Stack);
   frame_push(cp->SDR30,  cp->Stack);
   if (verbose_flag) { 
-     LOG_INFO("\nPUSHSD\n%s\n", frame_to_str(cp->Stack, FMT_VEC_BINARY_TEXT)); 
+     LOG_INFO("PUSHSD %s", frame_to_str(cp->Stack, FMT_VEC_BINARY_TEXT)); 
   }  
 }
 
 /* Pop Seed Registers from stack */
 void popSD(cell_proc_t* restrict cp){
   if (verbose_flag) { 
-     LOG_INFO("\nPOPSD\n%s\n", frame_to_str(cp->Stack, FMT_VEC_BINARY_TEXT)); 
+     LOG_INFO("POPSD %s", frame_to_str(cp->Stack, FMT_VEC_BINARY_TEXT)); 
   }   
   frame_pop(cp->Stack, cp->SDR30);
   frame_pop(cp->Stack, cp->SDTIME);  
@@ -1296,7 +1275,7 @@ void pushGP(cell_proc_t* restrict cp) {
   frame_push(cp->D, cp->Stack);
 
   if (verbose_flag) { 
-     LOG_INFO("PUSHGP\n%s\n", frame_to_str(cp->Stack, FMT_VEC_BINARY_TEXT)); 
+     LOG_INFO("PUSHGP %s", frame_to_str(cp->Stack, FMT_VEC_BINARY_TEXT)); 
   }  
 }
 
@@ -1308,7 +1287,7 @@ void popGP(cell_proc_t* restrict cp) {
   frame_pop(cp->Stack, cp->A);
 
   if (verbose_flag) { 
-     LOG_INFO("POPGP\n%s\n", frame_to_str(cp->Stack, FMT_VEC_BINARY_TEXT)); 
+     LOG_INFO("POPGP %s", frame_to_str(cp->Stack, FMT_VEC_BINARY_TEXT)); 
   }  
 }
 
@@ -1319,7 +1298,7 @@ int check_clocks(void)
 {  
   int r = 0;
 
-  if (verbose_flag) { LOG_INFO("Clock Check\n"); }
+  if (verbose_flag) { LOG_INFO("Clock Check"); }
    
   /* Test Clock */
 
@@ -1327,13 +1306,13 @@ int check_clocks(void)
   TimeSeed s1 = time_seed();
 
   if (verbose_flag) {
-    LOG_INFO("s0: %s\n",timeseed_tostr(&s0));
-    LOG_INFO("s1: %s\n",timeseed_tostr(&s1));
+    LOG_INFO("s0: %s",timeseed_tostr(&s0));
+    LOG_INFO("s1: %s",timeseed_tostr(&s1));
   }
 
   /* Error if TimeSeeds did not change */
   if (ts_cmpE(&s0, &s1) == CELL_TRUE) {  
-     halt("Clock failed\n");
+     halt("Clock failed");
   }
 
   return (r);
@@ -1394,7 +1373,7 @@ unsigned int uint_limit( unsigned int lower, unsigned int upper, unsigned int va
     return ((val < lower) ? lower : (val > upper ? upper : val));
 }
 
-fib_t* new_fib() {
+fib_t* new_fib(void) {
   fib_t* t = malloc(sizeof(fib_t));
   t->n1 = 1;
   t->n2 = 2;
@@ -1659,47 +1638,44 @@ int generate_block(const char *seed, char *block_out) {
 
 
 char* new_block(void) {
-    LOG_INFO("🔹 MKRAND new block generation...\n");
+    LOG_INFO("🔹 MKRAND new block generation...");
 
     // ✅ Ensure `cp` is initialized
-    if (!cp) {
-        LOG_WARN("⚠️ Warning: cp is NULL. Initializing with cp_init()...\n");
-        cp_init();
-    }
+     cp_init();
 
     vec128bec_t* seed_vec = vec_alloc();
     if (!seed_vec) {
-        LOG_ERROR("❌ Error: vec_alloc() returned NULL!\n");
+        LOG_ERROR("❌ Error: vec_alloc() returned NULL!");
         return NULL;
     }
-    LOG_INFO("✅ Allocated memory for seed vector: %p\n", (void *)seed_vec);
+    LOG_INFO("✅ Allocated memory for seed vector: %p", (void *)seed_vec);
 
     seed_vec = time_seed_to_vec(time_seed());
     if (!seed_vec) {
-        LOG_ERROR("❌ Error: time_seed_to_vec() returned NULL!\n");
+        LOG_ERROR("❌ Error: time_seed_to_vec() returned NULL!");
         free(seed_vec);
         return NULL;
     }
-    LOG_INFO("✅ Time-seeded vector generated: %p\n", (void *) seed_vec);
+    LOG_INFO("✅ Time-seeded vector generated: %p", (void *) seed_vec);
 
     // ✅ Check cp->SDR30 after initialization
     if (!cp) {
-        LOG_ERROR("❌ Error: cp is still NULL after cp_init()!\n");
+        LOG_ERROR("❌ Error: cp is still NULL after cp_init()!");
         return NULL;
     }
 
-    LOG_INFO("✅ Moving vector into MKRAND processor state...\n");
+    LOG_INFO("✅ Moving vector into MKRAND processor state...");
     vmov(seed_vec, cp->SDR30 );
     mi5_time_quantum(cp);
 
     char *block_str = strdup(fmt_vecbe(cp->SDR30, FMT_VEC_PSI));
     if (!block_str) {
-        LOG_ERROR("❌ Error: strdup() failed!\n");
+        LOG_ERROR("❌ Error: strdup() failed!");
         free(seed_vec);
         return NULL;
     }
 
-    LOG_INFO("✅ Successfully generated block: %s\n", block_str);
+    LOG_INFO("✅ Successfully generated block: %s", block_str);
 
     free(seed_vec);
     return block_str;
@@ -1728,42 +1704,42 @@ int next_block(const char *seed, char *next_block, size_t buf_size) {
 }
 
 void mkrand_generate_ipv6(const uint8_t* hash_seed, uint8_t out[16]) {
-    LOG_INFO("🔹 MKRAND new block generation...\n");
+    LOG_INFO("🔹 MKRAND new block generation...");
 
     // ✅ Ensure `cp` is initialized
     if (!cp) {
-        LOG_WARN("⚠️ Warning: cp is NULL. Initializing with cp_init()...\n");
+        LOG_WARN("⚠️ Warning: cp is NULL. Initializing with cp_init()...");
         cp_init();
     }
 
     vec128bec_t* seed_vec = vec_alloc();
     if (!seed_vec) {
-        printf("❌ Error: vec_alloc() returned NULL!\n");
+        printf("❌ Error: vec_alloc() returned NULL!");
         return;
     }
-    LOG_INFO("✅ Allocated memory for seed vector: %p\n", (void *) seed_vec);
+    LOG_INFO("✅ Allocated memory for seed vector: %p", (void *) seed_vec);
 
     seed_vec = hash_seed_to_vec(hash_seed);
     if (!seed_vec) {
-        LOG_ERROR("❌ Error: time_seed_to_vec() returned NULL!\n");
+        LOG_ERROR("❌ Error: time_seed_to_vec() returned NULL!");
         free(seed_vec);
         return;
     }
-    LOG_INFO("✅ Time-seeded vector generated: %p\n", (void *) seed_vec);
+    LOG_INFO("✅ Time-seeded vector generated: %p", (void *) seed_vec);
 
     // ✅ Check cp->SDR30 after initialization
     if (!cp) {
-        LOG_ERROR("❌ Error: cp is still NULL after cp_init()!\n");
+        LOG_ERROR("❌ Error: cp is still NULL after cp_init()!");
         return;
     }
 
-    LOG_INFO("✅ Moving vector into MKRAND processor state...\n");
+    LOG_INFO("✅ Moving vector into MKRAND processor state...");
     vmov(seed_vec, cp->SDR30);
     mi5_time_quantum(cp);
 
     // ✅ Copy from SDR30 to `out` 
     vecbe_pack(out, cp->SDR30);
-    LOG_INFO("✅ Successfully generated IPv6 block!\n");
+    LOG_INFO("✅ Successfully generated IPv6 block!");
 }
 
 
