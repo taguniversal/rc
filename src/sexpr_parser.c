@@ -90,12 +90,11 @@ const char *get_atom_value(SExpr *list, size_t index)
   SExpr *item = list->list[index];
   return (item->type == S_EXPR_ATOM) ? item->atom : NULL;
 }
-
 ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
 {
   ConditionalInvocation *ci = calloc(1, sizeof(ConditionalInvocation));
 
-  // 1. Get Output
+  // 1. Parse Output
   SExpr *output_expr = get_child_by_tag(ci_expr, "Output");
   if (output_expr && output_expr->count > 1 &&
       output_expr->list[1]->type == S_EXPR_ATOM)
@@ -104,12 +103,11 @@ ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
   }
   else
   {
-    LOG_WARN("⚠️ ConditionalInvocation missing (Output ...) field; defaulting "
-             "to NULL");
+    LOG_WARN("⚠️ ConditionalInvocation missing (Output ...) field; defaulting to NULL");
     ci->output = NULL;
   }
 
-  // 2. Get Template
+  // 2. Parse Template
   SExpr *template_expr = get_child_by_tag(ci_expr, "Template");
   if (!template_expr || template_expr->count < 2)
   {
@@ -118,34 +116,33 @@ ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
     return NULL;
   }
 
-  size_t total_len = 0;
+  ci->arg_count = template_expr->count - 1;
+  ci->template_args = calloc(ci->arg_count, sizeof(char *));
+  ci->resolved_template_args = calloc(ci->arg_count, sizeof(char *));
+
+  size_t joined_len = 0;
+
   for (size_t i = 1; i < template_expr->count; ++i)
   {
     if (template_expr->list[i]->type != S_EXPR_ATOM)
       continue;
-    total_len += strlen(template_expr->list[i]->atom);
+
+    const char *arg = template_expr->list[i]->atom;
+    ci->template_args[i - 1] = strdup(arg); // raw arg
+    ci->resolved_template_args[i - 1] = NULL; // to be populated later
+    joined_len += strlen(arg);
   }
 
-  char *joined = calloc(total_len + 1, 1);
-  for (size_t i = 1; i < template_expr->count; ++i)
-  {
-    if (template_expr->list[i]->type == S_EXPR_ATOM)
-      strcat(joined, template_expr->list[i]->atom);
-  }
-
-  ci->invocation_template = joined;
-
-  // Populate template_args[]
-  ci->arg_count = strlen(joined);
-  ci->template_args = calloc(ci->arg_count, sizeof(char *));
+  // Create joined template string: e.g., "$A$B" → "$A$B"
+  char *joined = calloc(joined_len + 1 + ci->arg_count, 1); // add space for $ separators
   for (size_t i = 0; i < ci->arg_count; ++i)
   {
-    ci->template_args[i] = malloc(2); // 1 char + null
-    ci->template_args[i][0] = joined[i];
-    ci->template_args[i][1] = '\0';
+    strcat(joined, "$");
+    strcat(joined, ci->template_args[i]);
   }
+  ci->invocation_template = joined;
 
-  // 3. Parse Case forms
+  // 3. Parse Cases
   for (size_t i = 1; i < ci_expr->count; ++i)
   {
     SExpr *item = ci_expr->list[i];
@@ -160,16 +157,13 @@ ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
     SExpr *result_atom = item->list[2];
     if (val_attr->type != S_EXPR_ATOM || result_atom->type != S_EXPR_ATOM)
     {
-      LOG_ERROR("❌ ConditionalInvocation Malformed Case — expected atom "
-                "pattern and result");
+      LOG_ERROR("❌ ConditionalInvocation Malformed Case — expected atom pattern and result");
       exit(1);
     }
 
-    ConditionalInvocationCase *cc =
-        calloc(1, sizeof(ConditionalInvocationCase));
-    cc->pattern = strdup(val_attr->atom);   // pattern (e.g., 01)
-    cc->result = strdup(result_atom->atom); // result (e.g., 1)
-
+    ConditionalInvocationCase *cc = calloc(1, sizeof(ConditionalInvocationCase));
+    cc->pattern = strdup(val_attr->atom);
+    cc->result = strdup(result_atom->atom);
     cc->next = ci->cases;
     ci->cases = cc;
   }
@@ -182,9 +176,6 @@ int parse_signal(SExpr *sig_expr, Signal **out_signal)
 
   if (!sig_expr || !out_signal)
     return 0;
-
-  LOG_INFO("🧪  parse_signal called with:");
-  print_sexpr(sig_expr, 8);
 
   // Unwrap the (Signal (...)) wrapper if needed
   if (sig_expr->count > 0 &&
@@ -723,8 +714,7 @@ int rewrite_signals(Block *blk)
   for (Invocation *inv = blk->invocations; inv != NULL; inv = inv->next)
   {
     int id = get_next_instance_id(inv->name);
-    inv->instance_id =
-        id; // optional: useful for debugging or downstream emitters
+    inv->instance_id = id;
 
     for (SourcePlace *src = inv->sources; src != NULL; src = src->next)
     {
@@ -734,8 +724,7 @@ int rewrite_signals(Block *blk)
       LOG_INFO("🔁 SourcePlace rewritten: %s → %s", src->name, new_name);
     }
 
-    for (DestinationPlace *dst = inv->destinations; dst != NULL;
-         dst = dst->next)
+    for (DestinationPlace *dst = inv->destinations; dst != NULL; dst = dst->next)
     {
       char *new_name;
       asprintf(&new_name, "%s.%d.%s", inv->name, id, dst->name);
@@ -751,18 +740,23 @@ int rewrite_signals(Block *blk)
       char *new_name;
       asprintf(&new_name, "%s.local.%s", def->name, src->name);
       src->resolved_name = new_name;
-      LOG_INFO("🔁 Definition SourcePlace rewritten: %s → %s", src->name,
-               new_name);
+      LOG_INFO("🔁 Definition SourcePlace rewritten: %s → %s", src->name, new_name);
     }
 
-    for (DestinationPlace *dst = def->destinations; dst != NULL;
-         dst = dst->next)
+    for (DestinationPlace *dst = def->destinations; dst != NULL; dst = dst->next)
     {
       char *new_name;
       asprintf(&new_name, "%s.local.%s", def->name, dst->name);
       dst->resolved_name = new_name;
-      LOG_INFO("🔁 Definition DestinationPlace rewritten: %s → %s", dst->name,
-               new_name);
+      LOG_INFO("🔁 Definition DestinationPlace rewritten: %s → %s", dst->name, new_name);
+    }
+
+    if (def->conditional_invocation && def->conditional_invocation->output)
+    {
+      char *new_output;
+      asprintf(&new_output, "%s.local.%s", def->name, def->conditional_invocation->output);
+      def->conditional_invocation->resolved_output = new_output;
+      LOG_INFO("🔁 ConditionalInvocation Output rewritten: %s → %s", def->conditional_invocation->output, new_output);
     }
 
     for (Invocation *inv = def->invocations; inv != NULL; inv = inv->next)
@@ -772,18 +766,40 @@ int rewrite_signals(Block *blk)
         char *new_name;
         asprintf(&new_name, "%s.%s.%s", def->name, inv->name, src->name);
         src->resolved_name = new_name;
-        LOG_INFO("🔁 Nested SourcePlace rewritten: %s → %s", src->name,
-                 new_name);
+        LOG_INFO("🔁 Nested SourcePlace rewritten: %s → %s", src->name, new_name);
       }
 
-      for (DestinationPlace *dst = inv->destinations; dst != NULL;
-           dst = dst->next)
+      for (DestinationPlace *dst = inv->destinations; dst != NULL; dst = dst->next)
       {
         char *new_name;
         asprintf(&new_name, "%s.%s.%s", def->name, inv->name, dst->name);
         dst->resolved_name = new_name;
-        LOG_INFO("🔁 Nested DestinationPlace rewritten: %s → %s", dst->name,
-                 new_name);
+        LOG_INFO("🔁 Nested DestinationPlace rewritten: %s → %s", dst->name, new_name);
+      }
+    }
+
+    // 🔁 Patch: Rewrite ConditionalInvocation template_args to resolved names
+    ConditionalInvocation *ci = def->conditional_invocation;
+    // Rewrite args using raw_template_args, not already-resolved template_args
+    if (ci && ci->arg_count > 0 && ci->template_args)
+    {
+      for (size_t i = 0; i < ci->arg_count; ++i)
+      {
+        const char *raw_arg = ci->template_args[i];
+        for (SourcePlace *src = def->sources; src != NULL; src = src->next)
+        {
+          if (src->name && strcmp(src->name, raw_arg) == 0)
+          {
+            // Free resolved version if already present
+            if (ci->resolved_template_args[i])
+            {
+              free(ci->resolved_template_args[i]);
+            }
+            ci->resolved_template_args[i] = strdup(src->resolved_name);
+            LOG_INFO("🔁 ConditionalInvocation Arg rewritten: %s → %s", raw_arg, ci->resolved_template_args[i]);
+            break;
+          }
+        }
       }
     }
   }
@@ -898,7 +914,6 @@ int parse_block_from_sexpr(Block *blk, const char *inv_dir)
 
   closedir(dir);
 
-  link_invocations(blk);
   LOG_INFO("✅ Block population from S-expression completed.");
 
   return 0;
@@ -1019,7 +1034,7 @@ static void emit_source_list(FILE *out, SourcePlace *src, int indent)
     {
       LOG_INFO(
           "✏️ Emitting SourcePlace: name=%s signal=%s",
-          src->name ? src->name : "null",
+          signame,
           (src->signal && src->signal != &NULL_SIGNAL && src->signal->content)
               ? src->signal->content
               : "null");
@@ -1093,19 +1108,26 @@ static void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
   fputs("(ConditionalInvocation\n", out);
 
   // Emit Output if present
-  if (ci->output)
+  if (ci->resolved_output)
   {
     emit_indent(out, indent + 2);
-    fprintf(out, "(Output %s)\n", ci->output);
+    fprintf(out, "(Output %s)\n", ci->resolved_output);
   }
 
-  // Emit Template
+  // Emit Resolved Template
   emit_indent(out, indent + 2);
   fputs("(Template", out);
-  const char *s = ci->invocation_template;
-  for (; *s; ++s)
+  for (size_t i = 0; i < ci->arg_count; ++i)
   {
-    fprintf(out, " %c", *s);
+    const char *arg = ci->resolved_template_args[i];
+    if (arg)
+    {
+      fprintf(out, " %s", arg);
+    }
+    else
+    {
+      fprintf(out, " ???"); // fallback for debugging
+    }
   }
   fputs(")\n", out);
 

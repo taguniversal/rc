@@ -28,6 +28,7 @@ int eval_definition(Definition *def, Block *blk);
 int eval_invocation(Invocation *inv, Block *blk);
 int pull_outputs_from_definition(Block *blk, Invocation *inv);
 static DestinationPlace *find_destination(Block *blk, const char *name);
+DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Definition *def);
 
 int count_invocations(Definition *def)
 {
@@ -63,15 +64,15 @@ int pull_outputs_from_definition(Block *blk, Invocation *inv)
       inv_dst->signal = new_sig;
 
       LOG_INFO("📤 Pulled output [%s] into Invocation destination [%s]",
-               def_dst->signal->content, inv_dst->name);
+               def_dst->signal->content, inv_dst->resolved_name);
       side_effects++;
     }
 
-    DestinationPlace *outer_dst = find_destination(blk, inv_dst->name);
+    DestinationPlace *outer_dst = find_destination(blk, inv_dst->resolved_name);
     if (outer_dst && (outer_dst->signal == &NULL_SIGNAL))
     {
       outer_dst->signal = inv_dst->signal;
-      LOG_INFO("🔗 Propagated Invocation Destination [%s] outward", inv_dst->name);
+      LOG_INFO("🔗 Propagated Invocation Destination [%s] outward", inv_dst->resolved_name);
     }
 
     inv_dst = inv_dst->next;
@@ -87,7 +88,7 @@ static DestinationPlace *find_destination(Block *blk, const char *name)
   {
     for (DestinationPlace *dst = inv->destinations; dst; dst = dst->next)
     {
-      if (strcmp(dst->name, name) == 0)
+      if (strcmp(dst->resolved_name, name) == 0)
       {
         return dst;
       }
@@ -97,7 +98,7 @@ static DestinationPlace *find_destination(Block *blk, const char *name)
   {
     for (DestinationPlace *dst = def->destinations; dst; dst = dst->next)
     {
-      if (strcmp(dst->name, name) == 0)
+      if (strcmp(dst->resolved_name, name) == 0)
       {
         return dst;
       }
@@ -118,11 +119,46 @@ static bool all_inputs_ready(Definition *def)
   return true;
 }
 
-void link_invocations(Block *blk)
+void wire_output(SourcePlace *src, DestinationPlace *dst)
+{
+  src->signal = dst->signal;
+  LOG_INFO("Wired SourcePlace '%s' to DestinationPlace '%s' → %p", src->resolved_name, dst->resolved_name, dst->signal);
+}
+
+void wire_by_name_correspondence(Block *blk)
 {
   if (!blk)
     return;
 
+  for (Definition *def = blk->definitions; def; def = def->next)
+  {
+    // For each DestinationPlace in this definition...
+    for (DestinationPlace *dst = def->destinations; dst; dst = dst->next)
+    {
+      bool matched = false;
+
+      // Look for a SourcePlace with the same name
+      for (SourcePlace *src = def->sources; src; src = src->next)
+      {
+        if (strcmp(dst->resolved_name, src->resolved_name) == 0)
+        {
+          dst->signal = src->signal;
+          matched = true;
+          LOG_INFO("🔁 Name-wire: Destination '%s' gets signal from Source '%s' → (0x%p)", dst->resolved_name, src->resolved_name, src->signal);
+          break;
+        }
+      }
+
+      if (!matched)
+      {
+        LOG_WARN("⚠️ Name-wire: No source found matching destination '%s' in definition '%s'", dst->resolved_name, def->name);
+      }
+    }
+  }
+}
+
+void link_invocations_by_position(Block *blk)
+{
   for (Invocation *inv = blk->invocations; inv; inv = inv->next)
   {
     for (Definition *def = blk->definitions; def; def = def->next)
@@ -132,16 +168,16 @@ void link_invocations(Block *blk)
         inv->definition = def;
         LOG_INFO("🔗 Linked Invocation %s → Definition %s", inv->name, def->name);
 
-        // Wire outputs (Invocation SourcePlaces → Definition Destinations)
-        SourcePlace *src = inv->sources;
-        DestinationPlace *dst = def->destinations;
+        // Wire outputs (Invocation SourcePlaces ← Definition Destinations)
+        SourcePlace *inv_src = inv->sources;
+        DestinationPlace *def_dst = def->destinations;
         int i = 0;
-        while (src && dst)
+        while (inv_src && def_dst)
         {
-          src->signal = dst->signal;
-          LOG_INFO("🔌 Wired Output [%d]: %s → %s (0x%p)", i, src->name, dst->name, dst->signal);
-          src = src->next;
-          dst = dst->next;
+          inv_src->signal = def_dst->signal;
+          LOG_INFO("🔌 [OUT] [%d] %s ← %s (0x%p)", i, inv_src->resolved_name, def_dst->resolved_name, def_dst->signal);
+          inv_src = inv_src->next;
+          def_dst = def_dst->next;
           i++;
         }
 
@@ -152,7 +188,7 @@ void link_invocations(Block *blk)
         while (inv_dst && def_src)
         {
           def_src->signal = inv_dst->signal;
-          LOG_INFO("🔌 Wired Input  [%d]: %s ← %s (0x%p)", i, def_src->name, inv_dst->name, inv_dst->signal);
+          LOG_INFO("🔌 [IN]  [%d] %s ← %s (0x%p)", i, def_src->resolved_name, inv_dst->resolved_name, inv_dst->signal);
           inv_dst = inv_dst->next;
           def_src = def_src->next;
           i++;
@@ -166,6 +202,84 @@ void link_invocations(Block *blk)
     {
       LOG_WARN("⚠️ No matching Definition found for Invocation %s", inv->name);
     }
+  }
+}
+
+void wire_signal_propagation_by_name(Block *blk)
+{
+  for (SourcePlace *src = blk->sources; src; src = src->next)
+  {
+    for (DestinationPlace *dst = blk->destinations; dst; dst = dst->next)
+    {
+      if (strcmp(src->resolved_name, dst->resolved_name) == 0)
+      {
+        dst->signal = src->signal;
+        LOG_INFO("📡 Signal propagation: %s → %s (0x%p)", src->resolved_name, dst->resolved_name, dst->signal);
+      }
+    }
+  }
+}
+
+static void append_source(SourcePlace **head, SourcePlace *list)
+{
+  for (SourcePlace *s = list; s; s = s->next)
+  {
+    s->next_flat = *head;
+    *head = s;
+  }
+}
+
+static void append_dest(DestinationPlace **head, DestinationPlace *list)
+{
+  for (DestinationPlace *d = list; d; d = d->next)
+  {
+    d->next_flat = *head;
+    *head = d;
+  }
+}
+
+void flatten_signal_places(Block *blk)
+{
+  if (!blk)
+    return;
+
+  blk->sources = NULL;
+  blk->destinations = NULL;
+
+  // Walk all invocations
+  for (Invocation *inv = blk->invocations; inv; inv = inv->next)
+  {
+    append_source(&blk->sources, inv->sources);
+    append_dest(&blk->destinations, inv->destinations);
+  }
+
+  // Walk all definitions
+  for (Definition *def = blk->definitions; def; def = def->next)
+  {
+    append_source(&blk->sources, def->sources);
+    append_dest(&blk->destinations, def->destinations);
+
+    // Inline invocations within a definition (e.g., NOR contains OR/NOT)
+    for (Invocation *inline_inv = def->invocations; inline_inv; inline_inv = inline_inv->next)
+    {
+      append_source(&blk->sources, inline_inv->sources);
+      append_dest(&blk->destinations, inline_inv->destinations);
+    }
+  }
+
+  LOG_INFO("🧩 Flattened signal places: sources and destinations collected.");
+}
+
+void print_signal_places(Block *blk)
+{
+  LOG_INFO("🔍 Flattened Signal Places:");
+  for (SourcePlace *src = blk->sources; src; src = src->next_flat)
+  {
+    LOG_INFO("Source: %s (0x%p)", src->resolved_name, src->signal);
+  }
+  for (DestinationPlace *dst = blk->destinations; dst; dst = dst->next_flat)
+  {
+    LOG_INFO("Destination: %s (0x%p)", dst->resolved_name, dst->signal);
   }
 }
 
@@ -223,9 +337,9 @@ int eval_invocation(Invocation *inv, Block *blk)
       LOG_WARN("❓ Invocation Source signal pointer is NULL");
     }
 
-    if (def_src->name)
+    if (def_src->resolved_name)
     {
-      LOG_INFO("🧬 Definition Source name: %s", def_src->name);
+      LOG_INFO("🧬 Definition Source name: %s", def_src->resolved_name);
     }
     else
     {
@@ -248,21 +362,21 @@ int eval_invocation(Invocation *inv, Block *blk)
         def_src->signal = new_sig;
         side_effects++;
 
-        if (inv_src->name)
+        if (inv_src->resolved_name)
         {
           LOG_INFO("📥 Injected named signal [%s] → Definition SourcePlace %s",
-                   inv_src->name, def_src->name ? def_src->name : "(null)");
+                   inv_src->resolved_name, def_src->resolved_name ? def_src->resolved_name : "(null)");
         }
         else
         {
           LOG_INFO("💎 Injected literal [%s] → Definition SourcePlace %s",
-                   inv_src->signal->content, def_src->name ? def_src->name : "(null)");
+                   inv_src->signal->content, def_src->resolved_name ? def_src->resolved_name : "(null)");
         }
       }
       else
       {
         LOG_INFO("🚫 Definition SourcePlace %s already has signal — skipping",
-                 def_src->name ? def_src->name : "(null)");
+                 def_src->resolved_name ? def_src->resolved_name : "(null)");
       }
     }
     else
@@ -281,14 +395,14 @@ int eval_invocation(Invocation *inv, Block *blk)
     char pattern[128] = {0};
     size_t offset = 0;
 
-    // Build pattern string from template_args
+    // Build pattern string from resolved_template_args
     for (size_t i = 0; i < ci->arg_count; ++i)
     {
-      const char *arg = ci->template_args[i];
-      SourcePlace *src = inv->sources;
+      const char *arg = ci->resolved_template_args[i];
+      SourcePlace *src = inv->definition->sources;
       while (src)
       {
-        if (src->name && strcmp(src->name, arg) == 0)
+        if (src->resolved_name && strcmp(src->resolved_name, arg) == 0) 
         {
           if (src->signal && src->signal->content)
           {
@@ -317,8 +431,10 @@ int eval_invocation(Invocation *inv, Block *blk)
     const char *result = NULL;
     for (ConditionalInvocationCase *c = ci->cases; c; c = c->next)
     {
+      LOG_INFO("🔎 Attempting to match input pattern for '%s' with %s", c->pattern, pattern);
       if (strcmp(c->pattern, pattern) == 0)
       {
+        LOG_INFO("✅ Matched");
         result = c->result;
         break;
       }
@@ -334,7 +450,7 @@ int eval_invocation(Invocation *inv, Block *blk)
     DestinationPlace *dp = inv->definition->destinations;
     while (dp)
     {
-      if (ci->output && dp->name && strcmp(dp->name, ci->output) == 0)
+      if (ci->output && dp->resolved_name && strcmp(dp->resolved_name, ci->output) == 0)
       {
         if (dp->signal == &NULL_SIGNAL || !dp->signal)
         {
@@ -353,14 +469,14 @@ int eval_invocation(Invocation *inv, Block *blk)
     SourcePlace *inv_src = inv->sources;
     while (inv_src)
     {
-      if (inv_src->name && strcmp(inv_src->name, inv->name) == 0) // match by name, or smarter if needed
+      if (inv_src->resolved_name && strcmp(inv_src->resolved_name, ci->output) == 0)
       {
         if (inv_src->signal == &NULL_SIGNAL || !inv_src->signal)
         {
           Signal *sig = (Signal *)calloc(1, sizeof(Signal));
           sig->content = strdup(result);
           inv_src->signal = sig;
-          LOG_INFO("📤 Propagated result to Invocation SourcePlace: %s", inv_src->name);
+          LOG_INFO("📤 Propagated result to Invocation SourcePlace: %s", inv_src->resolved_name);
         }
         break;
       }
@@ -371,46 +487,41 @@ int eval_invocation(Invocation *inv, Block *blk)
   return side_effects;
 }
 
-int eval_definition(Definition *def, Block *blk)
+DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Definition *def)
 {
-  (void)blk;
-  if (!def || !def->conditional_invocation)
+  for (DestinationPlace *dst = def->destinations; dst != NULL; dst = dst->next)
   {
-    return 0; // Nothing to do if no logic defined
+    if (dst->resolved_name && strcmp(dst->resolved_name, resolved_name) == 0)
+    {
+      return dst;
+    }
   }
 
-  if (!all_inputs_ready(def))
-  {
-    return 0; // Cannot evaluate yet
-  }
+  LOG_WARN("⚠️ No destination found matching resolved name: %s in def: %s", resolved_name, def->name);
+  return NULL;
+}
+int eval_definition(Definition *def, Block *blk)
+{
+  if (!def || !def->conditional_invocation) return 0;
+  if (!all_inputs_ready(def)) return 0;
 
   LOG_INFO("🔬 Preparing evaluation for definition: %s", def->name);
 
   for (SourcePlace *src = def->sources; src; src = src->next)
   {
-    if (src->name)
-    {
-      LOG_INFO("🛰️ SourcePlace name: %s", src->name);
-    }
+    if (src->resolved_name)
+      LOG_INFO("🛰️ SourcePlace name: %s", src->resolved_name);
     else if (src->signal && src->signal->content)
-    {
       LOG_INFO("💎 SourcePlace literal: %s", src->signal->content);
-    }
     else
-    {
       LOG_WARN("❓ SourcePlace unnamed and empty?");
-    }
   }
 
-  // Build the input pattern string
+  // Build input pattern
   size_t pattern_len = 0;
   for (SourcePlace *src = def->sources; src; src = src->next)
-  {
     if (src->signal && src->signal != &NULL_SIGNAL && src->signal->content)
-    {
       pattern_len += strlen(src->signal->content);
-    }
-  }
 
   char *pattern = (char *)calloc(pattern_len + 1, sizeof(char));
   if (!pattern)
@@ -423,19 +534,17 @@ int eval_definition(Definition *def, Block *blk)
   {
     if (src->signal && src->signal != &NULL_SIGNAL && src->signal->content)
     {
-      // ✨ Sanitize: trim newline or carriage returns
       char *clean = strdup(src->signal->content);
       if (clean)
       {
-        clean[strcspn(clean, "\r\n")] = '\0'; // truncate at newline/carriage
+        clean[strcspn(clean, "\r\n")] = '\0';
         strcat(pattern, clean);
         free(clean);
       }
     }
   }
 
-  LOG_INFO("🔎 Evaluating definition %s with input pattern [%s]", def->name,
-           pattern);
+  LOG_INFO("🔎 Evaluating definition %s with input pattern [%s]", def->name, pattern);
   if (!def->conditional_invocation->cases)
   {
     LOG_ERROR("🚨 No cases loaded for definition %s!", def->name);
@@ -443,35 +552,47 @@ int eval_definition(Definition *def, Block *blk)
     return 0;
   }
 
-  // Find matching case
   ConditionalInvocationCase *match = def->conditional_invocation->cases;
   while (match)
   {
-    LOG_INFO("🧪 Comparing input pattern: '%s' with case pattern: '%s'",
-             pattern, match->pattern);
+    LOG_INFO("🧪 Comparing input pattern: '%s' with case pattern: '%s'", pattern, match->pattern);
 
     if (strcmp(match->pattern, pattern) == 0)
     {
-      // MATCH FOUND
       LOG_INFO("✅ Pattern matched: %s → %s", match->pattern, match->result);
-      LOG_INFO("🔎 Lengths — input: %zu, case: %zu", strlen(pattern),
-               strlen(match->pattern));
+      LOG_INFO("🔎 Lengths — input: %zu, case: %zu", strlen(pattern), strlen(match->pattern));
 
-      // Set result to first destination
-      DestinationPlace *dst = def->destinations;
+      DestinationPlace *dst = find_output_by_resolved_name(def->conditional_invocation->resolved_output, def);
       if (dst && dst->signal == &NULL_SIGNAL)
       {
         Signal *new_sig = (Signal *)calloc(1, sizeof(Signal));
-
         new_sig->content = strdup(match->result);
-        new_sig->next = NULL;
-
         dst->signal = new_sig;
 
-        LOG_INFO("✍️ Output written: %s → [%s]", dst->name, new_sig->content);
+        LOG_INFO("✍️ Output written: %s → [%s]", dst->resolved_name, new_sig->content);
+
+        // 🧠 Propagate result to any matching Invocation SourcePlaces
+        for (Invocation *inv = blk->invocations; inv; inv = inv->next)
+        {
+
+          for (SourcePlace *inv_src = inv->sources; inv_src; inv_src = inv_src->next)
+          {
+            if (inv_src->resolved_name &&
+                dst->resolved_name &&
+                strcmp(inv_src->resolved_name, dst->resolved_name) == 0)
+            {
+              if (!inv_src->signal || inv_src->signal == &NULL_SIGNAL)
+              {
+                inv_src->signal = new_sig;
+                LOG_INFO("📤 Propagated result to Invocation '%s' SourcePlace: %s = [%s]",
+                         inv->name, inv_src->resolved_name, new_sig->content);
+              }
+            }
+          }
+        }
 
         free(pattern);
-        return 1; // 1 side-effect
+        return 1;
       }
       else
       {
@@ -480,6 +601,7 @@ int eval_definition(Definition *def, Block *blk)
         return 0;
       }
     }
+
     match = match->next;
   }
 
@@ -501,12 +623,12 @@ void allocate_signals(Block *blk)
         dst->signal = calloc(1, sizeof(Signal));
         if (!dst->signal)
         {
-          LOG_ERROR("❌ Failed to allocate signal for destination '%s' in '%s'", dst->name, inv->name);
+          LOG_ERROR("❌ Failed to allocate signal for destination '%s' in '%s'", dst->resolved_name, inv->name);
           exit(1);
         }
         dst->signal->content = NULL; // Or set default
         LOG_INFO("✅ Allocated Signal %p for Destination '%s' in Invocation '%s'",
-                 (void *)dst->signal, dst->name, inv->name);
+                 (void *)dst->signal, dst->resolved_name, inv->name);
       }
     }
   }

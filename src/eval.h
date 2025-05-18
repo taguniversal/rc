@@ -39,6 +39,7 @@ struct SourcePlace
   int spirv_id;
   Signal *signal; // Points to actual signal (or &NULL_SIGNAL)
   SourcePlace *next;
+  SourcePlace *next_flat;
 };
 
 struct DestinationPlace
@@ -48,6 +49,7 @@ struct DestinationPlace
   int spirv_id;
   Signal *signal; // Points to actual signal (or &NULL_SIGNAL)
   DestinationPlace *next;
+  DestinationPlace *next_flat;
 };
 
 // === Conditional Invocation for dynamic behavior ===
@@ -63,8 +65,10 @@ struct ConditionalInvocation
 {
   char *invocation_template; // e.g., "$A$B"
   char **template_args;      // Array of input names (e.g., L, C, R)
+  char **resolved_template_args;
   size_t arg_count;
   char* output;
+  char *resolved_output; //De-conflicted for entire block by rewrite_signals
   ConditionalInvocationCase *cases; // Linked list
 };
 
@@ -98,6 +102,8 @@ struct Block
   char *psi;               // Unique block ID (from mkrand)
   Invocation *invocations; // Linked list of invocations
   Definition *definitions; // Linked list of definitions
+  SourcePlace* sources;
+  DestinationPlace* destinations;
 };
 
 typedef struct
@@ -113,8 +119,11 @@ typedef struct
 } DefinitionLibrary;
 
 // === API ===
-void link_invocations(Block *blk);
+void link_invocations_by_position(Block *blk);
 int eval(Block *blk);
+void flatten_signal_places(Block *blk);
+void print_signal_places(Block *blk);
+void wire_by_name_correspondence(Block *blk);
 void allocate_signals(Block *blk);
 int count_invocations(Definition *def);
 #endif

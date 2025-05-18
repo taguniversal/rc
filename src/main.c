@@ -238,16 +238,17 @@ int main(int argc, char *argv[])
         LOG_INFO("   S-expressions: %s", sexpr_out_dir);
         LOG_INFO("   SPIR-V S-expr: %s", spirv_sexpr_dir);
         LOG_INFO("   SPIR-V Asm   : %s", spirv_asm_dir);
-
         parse_block_from_sexpr(active_block, sexpr_out_dir); // 1. Load structure
-        rewrite_signals(active_block);                       // 2. Rewrite names so they are globally unique
-        allocate_signals(active_block);                      // 3. Allocate Signal structs (needed before linking)
-        link_invocations(active_block);                      // 4. Link AND wire signals by index (now that signals exist)
-        validate_invocation_wiring(active_block);            // 5. Validate signal connectivity
+        rewrite_signals(active_block);                       // 2. Rewrite names to be globally unique
+        flatten_signal_places(active_block);                 // 2.5. Collect all SourcePlace/DestinationPlace pointers
+        print_signal_places(active_block);
+        allocate_signals(active_block);                      // 3. Allocate signal memory (needed before linking)
+        link_invocations_by_position(active_block);          // 4. Wire by position (Invocation ↔ Definition)
+        wire_by_name_correspondence(active_block);           // 4.5. Wire intra-expression signals by name
+        validate_invocation_wiring(active_block);            // 5. Confirm everything is hooked up
         emit_all_definitions(active_block, sexpr_out_dir);   // 6. Emit definitions
         emit_all_invocations(active_block, sexpr_out_dir);   // 7. Emit invocations
         spirv_parse_block(active_block, spirv_sexpr_dir);    // 8. Lower to SPIR-V
-
         char main_sexpr_path[256], main_spvasm_path[256];
         snprintf(main_sexpr_path, sizeof(main_sexpr_path), "%s/main.spvasm.sexpr", spirv_unified_dir);
         snprintf(main_spvasm_path, sizeof(main_spvasm_path), "%s/main.spvasm", spirv_asm_dir);
