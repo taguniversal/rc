@@ -220,50 +220,54 @@ void wire_signal_propagation_by_name(Block *blk)
   }
 }
 
-static void append_source(SourcePlace **head, SourcePlace *list)
+static void append_source(SourcePlace ***tail, SourcePlace *list)
 {
   for (SourcePlace *s = list; s; s = s->next)
   {
-    s->next_flat = *head;
-    *head = s;
+    s->next_flat = NULL;
+    **tail = s;
+    *tail = &s->next_flat;
   }
 }
 
-static void append_dest(DestinationPlace **head, DestinationPlace *list)
+static void append_dest(DestinationPlace ***tail, DestinationPlace *list)
 {
   for (DestinationPlace *d = list; d; d = d->next)
   {
-    d->next_flat = *head;
-    *head = d;
+    d->next_flat = NULL;
+    **tail = d;
+    *tail = &d->next_flat;
   }
 }
 
+
 void flatten_signal_places(Block *blk)
 {
-  if (!blk)
-    return;
+  if (!blk) return;
 
   blk->sources = NULL;
   blk->destinations = NULL;
 
-  // Walk all invocations
+  SourcePlace **src_tail = &blk->sources;
+  DestinationPlace **dst_tail = &blk->destinations;
+
+  // Walk invocations
   for (Invocation *inv = blk->invocations; inv; inv = inv->next)
   {
-    append_source(&blk->sources, inv->sources);
-    append_dest(&blk->destinations, inv->destinations);
+    append_source(&src_tail, inv->sources);
+    append_dest(&dst_tail, inv->destinations);
   }
 
-  // Walk all definitions
+  // Walk definitions + inline invocations
   for (Definition *def = blk->definitions; def; def = def->next)
   {
-    append_source(&blk->sources, def->sources);
-    append_dest(&blk->destinations, def->destinations);
+    append_source(&src_tail, def->sources);
+    append_dest(&dst_tail, def->destinations);
 
-    // Inline invocations within a definition (e.g., NOR contains OR/NOT)
     for (Invocation *inline_inv = def->invocations; inline_inv; inline_inv = inline_inv->next)
     {
-      append_source(&blk->sources, inline_inv->sources);
-      append_dest(&blk->destinations, inline_inv->destinations);
+      append_source(&src_tail, inline_inv->sources);
+      append_dest(&dst_tail, inline_inv->destinations);
     }
   }
 
@@ -402,7 +406,7 @@ int eval_invocation(Invocation *inv, Block *blk)
       SourcePlace *src = inv->definition->sources;
       while (src)
       {
-        if (src->resolved_name && strcmp(src->resolved_name, arg) == 0) 
+        if (src->resolved_name && strcmp(src->resolved_name, arg) == 0)
         {
           if (src->signal && src->signal->content)
           {
@@ -502,8 +506,10 @@ DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Defini
 }
 int eval_definition(Definition *def, Block *blk)
 {
-  if (!def || !def->conditional_invocation) return 0;
-  if (!all_inputs_ready(def)) return 0;
+  if (!def || !def->conditional_invocation)
+    return 0;
+  if (!all_inputs_ready(def))
+    return 0;
 
   LOG_INFO("🔬 Preparing evaluation for definition: %s", def->name);
 
@@ -686,3 +692,21 @@ int eval(Block *blk)
 
   return total_side_effects;
 }
+
+void dump_signals(Block *blk)
+{
+  LOG_INFO("🔍 Dumping signals for Block: [[%s]]", blk->psi);
+  int count = 0;
+
+  for (SourcePlace *src = blk->sources; src != NULL; src = src->next_flat)
+  {
+    const char *label = src->resolved_name ? src->resolved_name : (src->name ? src->name : "<unnamed>");
+    const char *content = (src->signal && src->signal->content)
+                              ? src->signal->content
+                              : "<null>";
+    LOG_INFO("📡 [%d] %s → %s", ++count, label, content);
+  }
+
+  LOG_INFO("🔍 Total signals dumped: %d", count);
+}
+

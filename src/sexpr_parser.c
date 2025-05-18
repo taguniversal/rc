@@ -339,7 +339,7 @@ Definition *parse_definition(SExpr *expr)
               LOG_INFO("🧪 About to call parse_signal with:");
               print_sexpr(field->list[k], 8);
 
-              parse_signal(field->list[k], &dp->signal); // or dp->signal
+              parse_signal(field->list[k], &dp->signal); 
             }
           }
         }

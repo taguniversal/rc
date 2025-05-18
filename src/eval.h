@@ -126,4 +126,5 @@ void print_signal_places(Block *blk);
 void wire_by_name_correspondence(Block *blk);
 void allocate_signals(Block *blk);
 int count_invocations(Definition *def);
+void dump_signals(Block *blk);
 #endif

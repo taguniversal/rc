@@ -258,6 +258,7 @@ int main(int argc, char *argv[])
 
         dump_wiring(active_block);
         eval(active_block);
+        dump_signals(active_block);
 
         return 0;
     }

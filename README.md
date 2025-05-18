@@ -58,4 +58,4 @@ meson setup build
 meson compile -C build
 ```
 
-This builds rc and then runs it against the inv/ directory to generate the rewritten s-expressions with fully qualified signal names, which are the source of truth for the entire bult module which is the base for emitting to SPIRV and VHDL targets.
+This builds rc and then runs it against the inv/ directory to generate the rewritten s-expressions with fully qualified signal names, which are the source of truth for the entire built module which is the base for emitting to SPIRV and VHDL targets.

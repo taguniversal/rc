@@ -7,13 +7,11 @@ cc = meson.get_compiler('c')
 
 # --- Dependencies ---
 sqlite3_dep   = dependency('sqlite3')
-xml2_dep      = dependency('libxml-2.0')
 crypto_dep    = cc.find_library('crypto', required: true)
 dl_dep        = cc.find_library('dl', required: true)
-pthread_dep   = dependency('threads')
 vulkan_dep    = dependency('vulkan', required: true)
 
-deps = [sqlite3_dep, xml2_dep, crypto_dep, dl_dep, pthread_dep, vulkan_dep]
+deps = [sqlite3_dep, crypto_dep, dl_dep, vulkan_dep]
 
 # --- Sources ---
 rcnode_sources = files(
