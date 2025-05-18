@@ -26,21 +26,16 @@ This project challenges traditional assumptions about how software, computation,
 - Outputs SPIR-V assembly (GPU) and has groundwork for VHDL/Verilog (FPGA) generation.
 - Constructs a real-time signal wiring graph from input S-expressions.
 
-
 ## 📦 Project Structure
 
-'''
-src/             
-Core C source code for the compiler and evaluator
-inv/             
-S-expression definitions for gates and invocation logic
-build/          
-Build output (compiled, SPIR-V, etc.)
-build/out/       
-Final program output (SPIR-V binaries, unified s-expressions, VHDL, etc.)
-external/        
-Static libraries (mkrand, sqlite, tinyosc, etc.)
-'''
+| Directory        | Description                                                                 |
+|------------------|-----------------------------------------------------------------------------|
+| `src/`           | Core C source code for the compiler and evaluator                          |
+| `inv/`           | S-expression definitions for gates and invocation logic                    |
+| `build/`         | Build output (compiled, SPIR-V, etc.)                                      |
+| `build/out/`     | Final program output (SPIR-V binaries, unified s-expressions, VHDL, etc.)  |
+| `external/`      | Static libraries (mkrand, sqlite, tinyosc, etc.)                           |
+
 ## 🛠 Build Instructions (Meson)
 
 We use [Meson](https://mesonbuild.com/) as the primary build system and [Ninja](https://ninja-build.org/) as the backend.
