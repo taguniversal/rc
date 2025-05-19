@@ -8,11 +8,11 @@
   )
 
   (DestinationList
-    (DestinationPlace (Name Out))
+    (DestinationPlace (Name Rule30CellOut))
   )
 
   (ConditionalInvocation
-    (Output Out)
+    (Output Rule30CellOut)
     (Template L C R  )
     (Case 111 0)
     (Case 110 0)

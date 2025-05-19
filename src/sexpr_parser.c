@@ -228,6 +228,14 @@ int parse_signal(SExpr *sig_expr, Signal **out_signal)
   return 0;
 }
 
+/*
+The definition expresses the network of associations between the boundaries of the associated invocation. 
+A definition is a named syntax structure containing a source list, a destination list. 
+a place of resolution followed by a place of contained definitions Definitiocnname is the correspondence name 
+of the definition.cThe source list is the input for the definition through which a formed name is received, 
+and the destination list is the output for the definition through which the results are delivered 
+The place of resolution is best understood as a bounded pure value expression that can contain association expressions.
+*/
 Definition *parse_definition(SExpr *expr)
 {
   Definition *def = calloc(1, sizeof(Definition));
@@ -274,9 +282,9 @@ Definition *parse_definition(SExpr *expr)
             if (field->list[k]->type == S_EXPR_LIST)
             {
               LOG_INFO("🧪 About to call parse_signal with:");
-              print_sexpr(field->list[k], 8);
+              print_sexpr(field, 8);
 
-              parse_signal(field->list[k], &sp->signal); // or dp->signal
+              parse_signal(field, &sp->signal); // or dp->signal
             }
           }
         }
@@ -337,9 +345,9 @@ Definition *parse_definition(SExpr *expr)
             if (field->list[k]->type == S_EXPR_LIST)
             {
               LOG_INFO("🧪 About to call parse_signal with:");
-              print_sexpr(field->list[k], 8);
+              print_sexpr(field, 8);
 
-              parse_signal(field->list[k], &dp->signal);
+              parse_signal(field, &dp->signal);
             }
           }
         }
@@ -414,6 +422,15 @@ Definition *parse_definition(SExpr *expr)
   return def;
 }
 
+/*
+The Invocation - The invocation associates destination places to form an input boundary and associates 
+source places to form an output boundary. The behavior model is that the boundaries are completeness
+boundaries and that the invocation expresses completeness criterion behavior between its input and 
+output boundaries When the content at the output boundary is complete the content presented to the input
+is complete. and the output is the correct resolution of the content presented to the input boundary. 
+Invocation boundaries are the boundaries of the expression. They are composition boundaries, coordination 
+boundaries, and partition boundaries.
+*/
 Invocation *parse_invocation(SExpr *expr)
 {
   Invocation *inv = calloc(1, sizeof(Invocation));
@@ -470,8 +487,8 @@ Invocation *parse_invocation(SExpr *expr)
             if (field->list[k]->type == S_EXPR_LIST)
             {
               LOG_INFO("🧪 About to call parse_signal with:");
-              print_sexpr(field->list[k], 8);
-              parse_signal(field->list[k], &dp->signal);
+              print_sexpr(field, 8);
+              parse_signal(field, &dp->signal);
             }
           }
         }
@@ -530,8 +547,8 @@ Invocation *parse_invocation(SExpr *expr)
             if (field->list[k]->type == S_EXPR_LIST)
             {
               LOG_INFO("🧪 About to call parse_signal with:");
-              print_sexpr(field->list[k], 8);
-              parse_signal(field->list[k], &sp->signal);
+              print_sexpr(field, 8);
+              parse_signal(field, &sp->signal);
             }
           }
         }

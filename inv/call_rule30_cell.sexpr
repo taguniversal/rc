@@ -1,0 +1,27 @@
+(Invocation
+  (Name Rule30Cell)
+
+  (DestinationList
+    (DestinationPlace
+      (Signal
+        (Content 1)
+      )
+    )
+    (DestinationPlace
+      (Signal
+        (Content 0)
+      )
+    )
+    (DestinationPlace
+      (Signal
+        (Content 1)
+      )
+    )
+  )
+
+  (SourceList
+    (SourcePlace
+      (Name Rule30CellOut)
+    )
+  )
+)

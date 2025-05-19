@@ -16,6 +16,7 @@ deps = [sqlite3_dep, crypto_dep, dl_dep, vulkan_dep]
 # --- Sources ---
 rcnode_sources = files(
   'src/main.c',
+  'src/eval_util.c',
   'src/eval.c',
   'src/spirv.c',
   'src/sexpr_parser.c',
@@ -48,6 +49,7 @@ rcnode_bin = executable('rcnode',
 validate_sources = files(
   'src/validate_sexpr.c',
   'src/sexpr_parser.c',
+  'src/eval_util.c',
   'src/eval.c',
   'src/log.c'
 )
