@@ -3,7 +3,6 @@
 
   (DestinationList
     (DestinationPlace
-      (Name A)
       (Signal
         (Content 1)
       )

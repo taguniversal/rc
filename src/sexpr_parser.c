@@ -128,7 +128,7 @@ ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
       continue;
 
     const char *arg = template_expr->list[i]->atom;
-    ci->template_args[i - 1] = strdup(arg); // raw arg
+    ci->template_args[i - 1] = strdup(arg);   // raw arg
     ci->resolved_template_args[i - 1] = NULL; // to be populated later
     joined_len += strlen(arg);
   }
@@ -339,7 +339,7 @@ Definition *parse_definition(SExpr *expr)
               LOG_INFO("🧪 About to call parse_signal with:");
               print_sexpr(field->list[k], 8);
 
-              parse_signal(field->list[k], &dp->signal); 
+              parse_signal(field->list[k], &dp->signal);
             }
           }
         }
@@ -442,6 +442,8 @@ Invocation *parse_invocation(SExpr *expr)
       DestinationPlace *dp = calloc(1, sizeof(DestinationPlace));
       dp->signal = &NULL_SIGNAL;
 
+      bool has_name = false;
+
       for (size_t j = 1; j < place->count; ++j)
       {
         SExpr *field = place->list[j];
@@ -452,11 +454,14 @@ Invocation *parse_invocation(SExpr *expr)
         if (!tag)
           continue;
 
-        if (strcmp(tag, "Name") == 0 && field->count >= 2)
+        if (strcmp(tag, "Name") == 0)
         {
           const char *val = get_atom_value(field, 1);
           if (val)
+          {
             dp->name = strdup(val);
+            has_name = true;
+          }
         }
         else if (strcmp(tag, "Signal") == 0)
         {
@@ -470,6 +475,15 @@ Invocation *parse_invocation(SExpr *expr)
             }
           }
         }
+      }
+
+      // 🧠 If no name was provided, synthesize one
+      if (!has_name)
+      {
+        char synth[64];
+        snprintf(synth, sizeof(synth), "%s.0.in%zu", inv->name, i - 1);
+        dp->name = strdup(synth);
+        LOG_INFO("🧠 Synthesized destination name: %s", dp->name);
       }
 
       dp->next = inv->destinations;
@@ -517,8 +531,7 @@ Invocation *parse_invocation(SExpr *expr)
             {
               LOG_INFO("🧪 About to call parse_signal with:");
               print_sexpr(field->list[k], 8);
-
-              parse_signal(field->list[k], &sp->signal); // or dp->signal
+              parse_signal(field->list[k], &sp->signal);
             }
           }
         }
@@ -541,112 +554,155 @@ Invocation *parse_invocation(SExpr *expr)
 
   return inv;
 }
-
 bool validate_sexpr(SExpr *expr, const char *filename)
 {
   if (!expr || expr->type != S_EXPR_LIST || expr->count < 1)
     return false;
 
   const char *tag = expr->list[0]->atom;
-  if (strcmp(tag, "Invocation") != 0)
-    return true; // Only validate Invocation nodes for now
+  if (!tag)
+    return false;
 
-  bool found_dest = false;
-  bool found_source = false;
+  bool is_invocation = strcmp(tag, "Invocation") == 0;
+  bool is_definition = strcmp(tag, "Definition") == 0;
+
+  if (!is_invocation && !is_definition)
+    return true; // Skip validation for other types
+
+  bool seen_dest = false;
+  bool seen_source = false;
 
   for (size_t i = 1; i < expr->count; ++i)
   {
     SExpr *child = expr->list[i];
-    if (child->type != S_EXPR_LIST || child->count < 1)
+    if (!child || child->type != S_EXPR_LIST || child->count < 1)
       continue;
 
     const char *subtag = child->list[0]->atom;
+    if (!subtag)
+      continue;
 
-    if (strcmp(subtag, "DestinationList") == 0)
+    if (strcmp(subtag, "SourceList") == 0)
     {
-      if (found_dest || found_source)
+      if (is_invocation && !seen_dest)
       {
-        LOG_ERROR(
-            "❌ [%s] DestinationList must appear once and before SourceList",
-            filename);
+        LOG_ERROR("❌ [%s] Invocation: SourceList must come after DestinationList", filename);
         return false;
       }
-      found_dest = true;
-
-      for (size_t j = 1; j < child->count; ++j)
+      if (is_definition)
       {
-        SExpr *dp = child->list[j];
-        if (!get_child_by_tag(dp, "Name"))
+        if (seen_source)
         {
-          LOG_ERROR("❌ [%s] DestinationPlace missing 'Name'", filename);
+          LOG_ERROR("❌ [%s] Definition: Only one SourceList allowed", filename);
           return false;
         }
-
-        if (get_child_by_tag(dp, "Value"))
+        if (seen_dest)
         {
-          LOG_ERROR("❌ [%s] DestinationPlace must not contain 'Value' (use "
-                    "Signal with Content instead)",
-                    filename);
+          LOG_ERROR("❌ [%s] Definition: SourceList must come before DestinationList", filename);
           return false;
         }
       }
-    }
-    else if (strcmp(subtag, "SourceList") == 0)
-    {
-      if (!found_dest)
-      {
-        LOG_ERROR("❌ [%s] SourceList must come after DestinationList",
-                  filename);
-        return false;
-      }
-      found_source = true;
+
+      seen_source = true;
 
       for (size_t j = 1; j < child->count; ++j)
       {
         SExpr *sp = child->list[j];
-        if (!get_child_by_tag(sp, "Name"))
-        {
-          LOG_ERROR("❌ [%s] SourcePlace must contain 'Name'", filename);
-          return false;
-        }
+        if (!sp || sp->type != S_EXPR_LIST)
+          continue;
 
-        if (get_child_by_tag(sp, "Value"))
+        bool has_name = get_child_by_tag(sp, "Name") != NULL;
+        if (!has_name)
         {
-          LOG_ERROR("❌ [%s] SourcePlace must not contain 'Value'", filename);
+          LOG_ERROR("❌ [%s] SourcePlace must include 'Name'", filename);
           return false;
         }
 
         if (get_child_by_tag(sp, "Signal"))
         {
-          LOG_WARN("⚠️ [%s] SourcePlace contains unexpected 'Signal' — will be "
-                   "ignored at parse time",
-                   filename);
+          LOG_WARN("⚠️ [%s] SourcePlace contains unexpected 'Signal' — ignored at parse time", filename);
+        }
+      }
+    }
+    else if (strcmp(subtag, "DestinationList") == 0)
+    {
+      if (is_definition && seen_dest)
+      {
+        LOG_ERROR("❌ [%s] Definition: Only one DestinationList allowed", filename);
+        return false;
+      }
+      if (is_definition && seen_source == false)
+      {
+        LOG_ERROR("❌ [%s] Definition: DestinationList must come after SourceList", filename);
+        return false;
+      }
+      if (is_invocation && seen_dest)
+      {
+        LOG_ERROR("❌ [%s] Invocation: Only one DestinationList allowed", filename);
+        return false;
+      }
+      if (is_invocation && seen_source)
+      {
+        LOG_ERROR("❌ [%s] Invocation: DestinationList must come before SourceList", filename);
+        return false;
+      }
+
+      seen_dest = true;
+
+      for (size_t j = 1; j < child->count; ++j)
+      {
+        SExpr *dp = child->list[j];
+        if (!dp || dp->type != S_EXPR_LIST)
+          continue;
+
+        bool has_name = get_child_by_tag(dp, "Name") != NULL;
+        bool has_signal = get_child_by_tag(dp, "Signal") != NULL;
+
+        if (is_invocation)
+        {
+          if (!has_signal)
+          {
+            LOG_ERROR("❌ [%s] Invocation: DestinationPlace must include 'Signal'", filename);
+            return false;
+          }
+          if (has_name)
+          {
+            LOG_WARN("⚠️ [%s] Invocation: DestinationPlace has unnecessary 'Name' — ignored", filename);
+          }
+        }
+        else if (is_definition)
+        {
+          if (!has_name)
+          {
+            LOG_ERROR("❌ [%s] Definition: DestinationPlace must include 'Name'", filename);
+            return false;
+          }
+          if (has_signal)
+          {
+            LOG_ERROR("❌ [%s] Definition: DestinationPlace must not include 'Signal'", filename);
+            return false;
+          }
         }
       }
     }
     else if (strcmp(subtag, "ConditionalInvocation") == 0)
     {
       SExpr *output = get_child_by_tag(child, "Output");
-      if (!output || output->count != 2 ||
-          output->list[1]->type != S_EXPR_ATOM)
+      if (!output || output->count != 2 || output->list[1]->type != S_EXPR_ATOM)
       {
-        LOG_ERROR(
-            "❌ [%s] ConditionalInvocation missing required (Output name)",
-            filename);
+        LOG_ERROR("❌ [%s] ConditionalInvocation missing valid (Output name)", filename);
         return false;
       }
     }
   }
 
-  if (!found_dest || !found_source)
+  if (!seen_dest || !seen_source)
   {
-    LOG_ERROR(
-        "❌ [%s] Invocation must include both DestinationList and SourceList",
-        filename);
+    LOG_ERROR("❌ [%s] Must include both DestinationList and SourceList", filename);
     return false;
   }
 
-  LOG_INFO("✅ [%s] Invocation validated successfully", filename);
+  LOG_INFO("✅ [%s] %s validated successfully", filename, is_invocation ? "Invocation" : "Definition");
   return true;
 }
 
@@ -716,6 +772,7 @@ int rewrite_signals(Block *blk)
     int id = get_next_instance_id(inv->name);
     inv->instance_id = id;
 
+    // Rewrite SourcePlaces
     for (SourcePlace *src = inv->sources; src != NULL; src = src->next)
     {
       char *new_name;
@@ -724,12 +781,31 @@ int rewrite_signals(Block *blk)
       LOG_INFO("🔁 SourcePlace rewritten: %s → %s", src->name, new_name);
     }
 
-    for (DestinationPlace *dst = inv->destinations; dst != NULL; dst = dst->next)
+    // Rewrite DestinationPlaces
+    int param_index = 0;
+    for (DestinationPlace *dst = inv->destinations; dst != NULL; dst = dst->next, param_index++)
     {
+      if (!dst->name)
+      {
+        char synth[64];
+        snprintf(synth, sizeof(synth), "%s.%d.%d", inv->name, id, param_index);
+        dst->name = strdup(synth);
+        LOG_INFO("💡 Synthesized destination name: %s", dst->name);
+      }
+
       char *new_name;
-      asprintf(&new_name, "%s.%d.%s", inv->name, id, dst->name);
-      dst->resolved_name = new_name;
-      LOG_INFO("🔁 DestinationPlace rewritten: %s → %s", dst->name, new_name);
+      if (strncmp(dst->name, inv->name, strlen(inv->name)) == 0)
+      {
+        // Already prefixed
+        dst->resolved_name = strdup(dst->name);
+        LOG_INFO("✅ Skipping double-prefix: %s", dst->resolved_name);
+      }
+      else
+      {
+        asprintf(&new_name, "%s.%d.%s", inv->name, id, dst->name);
+        dst->resolved_name = new_name;
+        LOG_INFO("🔁 DestinationPlace rewritten: %s → %s", dst->name, new_name);
+      }
     }
   }
 
@@ -778,9 +854,7 @@ int rewrite_signals(Block *blk)
       }
     }
 
-    // 🔁 Patch: Rewrite ConditionalInvocation template_args to resolved names
     ConditionalInvocation *ci = def->conditional_invocation;
-    // Rewrite args using raw_template_args, not already-resolved template_args
     if (ci && ci->arg_count > 0 && ci->template_args)
     {
       for (size_t i = 0; i < ci->arg_count; ++i)
@@ -790,11 +864,9 @@ int rewrite_signals(Block *blk)
         {
           if (src->name && strcmp(src->name, raw_arg) == 0)
           {
-            // Free resolved version if already present
             if (ci->resolved_template_args[i])
-            {
               free(ci->resolved_template_args[i]);
-            }
+
             ci->resolved_template_args[i] = strdup(src->resolved_name);
             LOG_INFO("🔁 ConditionalInvocation Arg rewritten: %s → %s", raw_arg, ci->resolved_template_args[i]);
             break;
@@ -804,7 +876,7 @@ int rewrite_signals(Block *blk)
     }
   }
 
-  // 🔚 Cleanup
+  // 🔚 Cleanup counters
   while (counters)
   {
     NameCounter *next = counters->next;

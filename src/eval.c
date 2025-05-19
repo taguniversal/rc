@@ -644,7 +644,7 @@ void allocate_signals(Block *blk)
 
 int eval(Block *blk)
 {
-  LOG_INFO("⚙️  Starting eval() pass for [%s] (until stabilization)", blk->psi);
+  LOG_INFO("⚙️  Starting eval() pass for %s (until stabilization)", blk->psi);
   int total_side_effects = 0;
   int iteration = 0;
 
@@ -695,7 +695,7 @@ int eval(Block *blk)
 
 void dump_signals(Block *blk)
 {
-  LOG_INFO("🔍 Dumping signals for Block: [[%s]]", blk->psi);
+  LOG_INFO("🔍 Dumping signals for Block: %s", blk->psi);
   int count = 0;
 
   for (SourcePlace *src = blk->sources; src != NULL; src = src->next_flat)

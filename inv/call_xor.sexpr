@@ -3,13 +3,11 @@
 
   (DestinationList
     (DestinationPlace
-      (Name out0)
       (Signal
         (Content 1)
       )
     )
     (DestinationPlace
-      (Name out1)
       (Signal
         (Content 0)
       )
