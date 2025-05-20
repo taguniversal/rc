@@ -92,6 +92,7 @@ struct Definition
   SourcePlace *sources;           // Expected inputs
   DestinationPlace *destinations; // Expected outputs
   Invocation *invocations;
+  SourcePlace *place_of_resolution_sources;
   ConditionalInvocation *conditional_invocation; // Optional logic
 
   Definition *next;

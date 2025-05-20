@@ -11,8 +11,14 @@
     (DestinationPlace (Name Rule30CellOut))
   )
 
+  (PlaceOfResolution
+    (SourcePlace
+      (Name Rule30CellOut)
+      (ContentFrom ConditionalInvocationResult)
+    )
+  )
+
   (ConditionalInvocation
-    (Output Rule30CellOut)
     (Template L C R  )
     (Case 111 0)
     (Case 110 0)

@@ -9,8 +9,14 @@
     (DestinationPlace (Name Out0))
   )
 
+  (PlaceOfResolution
+    (SourcePlace
+      (Name Out0)
+      (ContentFrom ConditionalInvocationResult)
+    )
+  )
+
   (ConditionalInvocation
-    (Output Out0)
     (Template A)
     (Case 0 1)
     (Case 1 0)

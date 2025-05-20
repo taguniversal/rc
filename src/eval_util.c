@@ -161,8 +161,12 @@ const char *match_conditional_case(ConditionalInvocation *ci, const char *patter
     LOG_WARN("⚠️ match_conditional_case: No match for pattern: %s", pattern);
     return NULL;
 }
+
 int write_result_to_named_output(Definition *def, const char *output_name, const char *result, int* side_effects)
 {
+    LOG_INFO("📤 Attempting to write result [%s] to output '%s' in definition '%s'",
+             result, output_name, def->name);
+
     DestinationPlace *dst = def->destinations;
     int index = 0;
 
@@ -189,13 +193,11 @@ int write_result_to_named_output(Definition *def, const char *output_name, const
                 const char *existing = dst->signal->content;
                 if (existing && strcmp(existing, result) == 0)
                 {
-                    // Already has correct value, skip
                     LOG_INFO("🛑 Output '%s' already matches result [%s], skipping write", dst->resolved_name, result);
                     return index;
                 }
                 else
                 {
-                    // Different value — update
                     LOG_INFO("♻️ Output '%s' changed: [%s] → [%s]", dst->resolved_name,
                              existing ? existing : "(null)", result);
                     free(dst->signal->content);
@@ -209,7 +211,8 @@ int write_result_to_named_output(Definition *def, const char *output_name, const
         index++;
     }
 
-    LOG_WARN("⚠️ Could not find destination '%s' in definition", output_name);
+    LOG_WARN("⚠️ Could not find destination '%s' in definition '%s'", output_name, def->name);
     return -1;
 }
+
 

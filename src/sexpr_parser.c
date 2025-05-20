@@ -83,6 +83,27 @@ SExpr *get_child_by_tag(SExpr *parent, const char *tag)
   return NULL;
 }
 
+SExpr *get_child_by_value(SExpr *parent, const char *tag, const char *expected_value)
+{
+  if (!parent || parent->type != S_EXPR_LIST)
+    return NULL;
+
+  for (size_t i = 1; i < parent->count; ++i)
+  {
+    SExpr *child = parent->list[i];
+    if (!child || child->type != S_EXPR_LIST || child->count < 2)
+      continue;
+
+    const char *child_tag = child->list[0]->atom;
+    const char *child_val = child->list[1]->atom;
+
+    if (child_tag && child_val && strcmp(child_tag, tag) == 0 && strcmp(child_val, expected_value) == 0)
+      return child;
+  }
+
+  return NULL;
+}
+
 const char *get_atom_value(SExpr *list, size_t index)
 {
   if (!list || index >= list->count)
@@ -90,6 +111,7 @@ const char *get_atom_value(SExpr *list, size_t index)
   SExpr *item = list->list[index];
   return (item->type == S_EXPR_ATOM) ? item->atom : NULL;
 }
+
 ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
 {
   ConditionalInvocation *ci = calloc(1, sizeof(ConditionalInvocation));
@@ -229,11 +251,11 @@ int parse_signal(SExpr *sig_expr, Signal **out_signal)
 }
 
 /*
-The definition expresses the network of associations between the boundaries of the associated invocation. 
-A definition is a named syntax structure containing a source list, a destination list. 
-a place of resolution followed by a place of contained definitions Definitiocnname is the correspondence name 
-of the definition.cThe source list is the input for the definition through which a formed name is received, 
-and the destination list is the output for the definition through which the results are delivered 
+The definition expresses the network of associations between the boundaries of the associated invocation.
+A definition is a named syntax structure containing a source list, a destination list.
+a place of resolution followed by a place of contained definitions. Definitiocnname is the correspondence name
+of the definition. The source list is the input for the definition through which a formed name is received,
+and the destination list is the output for the definition through which the results are delivered
 The place of resolution is best understood as a bounded pure value expression that can contain association expressions.
 */
 Definition *parse_definition(SExpr *expr)
@@ -379,6 +401,78 @@ Definition *parse_definition(SExpr *expr)
     LOG_ERROR("❌ [Definition:%s] Missing DestinationList", def->name);
   }
 
+  char *pending_conditional_output = NULL;
+
+  // 3.5 PlaceOfResolution
+  SExpr *por_expr = get_child_by_tag(expr, "PlaceOfResolution");
+  if (por_expr)
+  {
+    for (size_t i = 1; i < por_expr->count; ++i)
+    {
+      SExpr *place = por_expr->list[i];
+      if (!place || place->type != S_EXPR_LIST || place->count < 1)
+        continue;
+
+      const char *tag = get_atom_value(place, 0);
+      if (!tag)
+        continue;
+
+      if (strcmp(tag, "SourcePlace") == 0)
+      {
+        SourcePlace *sp = calloc(1, sizeof(SourcePlace));
+        sp->signal = &NULL_SIGNAL;
+
+        bool content_from_seen = false;
+
+        for (size_t j = 1; j < place->count; ++j)
+        {
+          SExpr *field = place->list[j];
+          if (!field || field->type != S_EXPR_LIST || field->count < 2)
+            continue;
+
+          const char *key = get_atom_value(field, 0);
+          const char *val = get_atom_value(field, 1);
+          if (!key || !val)
+            continue;
+
+          if (strcmp(key, "Name") == 0)
+          {
+            sp->name = strdup(val);
+          }
+          else if (strcmp(key, "ContentFrom") == 0 &&
+                   strcmp(val, "ConditionalInvocationResult") == 0)
+          {
+            content_from_seen = true;
+            sp->signal = NULL; // will be filled in post-eval
+
+            if (sp->name)
+            {
+              pending_conditional_output = strdup(sp->name);
+              LOG_INFO("📌 Marked output '%s' as ConditionalInvocation result target", pending_conditional_output);
+            }
+          }
+        }
+
+        if (content_from_seen)
+        {
+          if (def->conditional_invocation && pending_conditional_output)
+          {
+            def->conditional_invocation->output = pending_conditional_output;
+            LOG_INFO("🧭 ConditionalInvocation output set to '%s' (unresolved)", sp->name);
+          }
+          else
+          {
+            LOG_WARN("⚠️ ContentFrom specified but no ConditionalInvocation present");
+          }
+        }
+        sp->next = def->place_of_resolution_sources;
+        def->place_of_resolution_sources = sp;
+
+        LOG_INFO("🔁 PlaceOfResolution: added SourcePlace '%s' from ConditionalInvocationResult", sp->name);
+      }
+    }
+  }
+
   // 4. ConditionalInvocation
   SExpr *ci_expr = get_child_by_tag(expr, "ConditionalInvocation");
   if (ci_expr)
@@ -387,10 +481,23 @@ Definition *parse_definition(SExpr *expr)
     if (def->conditional_invocation)
     {
       LOG_INFO("🧩 ConditionalInvocation parsed for %s", def->name);
-      for (ConditionalInvocationCase *c = def->conditional_invocation->cases; c;
-           c = c->next)
+      for (ConditionalInvocationCase *c = def->conditional_invocation->cases; c; c = c->next)
       {
         LOG_INFO("    Case %s → %s", c->pattern, c->result);
+      }
+
+      // PATCH: If no output was provided in (Output ...), infer from PlaceOfResolution
+      if (!def->conditional_invocation->output && def->place_of_resolution_sources)
+      {
+        for (SourcePlace *sp = def->place_of_resolution_sources; sp; sp = sp->next)
+        {
+          if (sp->signal == NULL) // Marked from ContentFrom CI
+          {
+            def->conditional_invocation->output = strdup(sp->name);
+            LOG_INFO("📌 Inferred ConditionalInvocation output from PlaceOfResolution: %s", sp->name);
+            break;
+          }
+        }
       }
     }
   }
@@ -423,12 +530,12 @@ Definition *parse_definition(SExpr *expr)
 }
 
 /*
-The Invocation - The invocation associates destination places to form an input boundary and associates 
+The Invocation - The invocation associates destination places to form an input boundary and associates
 source places to form an output boundary. The behavior model is that the boundaries are completeness
-boundaries and that the invocation expresses completeness criterion behavior between its input and 
+boundaries and that the invocation expresses completeness criterion behavior between its input and
 output boundaries When the content at the output boundary is complete the content presented to the input
-is complete. and the output is the correct resolution of the content presented to the input boundary. 
-Invocation boundaries are the boundaries of the expression. They are composition boundaries, coordination 
+is complete. and the output is the correct resolution of the content presented to the input boundary.
+Invocation boundaries are the boundaries of the expression. They are composition boundaries, coordination
 boundaries, and partition boundaries.
 */
 Invocation *parse_invocation(SExpr *expr)
@@ -571,6 +678,7 @@ Invocation *parse_invocation(SExpr *expr)
 
   return inv;
 }
+
 bool validate_sexpr(SExpr *expr, const char *filename)
 {
   if (!expr || expr->type != S_EXPR_LIST || expr->count < 1)
@@ -588,6 +696,7 @@ bool validate_sexpr(SExpr *expr, const char *filename)
 
   bool seen_dest = false;
   bool seen_source = false;
+  bool seen_place_of_resolution = false;
 
   for (size_t i = 1; i < expr->count; ++i)
   {
@@ -702,13 +811,50 @@ bool validate_sexpr(SExpr *expr, const char *filename)
         }
       }
     }
+    if (strcmp(subtag, "PlaceOfResolution") == 0)
+    {
+      bool found_valid = false;
+      for (size_t j = 1; j < child->count; ++j)
+      {
+        SExpr *inner = child->list[j];
+        if (!inner || inner->type != S_EXPR_LIST || inner->count < 1)
+          continue;
+
+        const char *inner_tag = inner->list[0]->atom;
+        if (!inner_tag)
+          continue;
+
+        if (strcmp(inner_tag, "SourcePlace") == 0)
+        {
+          if (get_child_by_tag(inner, "ContentFrom") &&
+              get_child_by_value(inner, "ContentFrom", "ConditionalInvocationResult"))
+          {
+            found_valid = true;
+          }
+          else
+          {
+            LOG_ERROR("❌ [%s] PlaceOfResolution SourcePlace must contain (ContentFrom ConditionalInvocationResult)", filename);
+            return false;
+          }
+        }
+        else if (strcmp(inner_tag, "Invocation") == 0)
+        {
+          found_valid = true;
+        }
+      }
+
+      if (!found_valid)
+      {
+        LOG_ERROR("❌ [%s] PlaceOfResolution must include a valid SourcePlace or Invocation", filename);
+        return false;
+      }
+      seen_place_of_resolution = true;
+    }
     else if (strcmp(subtag, "ConditionalInvocation") == 0)
     {
-      SExpr *output = get_child_by_tag(child, "Output");
-      if (!output || output->count != 2 || output->list[1]->type != S_EXPR_ATOM)
+      if (get_child_by_tag(child, "Output"))
       {
-        LOG_ERROR("❌ [%s] ConditionalInvocation missing valid (Output name)", filename);
-        return false;
+        LOG_WARN("⚠️ [%s] ConditionalInvocation uses deprecated (Output ...) — migrate to PlaceOfResolution", filename);
       }
     }
   }
@@ -716,6 +862,12 @@ bool validate_sexpr(SExpr *expr, const char *filename)
   if (!seen_dest || !seen_source)
   {
     LOG_ERROR("❌ [%s] Must include both DestinationList and SourceList", filename);
+    return false;
+  }
+
+  if (is_definition && !seen_place_of_resolution)
+  {
+    LOG_ERROR("❌ [%s] Definition must include a PlaceOfResolution block", filename);
     return false;
   }
 
@@ -891,6 +1043,13 @@ int rewrite_signals(Block *blk)
         }
       }
     }
+    for (SourcePlace *src = def->place_of_resolution_sources; src != NULL; src = src->next)
+    {
+      char *new_name;
+      asprintf(&new_name, "%s.local.%s", def->name, src->name);
+      src->resolved_name = new_name;
+      LOG_INFO("🔁 PlaceOfResolution SourcePlace rewritten: %s → %s", src->name, new_name);
+    }
   }
 
   // 🔚 Cleanup counters
@@ -1048,7 +1207,7 @@ static struct SExpr *parse_expr(const char **input)
     return atom;
   }
 }
-
+// TODO What is this?
 SExpr *parse_sexpr(const char *input) { return parse_expr(&input); }
 
 void print_sexpr(const SExpr *expr, int indent)
@@ -1191,6 +1350,36 @@ static void emit_destination_list(FILE *out, DestinationPlace *dst,
   fputs(")\n", out);
 }
 
+void emit_place_of_resolution(FILE *out, SourcePlace *por_sources, int indent)
+{
+  if (!por_sources)
+    return;
+
+  emit_indent(out, indent);
+  fputs("(PlaceOfResolution\n", out);
+
+  for (SourcePlace *sp = por_sources; sp; sp = sp->next)
+  {
+    emit_indent(out, indent + 2);
+    fputs("(SourcePlace\n", out);
+
+    if (sp->name)
+    {
+      emit_indent(out, indent + 4);
+      fprintf(out, "(Name %s)\n", sp->resolved_name);
+    }
+
+    emit_indent(out, indent + 4);
+    fputs("(ContentFrom ConditionalInvocationResult)\n", out); // TODO hardcoded for now
+
+    emit_indent(out, indent + 2);
+    fputs(")\n", out);
+  }
+
+  emit_indent(out, indent);
+  fputs(")\n", out);
+}
+
 static void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
 {
   emit_indent(out, indent);
@@ -1249,7 +1438,7 @@ static void emit_invocation(FILE *out, Invocation *inv, int indent)
   fputs(")\n", out);
 }
 
-void write_definition_to_file(Definition *def, FILE *out, int indent)
+void emit_definition(FILE *out, Definition *def, int indent)
 {
   emit_indent(out, indent);
   fputs("(Definition\n", out);
@@ -1261,6 +1450,8 @@ void write_definition_to_file(Definition *def, FILE *out, int indent)
 
   emit_source_list(out, def->sources, indent + 2);
   emit_destination_list(out, def->destinations, indent + 2);
+
+  emit_place_of_resolution(out, def->place_of_resolution_sources, indent + 2);
 
   if (def->conditional_invocation)
   {
@@ -1276,20 +1467,6 @@ void write_definition_to_file(Definition *def, FILE *out, int indent)
   fputs(")\n", out);
 }
 
-void write_definition_to_path(Definition *def, const char *filepath)
-{
-  FILE *out = fopen(filepath, "w");
-  if (!out)
-  {
-    fprintf(stderr, "❌ Failed to open file for writing: %s\n", filepath);
-    return;
-  }
-
-  write_definition_to_file(def, out, 0);
-  fclose(out);
-  LOG_INFO("✅ Wrote definition '%s' to %s", def->name, filepath);
-}
-
 void emit_all_definitions(Block *blk, const char *dirpath)
 {
   // Create the output directory if it doesn't exist
@@ -1303,7 +1480,16 @@ void emit_all_definitions(Block *blk, const char *dirpath)
   {
     char path[256];
     snprintf(path, sizeof(path), "%s/%s.def.sexpr", dirpath, def->name);
-    write_definition_to_path(def, path);
+    FILE *out = fopen(path, "w");
+    if (!out)
+    {
+      LOG_ERROR("❌ Failed to open file for writing: %s", path);
+      continue;
+    }
+
+    emit_definition(out, def, 0);
+    fclose(out);
+    LOG_INFO("✅ Wrote definition '%s' to %s", def->name, path);
   }
 }
 

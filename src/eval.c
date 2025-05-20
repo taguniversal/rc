@@ -26,7 +26,7 @@ struct Signal NULL_SIGNAL = {
 };
 
 int eval(Block *blk);
-int eval_definition(Definition *def, Block *blk, int* side_effects);
+int eval_definition(Definition *def, Block *blk, int *side_effects);
 int eval_invocation(Invocation *inv, Block *blk);
 int pull_outputs_from_definition(Block *blk, Invocation *inv);
 DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Definition *def);
@@ -109,6 +109,17 @@ void wire_by_name_correspondence(Block *blk)
           dst->signal = src->signal;
           matched = true;
           LOG_INFO("🔁 Name-wire: Destination '%s' gets signal from Source '%s' → (0x%p)", dst->resolved_name, src->resolved_name, src->signal);
+          break;
+        }
+      }
+
+      for (SourcePlace *resolution_src = def->place_of_resolution_sources; resolution_src; resolution_src = resolution_src->next)
+      {
+        if (strcmp(dst->resolved_name, resolution_src->resolved_name) == 0)
+        {
+          dst->signal = resolution_src->signal;
+          matched = true;
+          LOG_INFO("🔁 Name-wire: Destination '%s' gets signal from Place of Resolution Source '%s' → (0x%p)", dst->resolved_name, resolution_src->resolved_name, resolution_src->signal);
           break;
         }
       }
@@ -294,7 +305,6 @@ int eval_invocation(Invocation *inv, Block *blk)
   if (output_index < 0)
     return side_effects;
 
-
   // Step 2: Copy result to corresponding Invocation SourcePlace by position
   SourcePlace *src_in_inv = inv->sources;
   size_t i = 0;
@@ -329,7 +339,7 @@ DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Defini
   return NULL;
 }
 
-int eval_definition(Definition *def, Block *blk, int* side_effects)
+int eval_definition(Definition *def, Block *blk, int *side_effects)
 {
 
   if (!def || !def->conditional_invocation)
@@ -366,6 +376,20 @@ int eval_definition(Definition *def, Block *blk, int* side_effects)
   {
     LOG_WARN("⚠️ No pattern matched in %s for input [%s]", def->name, pattern);
     return 0;
+  }
+
+  // Inject the result into the matching SourcePlace
+  for (SourcePlace *sp = def->sources; sp; sp = sp->next)
+  {
+    if (sp->name && strcmp(sp->name, def->conditional_invocation->resolved_output) == 0)
+    {
+      if (sp->signal == &NULL_SIGNAL)
+      {
+        sp->signal = calloc(1, sizeof(Signal));
+      }
+      sp->signal->content = strdup(result);
+      LOG_INFO("💾 Wrote result to SourcePlace '%s' → [%s]", sp->name, result);
+    }
   }
 
   DestinationPlace *dst = find_output_by_resolved_name(def->conditional_invocation->resolved_output, def);

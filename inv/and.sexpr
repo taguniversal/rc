@@ -16,8 +16,14 @@
     )
   )
 
+  (PlaceOfResolution
+    (SourcePlace
+      (Name out)
+      (ContentFrom ConditionalInvocationResult)
+    )
+  )
+
   (ConditionalInvocation
-    (Output out)
     (Template A B)
     (Case 00 0)
     (Case 01 0)

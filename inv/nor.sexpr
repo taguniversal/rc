@@ -10,24 +10,26 @@
     (DestinationPlace (Name Out0))
   )
 
-  (Invocation
-    (Name OR)
-    (DestinationList
-      (DestinationPlace (Name Temp0))
+  (PlaceOfResolution
+    (Invocation
+      (Name OR)
+      (DestinationList
+        (DestinationPlace (Name Temp0))
+      )
+      (SourceList 
+        (SourcePlace (Name A))
+        (SourcePlace (Name B))
+      )
     )
-    (SourceList 
-      (SourcePlace (Name A))
-      (SourcePlace (Name B))
-    )
-  )
 
-  (Invocation
-    (Name NOT)
-    (DestinationList
-      (DestinationPlace (Name Out0))
-    )
-    (SourceList 
-      (SourcePlace (Name Temp0))
+    (Invocation
+      (Name NOT)
+      (DestinationList
+        (DestinationPlace (Name Out0))
+      )
+      (SourceList 
+        (SourcePlace (Name Temp0))
+      )
     )
   )
 )
