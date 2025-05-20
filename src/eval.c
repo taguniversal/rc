@@ -26,7 +26,7 @@ struct Signal NULL_SIGNAL = {
 };
 
 int eval(Block *blk);
-int eval_definition(Definition *def, Block *blk);
+int eval_definition(Definition *def, Block *blk, int* side_effects);
 int eval_invocation(Invocation *inv, Block *blk);
 int pull_outputs_from_definition(Block *blk, Invocation *inv);
 DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Definition *def);
@@ -290,11 +290,10 @@ int eval_invocation(Invocation *inv, Block *blk)
     return side_effects;
   }
 
-  int output_index = write_result_to_named_output(inv->definition, ci->resolved_output, result);
+  int output_index = write_result_to_named_output(inv->definition, ci->resolved_output, result, &side_effects);
   if (output_index < 0)
     return side_effects;
 
-  side_effects++;
 
   // Step 2: Copy result to corresponding Invocation SourcePlace by position
   SourcePlace *src_in_inv = inv->sources;
@@ -330,8 +329,9 @@ DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Defini
   return NULL;
 }
 
-int eval_definition(Definition *def, Block *blk)
+int eval_definition(Definition *def, Block *blk, int* side_effects)
 {
+
   if (!def || !def->conditional_invocation)
     return 0;
   if (!all_inputs_ready(def))
@@ -371,7 +371,7 @@ int eval_definition(Definition *def, Block *blk)
   DestinationPlace *dst = find_output_by_resolved_name(def->conditional_invocation->resolved_output, def);
   if (dst && dst->signal == &NULL_SIGNAL)
   {
-    int output_index = write_result_to_named_output(def, def->conditional_invocation->resolved_output, result);
+    int output_index = write_result_to_named_output(def, def->conditional_invocation->resolved_output, result, &side_effects);
     if (output_index < 0)
       return 0;
 
@@ -390,6 +390,7 @@ int eval_definition(Definition *def, Block *blk)
     LOG_WARN("⚠️ No destination ready for output in %s", def->name);
     return 0;
   }
+  return 0;
 }
 
 void allocate_signals(Block *blk)
@@ -439,7 +440,7 @@ int eval(Block *blk)
     // 2. Evaluate definitions
     for (Definition *def = blk->definitions; def; def = def->next)
     {
-      int effects = eval_definition(def, blk);
+      int effects = eval_definition(def, blk, &side_effect_this_round);
       side_effect_this_round += effects;
     }
 
@@ -454,7 +455,7 @@ int eval(Block *blk)
 
     if (side_effect_this_round == 0)
     {
-      LOG_INFO("✅ Stabilization reached after %d iterations.\n", iteration);
+      LOG_INFO("✅ Stabilization reached after %d iterations.", iteration);
       break;
     }
   }
@@ -462,7 +463,7 @@ int eval(Block *blk)
   if (iteration >= MAX_ITERATIONS)
   {
     LOG_WARN("⚠️ Eval for %s did not stabilize after %d iterations. Bailout "
-             "triggered.\n",
+             "triggered.",
              blk->psi, MAX_ITERATIONS);
   }
 

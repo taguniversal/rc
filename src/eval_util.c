@@ -161,7 +161,7 @@ const char *match_conditional_case(ConditionalInvocation *ci, const char *patter
     LOG_WARN("⚠️ match_conditional_case: No match for pattern: %s", pattern);
     return NULL;
 }
-int write_result_to_named_output(Definition *def, const char *output_name, const char *result)
+int write_result_to_named_output(Definition *def, const char *output_name, const char *result, int* side_effects)
 {
     DestinationPlace *dst = def->destinations;
     int index = 0;
@@ -180,15 +180,29 @@ int write_result_to_named_output(Definition *def, const char *output_name, const
                 }
                 sig->content = strdup(result);
                 dst->signal = sig;
+                if (side_effects) (*side_effects)++;
                 LOG_INFO("✍️ Output written: %s → [%s]", dst->resolved_name, result);
-                return index; // return the positional index
+                return index;
             }
             else
             {
-                const char *existing = dst->signal->content ? dst->signal->content : "(null)";
-                LOG_INFO("⚠️ Output '%s' already has a signal, skipping write. Existing content: [%s]",
-                         dst->resolved_name, existing);
-                return index;
+                const char *existing = dst->signal->content;
+                if (existing && strcmp(existing, result) == 0)
+                {
+                    // Already has correct value, skip
+                    LOG_INFO("🛑 Output '%s' already matches result [%s], skipping write", dst->resolved_name, result);
+                    return index;
+                }
+                else
+                {
+                    // Different value — update
+                    LOG_INFO("♻️ Output '%s' changed: [%s] → [%s]", dst->resolved_name,
+                             existing ? existing : "(null)", result);
+                    free(dst->signal->content);
+                    dst->signal->content = strdup(result);
+                    if (side_effects) (*side_effects)++;
+                    return index;
+                }
             }
         }
         dst = dst->next;
