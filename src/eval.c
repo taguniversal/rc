@@ -30,60 +30,76 @@ int count_invocations(Definition *def)
     count++;
   return count;
 }
-
 int pull_outputs_from_definition(Block *blk, Invocation *inv)
 {
-  if (!inv || !inv->definition)
-    return 0;
-
-  int side_effects = 0;
-
-  DestinationPlace *inv_dst = inv->destinations;
-  DestinationPlace *def_dst = inv->definition->destinations;
-
-  while (inv_dst && def_dst)
-  {
-    LOG_INFO("🔎 Checking Definition output: %s = [%s]",
-             def_dst->resolved_name ? def_dst->resolved_name : "(null)",
-             def_dst->content ? def_dst->content : "(null)");
-
-    if (def_dst->content)
+    if (!inv || !inv->definition)
     {
-      // Propagate to invocation destination
-      if (inv_dst->content == NULL || strcmp(inv_dst->content, def_dst->content) != 0)
-      {
-        if (inv_dst->content)
-          free(inv_dst->content);
-
-        inv_dst->content = strdup(def_dst->content);
-        LOG_INFO("📤 Pulled output [%s] into Invocation destination [%s]",
-                 def_dst->content, inv_dst->resolved_name);
-        side_effects++;
-      }
+        LOG_WARN("⚠️ pull_outputs_from_definition - either inv or inv->definition NULL");
+        return 0;
     }
 
-    // Attempt to propagate outward to the block-level destination
-    DestinationPlace *outer_dst = find_destination(blk, inv_dst->resolved_name);
-    if (outer_dst)
-    {
-      if (outer_dst->content == NULL || (inv_dst->content &&
-                                         strcmp(outer_dst->content, inv_dst->content) != 0))
-      {
-        if (outer_dst->content)
-          free(outer_dst->content);
+    LOG_INFO("🧩 Pulling outputs for Invocation '%s'", inv->name);
 
-        outer_dst->content = inv_dst->content ? strdup(inv_dst->content) : NULL;
-        LOG_INFO("🔗 Propagated Invocation Destination [%s] outward", inv_dst->resolved_name);
-        side_effects++;
-      }
+    int side_effects = 0;
+    int idx = 0;
+
+    DestinationPlace *def_dst = inv->definition->destinations;
+    SourcePlace *inv_src = inv->sources;
+
+    while (def_dst && inv_src)
+    {
+        LOG_INFO("   [%d] def_dst->resolved_name: %s", idx, def_dst->resolved_name ? def_dst->resolved_name : "(null)");
+        LOG_INFO("   [%d] inv_src->resolved_name: %s", idx, inv_src->resolved_name ? inv_src->resolved_name : "(null)");
+        LOG_INFO("   [%d] def_dst->content: %s", idx, def_dst->content ? def_dst->content : "(null)");
+        LOG_INFO("   [%d] inv_src->content before: %s", idx, inv_src->content ? inv_src->content : "(null)");
+
+        if (def_dst->content)
+        {
+            if (!inv_src->content || strcmp(inv_src->content, def_dst->content) != 0)
+            {
+                if (inv_src->content)
+                    free(inv_src->content);
+
+                inv_src->content = strdup(def_dst->content);
+                LOG_INFO("📤 [%d] Copied [%s] → Invocation source [%s]",
+                         idx, def_dst->content, inv_src->resolved_name ? inv_src->resolved_name : "(null)");
+                side_effects++;
+            }
+            else
+            {
+                LOG_INFO("🛑 [%d] Skipped copy: content already matches [%s]", idx, def_dst->content);
+            }
+        }
+        else
+        {
+            LOG_WARN("⚠️ [%d] Definition destination [%s] has no content",
+                     idx, def_dst->resolved_name ? def_dst->resolved_name : "(null)");
+        }
+
+        // Copy to block-level destination (by def_dst name only, optional)
+        DestinationPlace *outer_dst = find_destination(blk, def_dst->resolved_name);
+        if (outer_dst)
+        {
+            if (!outer_dst->content || strcmp(outer_dst->content, def_dst->content) != 0)
+            {
+                if (outer_dst->content)
+                    free(outer_dst->content);
+                outer_dst->content = def_dst->content ? strdup(def_dst->content) : NULL;
+                LOG_INFO("🔗 [%d] Copied [%s] → Block-level destination [%s]",
+                         idx, def_dst->content, outer_dst->resolved_name ? outer_dst->resolved_name : "(null)");
+                side_effects++;
+            }
+        }
+
+        def_dst = def_dst->next;
+        inv_src = inv_src->next;
+        idx++;
     }
 
-    inv_dst = inv_dst->next;
-    def_dst = def_dst->next;
-  }
-
-  return side_effects;
+    return side_effects;
 }
+
+
 
 void wire_by_name_correspondence(Block *blk)
 {
@@ -426,7 +442,7 @@ int eval_invocation(Invocation *inv, Block *blk)
     }
     else
     {
-      LOG_INFO("🛑 SourcePlace '%s' does not match output '%s'", sp->name, ci->resolved_output);
+      LOG_INFO("🛑 SourcePlace '%s' does not match output '%s'", sp->resolved_name, ci->resolved_output);
     }
 
     if (sp->content)
@@ -489,27 +505,15 @@ int eval_definition(Definition *def, Block *blk)
     return 0;
   }
 
- 
+  LOG_INFO("📦 Writing result to output signal: %s (resolved as: %s)",
+           def->conditional_invocation->resolved_output,
+           def->conditional_invocation->resolved_output ? def->conditional_invocation->resolved_output : "(null)");
 
   // 1. Write result to named output
   int output_status = write_result_to_named_output(def, def->conditional_invocation->resolved_output, result);
   if (output_status < 0)
     return 0;
   side_effects += output_status;
-
-//  DestinationPlace *dst = find_output_by_resolved_name(def->conditional_invocation->resolved_output, def);
- //  LOG_WARN("🛠️ TEMP PATCH: Writing output directly to %s", dst->resolved_name);
- // if (dst->content) free(dst->content);
- // dst->content = strdup("1"); // hardcode
- // TODO END DEBUG
-  
-  if (!dst || !dst->content)
-  {
-    LOG_ERROR("❌ Destination written but content is missing: %s", def->conditional_invocation->resolved_output);
-    return 0;
-  }
-
-  LOG_INFO("✍️ Output written: %s → [%s]", dst->resolved_name, dst->content);
 
   // 2. Sync internal SourcePlace(s) that have the same name as the output
   for (SourcePlace *sp = def->sources; sp; sp = sp->next)
@@ -535,6 +539,12 @@ int eval_definition(Definition *def, Block *blk)
       side_effects++;
       LOG_INFO("🔁 Synced POR SourcePlace '%s' with content [%s]", sp->name, sp->content);
     }
+  }
+  DestinationPlace *dst = find_output_by_resolved_name(def->conditional_invocation->resolved_output, def);
+  if (!dst || !dst->content)
+  {
+    LOG_ERROR("❌ Destination written but content is missing: %s", def->conditional_invocation->resolved_output);
+    return side_effects;
   }
 
   // 3. Propagate to invocations watching this signal
@@ -569,7 +579,7 @@ int eval(Block *blk)
     // 3. Pull outputs back into invocations
     for (Invocation *inv = blk->invocations; inv; inv = inv->next)
     {
-      side_effect_this_round +=  pull_outputs_from_definition(blk, inv);
+      side_effect_this_round += pull_outputs_from_definition(blk, inv);
     }
 
     total_side_effects += side_effect_this_round;

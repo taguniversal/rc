@@ -288,6 +288,63 @@ void wire_invocation_sources_to_definition_outputs(Block *blk)
     }
 }
 
+void wire_por_invocations(Block *blk)
+{
+    LOG_INFO("🧠 Entered wire_por_invocations()");
+
+    if (!blk)
+    {
+        LOG_WARN("🚫 wire_por_invocations: Block is NULL");
+        return;
+    }
+
+    for (Definition *def = blk->definitions; def; def = def->next)
+    {
+        if (!def->place_of_resolution_invocations)
+        {
+            LOG_INFO("🧩 Definition %s has no POR invocations", def->name);
+            continue;
+        }
+        for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
+        {
+            // Step 1: Wire Definition.sources → Invocation.destinations
+            LOG_INFO("🧩 Wiring definition %s sources to invocation %s destinations", def->name, inv->name);
+            for (SourcePlace *def_src = def->sources; def_src; def_src = def_src->next)
+            {
+
+                for (DestinationPlace *inv_dst = inv->destinations; inv_dst; inv_dst = inv_dst->next)
+                {
+                    LOG_INFO("🧩 Definition source %s -> invocation destination %s", def_src->resolved_name, inv_dst->resolved_name);
+                    if (def_src->resolved_name && inv_dst->resolved_name &&
+                        strcmp(def_src->resolved_name, inv_dst->resolved_name) == 0 &&
+                        def_src->content)
+                    {
+                        propagate_content(def_src, inv_dst);
+
+                        LOG_INFO("🔗 [POR] Wired Definition → Invocation: %s → %s [%s]",
+                                 def_src->resolved_name, inv_dst->resolved_name, inv_dst->content);
+                    }
+                }
+            }
+
+            // Step 2: Wire Invocation.sources → Definition.destinations
+            for (SourcePlace *inv_src = inv->sources; inv_src; inv_src = inv_src->next)
+            {
+                for (DestinationPlace *def_dst = def->destinations; def_dst; def_dst = def_dst->next)
+                {
+                    if (inv_src->resolved_name && def_dst->resolved_name &&
+                        strcmp(inv_src->resolved_name, def_dst->resolved_name) == 0 &&
+                        inv_src->content)
+                    {
+                        propagate_content(inv_src, def_dst);
+                        LOG_INFO("🔗 [POR] Wired Invocation → Definition: %s → %s [%s]",
+                                 inv_src->resolved_name, def_dst->resolved_name, def_dst->content);
+                    }
+                }
+            }
+        }
+    }
+}
 
 void cleanup_name_counters(void)
 {

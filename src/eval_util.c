@@ -81,6 +81,7 @@ bool build_input_pattern(Definition *def, char **arg_names, size_t arg_count, ch
     LOG_INFO("🔎 build_input_pattern: final result = '%s'", out_buf);
     return true;
 }
+
 int propagate_content(SourcePlace *src, DestinationPlace *dst)
 {
     LOG_INFO("📡 Attempting propagation: dst='%s' → src='%s'",
@@ -119,7 +120,6 @@ int propagate_content(SourcePlace *src, DestinationPlace *dst)
 
     return 1; // Side effect occurred
 }
-
 
 void transfer_invocation_inputs_to_definition(Invocation *inv, Definition *def)
 {
@@ -251,13 +251,19 @@ const char *match_conditional_case(ConditionalInvocation *ci, const char *patter
     LOG_WARN("⚠️ match_conditional_case: No match for pattern: %s", pattern);
     return NULL;
 }
+
 int write_result_to_named_output(Definition *def, const char *output_name, const char *result)
 {
     LOG_INFO("📤 Attempting to write result [%s] to output '%s' in definition '%s'",
              result, output_name, def->name);
 
-    DestinationPlace *dst = def->destinations;
+    LOG_INFO("🔍 Available Destinations in %s:", def->name);
+    for (DestinationPlace *dst = def->destinations; dst; dst = dst->next)
+    {
+        LOG_INFO("   ➤ Destination: %s", dst->resolved_name);
+    }
 
+    DestinationPlace *dst = def->destinations;
     while (dst)
     {
         LOG_INFO("🔍 Matching: '%s' == '%s'", dst->resolved_name, output_name);

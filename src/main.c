@@ -242,6 +242,7 @@ int main(int argc, char *argv[])
         parse_block_from_sexpr(active_block, sexpr_out_dir); // 1. Load structure
         rewrite_signals(active_block);                       // 2. Rewrite names to be globally unique
         flatten_signal_places(active_block);                 // 2.5. Collect all SourcePlace/DestinationPlace pointers
+        wire_por_invocations(active_block);
         print_signal_places(active_block);
         link_invocations_by_position(active_block); // 4. Wire by position (Invocation ↔ Definition)
         wire_by_name_correspondence(active_block);  // 4.5. Wire intra-expression signals by name
