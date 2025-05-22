@@ -968,10 +968,10 @@ int rewrite_signals(Block *blk)
     rewrite_conditional_invocation(def);
 
     LOG_INFO("  🔌 Wiring outputs → POR sources...");
-    wire_por_outputs_to_sources(def);
+  //  wire_por_outputs_to_sources(def);
 
     LOG_INFO("  🔌 Wiring POR sources → outputs...");
-    wire_por_sources_to_outputs(def);
+   // wire_por_sources_to_outputs(def);
   }
 
   LOG_INFO("🧹 Cleaning up instance counters...");

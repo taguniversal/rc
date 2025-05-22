@@ -9,6 +9,7 @@ bool build_input_pattern(Definition *def, char **arg_names, size_t arg_count, ch
 void transfer_invocation_inputs_to_definition(Invocation *inv, Definition *def);
 int propagate_output_to_invocations(Block *blk, DestinationPlace *dst, const char *content);
 int propagate_content(SourcePlace *src, DestinationPlace *dst);
+int propagate_block_content(Block *blk);
 bool all_inputs_ready(Definition *def);
 DestinationPlace *find_destination(Block *blk, const char *name);
 const char *match_conditional_case(ConditionalInvocation *ci, const char *pattern);

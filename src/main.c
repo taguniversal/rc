@@ -242,29 +242,10 @@ int main(int argc, char *argv[])
         parse_block_from_sexpr(active_block, sexpr_out_dir); // 1. Load structure
         rewrite_signals(active_block);                       // 2. Rewrite names to be globally unique
         flatten_signal_places(active_block);                 // 2.5. Collect all SourcePlace/DestinationPlace pointers
-        wire_por_invocations(active_block);
         print_signal_places(active_block);
-        link_invocations_by_position(active_block); // 4. Wire by position (Invocation ↔ Definition)
-        wire_by_name_correspondence(active_block);  // 4.5. Wire intra-expression signals by name
-        wire_invocation_sources_to_definition_outputs(active_block);
+        boundary_link_invocations_by_position(active_block); // 4. Wire by position (Invocation ↔ Definition)
         validate_invocation_wiring(active_block); // 5. Confirm everything is hooked up
-
-        if (!active_block || !active_block->invocations)
-        {
-            LOG_ERROR("🚨 Block or invocations list is null before eval — aborting.");
-            return 1;
-        }
-
-        for (Invocation *inv = active_block->invocations; inv; inv = inv->next)
-        {
-            if (inv->definition)
-                LOG_INFO("🔗 Eval-ready: %s → %s", inv->name, inv->definition->name);
-            else
-                LOG_WARN("❌ No definition linked for %s", inv->name);
-        }
-
         eval(active_block);
-        //   wire_conditional_results_to_invocation_sources(active_block);
         emit_all_definitions(active_block, sexpr_out_dir); // 6. Emit definitions
         emit_all_invocations(active_block, sexpr_out_dir); // 7. Emit invocations
         spirv_parse_block(active_block, spirv_sexpr_dir);  // 8. Lower to SPIR-V

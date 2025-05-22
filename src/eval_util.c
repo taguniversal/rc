@@ -160,6 +160,21 @@ void transfer_invocation_inputs_to_definition(Invocation *inv, Definition *def)
     }
 }
 
+int propagate_block_content(Block *blk) {
+    int count = 0;
+    for (SourcePlace *src = blk->sources; src; src = src->next_flat) {
+        for (DestinationPlace *dst = blk->destinations; dst; dst = dst->next_flat) {
+            if (src->resolved_name && dst->resolved_name &&
+                strcmp(src->resolved_name, dst->resolved_name) == 0 &&
+                src->content) {
+                count += propagate_content(src, dst);
+            }
+        }
+    }
+    LOG_INFO("🔁 Total signal propagations: %d", count);
+    return count;
+}
+
 int propagate_output_to_invocations(Block *blk, DestinationPlace *dst, const char *content)
 {
 

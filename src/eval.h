@@ -112,11 +112,10 @@ typedef struct
 } DefinitionLibrary;
 
 // === API ===
-int link_invocations_by_position(Block *blk);
+int boundary_link_invocations_by_position(Block *blk);
 int eval(Block *blk);
 void flatten_signal_places(Block *blk);
 void print_signal_places(Block *blk);
-void wire_by_name_correspondence(Block *blk);
 int count_invocations(Definition *def);
 void dump_signals(Block *blk);
 #endif

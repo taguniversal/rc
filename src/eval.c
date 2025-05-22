@@ -101,64 +101,7 @@ int pull_outputs_from_definition(Block *blk, Invocation *inv)
 
 
 
-void wire_by_name_correspondence(Block *blk)
-{
-  if (!blk)
-    return;
-
-  for (Definition *def = blk->definitions; def; def = def->next)
-  {
-    for (DestinationPlace *dst = def->destinations; dst; dst = dst->next)
-    {
-      bool matched = false;
-
-      // Match against regular sources
-      for (SourcePlace *src = def->sources; src; src = src->next)
-      {
-        if (dst->resolved_name && src->resolved_name &&
-            strcmp(dst->resolved_name, src->resolved_name) == 0)
-        {
-          int changed = propagate_content(src, dst);
-          if (changed)
-          {
-            LOG_INFO("🔁 Name-copy: Destination '%s' received updated content from Source '%s' → [%s]",
-                     dst->resolved_name, src->resolved_name, dst->content);
-          }
-          matched = true;
-          break;
-        }
-      }
-
-      // Match against place-of-resolution sources
-      if (!matched)
-      {
-        for (SourcePlace *resolution_src = def->place_of_resolution_sources; resolution_src; resolution_src = resolution_src->next)
-        {
-          if (dst->resolved_name && resolution_src->resolved_name &&
-              strcmp(dst->resolved_name, resolution_src->resolved_name) == 0)
-          {
-            int changed = propagate_content(resolution_src, dst);
-            if (changed)
-            {
-              LOG_INFO("🔁 Name-copy: Destination '%s' received updated content from POR Source '%s' → [%s]",
-                       dst->resolved_name, resolution_src->resolved_name, dst->content);
-            }
-            matched = true;
-            break;
-          }
-        }
-      }
-
-      if (!matched)
-      {
-        LOG_WARN("⚠️ Name-copy: No source matched destination '%s' in definition '%s'",
-                 dst->resolved_name ? dst->resolved_name : "(null)", def->name);
-      }
-    }
-  }
-}
-
-int link_invocations_by_position(Block *blk)
+int boundary_link_invocations_by_position(Block *blk)
 {
   int side_effects = 0;
 
@@ -300,37 +243,46 @@ void flatten_signal_places(Block *blk)
   SourcePlace **src_tail = &blk->sources;
   DestinationPlace **dst_tail = &blk->destinations;
 
-  // Walk invocations
+  // Walk top-level invocations
   for (Invocation *inv = blk->invocations; inv; inv = inv->next)
   {
     append_source(&src_tail, inv->sources);
     append_dest(&dst_tail, inv->destinations);
   }
 
-  // Walk definitions + inline invocations
+  // Walk definitions
   for (Definition *def = blk->definitions; def; def = def->next)
   {
     append_source(&src_tail, def->sources);
     append_dest(&dst_tail, def->destinations);
 
+    // Place-of-resolution sources
     for (SourcePlace *por = def->place_of_resolution_sources; por; por = por->next)
     {
       append_one_source(&src_tail, por);
     }
 
+    // Inline invocations inside the definition
     for (Invocation *inline_inv = def->invocations; inline_inv; inline_inv = inline_inv->next)
     {
       append_source(&src_tail, inline_inv->sources);
       append_dest(&dst_tail, inline_inv->destinations);
     }
+
+    // POR invocations inside PlaceOfResolution (NEW)
+    for (Invocation *por_inv = def->place_of_resolution_invocations; por_inv; por_inv = por_inv->next)
+    {
+      append_source(&src_tail, por_inv->sources);
+      append_dest(&dst_tail, por_inv->destinations);
+    }
   }
 
-  // No signal allocation anymore; ensure each destination has a content field initialized
+  // Ensure all flattened destinations are initialized
   for (DestinationPlace *dst = blk->destinations; dst; dst = dst->next_flat)
   {
     if (!dst->content)
     {
-      dst->content = NULL; // Optionally set to strdup("") if needed
+      dst->content = NULL; // Optional: strdup("") if you want to mark it non-null
       LOG_INFO("🧪 Initialized content for Destination: %s", dst->resolved_name);
     }
   }
@@ -581,6 +533,8 @@ int eval(Block *blk)
     {
       side_effect_this_round += pull_outputs_from_definition(blk, inv);
     }
+
+    side_effect_this_round += propagate_block_content(blk);
 
     total_side_effects += side_effect_this_round;
 
