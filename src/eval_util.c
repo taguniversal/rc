@@ -121,46 +121,8 @@ int propagate_content(SourcePlace *src, DestinationPlace *dst)
     return 1; // Side effect occurred
 }
 
-void transfer_invocation_inputs_to_definition(Invocation *inv, Definition *def)
-{
-    if (!inv || !def)
-        return;
 
-    DestinationPlace *inv_dst = inv->destinations;
-    SourcePlace *def_src = def->sources;
-
-    int idx = 0;
-    while (inv_dst && def_src)
-    {
-        if (inv_dst->content)
-        {
-            if (def_src->content)
-                free(def_src->content);
-            def_src->content = strdup(inv_dst->content);
-            LOG_INFO("🔁 [IN] Transfer #%d: %s → %s [%s]",
-                     idx,
-                     inv_dst->resolved_name ? inv_dst->resolved_name : "(null)",
-                     def_src->resolved_name ? def_src->resolved_name : "(null)",
-                     def_src->content);
-        }
-        else
-        {
-            LOG_WARN("⚠️ [IN] Input %d: Invocation destination '%s' is empty",
-                     idx, inv_dst->resolved_name ? inv_dst->resolved_name : "(null)");
-        }
-
-        inv_dst = inv_dst->next;
-        def_src = def_src->next;
-        idx++;
-    }
-
-    if (inv_dst || def_src)
-    {
-        LOG_WARN("⚠️ [IN] Mismatched input lengths during transfer (idx=%d)", idx);
-    }
-}
-
-int propagate_block_content(Block *blk) {
+int propagate_intrablock_signals(Block *blk) {
     int count = 0;
     for (SourcePlace *src = blk->sources; src; src = src->next_flat) {
         for (DestinationPlace *dst = blk->destinations; dst; dst = dst->next_flat) {

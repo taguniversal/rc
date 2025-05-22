@@ -32,74 +32,72 @@ int count_invocations(Definition *def)
 }
 int pull_outputs_from_definition(Block *blk, Invocation *inv)
 {
-    if (!inv || !inv->definition)
+  if (!inv || !inv->definition)
+  {
+    LOG_WARN("⚠️ pull_outputs_from_definition - either inv or inv->definition NULL");
+    return 0;
+  }
+
+  LOG_INFO("🧩 Pulling outputs for Invocation '%s'", inv->name);
+
+  int side_effects = 0;
+  int idx = 0;
+
+  DestinationPlace *def_dst = inv->definition->destinations;
+  SourcePlace *inv_src = inv->sources;
+
+  while (def_dst && inv_src)
+  {
+    LOG_INFO("   [%d] def_dst->resolved_name: %s", idx, def_dst->resolved_name ? def_dst->resolved_name : "(null)");
+    LOG_INFO("   [%d] inv_src->resolved_name: %s", idx, inv_src->resolved_name ? inv_src->resolved_name : "(null)");
+    LOG_INFO("   [%d] def_dst->content: %s", idx, def_dst->content ? def_dst->content : "(null)");
+    LOG_INFO("   [%d] inv_src->content before: %s", idx, inv_src->content ? inv_src->content : "(null)");
+
+    if (def_dst->content)
     {
-        LOG_WARN("⚠️ pull_outputs_from_definition - either inv or inv->definition NULL");
-        return 0;
+      if (!inv_src->content || strcmp(inv_src->content, def_dst->content) != 0)
+      {
+        if (inv_src->content)
+          free(inv_src->content);
+
+        inv_src->content = strdup(def_dst->content);
+        LOG_INFO("📤 [%d] Copied [%s] → Invocation source [%s]",
+                 idx, def_dst->content, inv_src->resolved_name ? inv_src->resolved_name : "(null)");
+        side_effects++;
+      }
+      else
+      {
+        LOG_INFO("🛑 [%d] Skipped copy: content already matches [%s]", idx, def_dst->content);
+      }
+    }
+    else
+    {
+      LOG_WARN("⚠️ [%d] Definition destination [%s] has no content",
+               idx, def_dst->resolved_name ? def_dst->resolved_name : "(null)");
     }
 
-    LOG_INFO("🧩 Pulling outputs for Invocation '%s'", inv->name);
-
-    int side_effects = 0;
-    int idx = 0;
-
-    DestinationPlace *def_dst = inv->definition->destinations;
-    SourcePlace *inv_src = inv->sources;
-
-    while (def_dst && inv_src)
+    // Copy to block-level destination (by def_dst name only, optional)
+    DestinationPlace *outer_dst = find_destination(blk, def_dst->resolved_name);
+    if (outer_dst)
     {
-        LOG_INFO("   [%d] def_dst->resolved_name: %s", idx, def_dst->resolved_name ? def_dst->resolved_name : "(null)");
-        LOG_INFO("   [%d] inv_src->resolved_name: %s", idx, inv_src->resolved_name ? inv_src->resolved_name : "(null)");
-        LOG_INFO("   [%d] def_dst->content: %s", idx, def_dst->content ? def_dst->content : "(null)");
-        LOG_INFO("   [%d] inv_src->content before: %s", idx, inv_src->content ? inv_src->content : "(null)");
-
-        if (def_dst->content)
-        {
-            if (!inv_src->content || strcmp(inv_src->content, def_dst->content) != 0)
-            {
-                if (inv_src->content)
-                    free(inv_src->content);
-
-                inv_src->content = strdup(def_dst->content);
-                LOG_INFO("📤 [%d] Copied [%s] → Invocation source [%s]",
-                         idx, def_dst->content, inv_src->resolved_name ? inv_src->resolved_name : "(null)");
-                side_effects++;
-            }
-            else
-            {
-                LOG_INFO("🛑 [%d] Skipped copy: content already matches [%s]", idx, def_dst->content);
-            }
-        }
-        else
-        {
-            LOG_WARN("⚠️ [%d] Definition destination [%s] has no content",
-                     idx, def_dst->resolved_name ? def_dst->resolved_name : "(null)");
-        }
-
-        // Copy to block-level destination (by def_dst name only, optional)
-        DestinationPlace *outer_dst = find_destination(blk, def_dst->resolved_name);
-        if (outer_dst)
-        {
-            if (!outer_dst->content || strcmp(outer_dst->content, def_dst->content) != 0)
-            {
-                if (outer_dst->content)
-                    free(outer_dst->content);
-                outer_dst->content = def_dst->content ? strdup(def_dst->content) : NULL;
-                LOG_INFO("🔗 [%d] Copied [%s] → Block-level destination [%s]",
-                         idx, def_dst->content, outer_dst->resolved_name ? outer_dst->resolved_name : "(null)");
-                side_effects++;
-            }
-        }
-
-        def_dst = def_dst->next;
-        inv_src = inv_src->next;
-        idx++;
+      if (!outer_dst->content || strcmp(outer_dst->content, def_dst->content) != 0)
+      {
+        if (outer_dst->content)
+          free(outer_dst->content);
+        outer_dst->content = def_dst->content ? strdup(def_dst->content) : NULL;
+        LOG_INFO("🔗 [%d] Copied [%s] → Block-level destination [%s]",
+                 idx, def_dst->content, outer_dst->resolved_name ? outer_dst->resolved_name : "(null)");
+        side_effects++;
+      }
     }
 
-    return side_effects;
+    def_dst = def_dst->next;
+    inv_src = inv_src->next;
+    idx++;
+  }
+
+  return side_effects;
 }
-
-
 
 int boundary_link_invocations_by_position(Block *blk)
 {
@@ -144,9 +142,6 @@ int boundary_link_invocations_by_position(Block *blk)
         {
           LOG_WARN("🚨 Missing destinations or POR sources for def=%s", def->name);
         }
-
-        // Step 2: Transfer inputs from Invocation Destinations → Definition Sources
-        transfer_invocation_inputs_to_definition(inv, def); // NOTE: you can optionally refactor this too
 
         // Step 3: Transfer outputs from Definition Destinations → Invocation Sources
         SourcePlace *inv_src = inv->sources;
@@ -304,6 +299,45 @@ DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Defini
   return NULL;
 }
 
+void transfer_invocation_inputs_to_definition(Invocation *inv, Definition *def)
+{
+    if (!inv || !def)
+        return;
+
+    DestinationPlace *inv_dst = inv->destinations;
+    SourcePlace *def_src = def->sources;
+
+    int idx = 0;
+    while (inv_dst && def_src)
+    {
+        if (inv_dst->content)
+        {
+            if (def_src->content)
+                free(def_src->content);
+            def_src->content = strdup(inv_dst->content);
+            LOG_INFO("🔁 [IN] Transfer #%d: %s → %s [%s]",
+                     idx,
+                     inv_dst->resolved_name ? inv_dst->resolved_name : "(null)",
+                     def_src->resolved_name ? def_src->resolved_name : "(null)",
+                     def_src->content);
+        }
+        else
+        {
+            LOG_WARN("⚠️ [IN] Input %d: Invocation destination '%s' is empty",
+                     idx, inv_dst->resolved_name ? inv_dst->resolved_name : "(null)");
+        }
+
+        inv_dst = inv_dst->next;
+        def_src = def_src->next;
+        idx++;
+    }
+
+    if (inv_dst || def_src)
+    {
+        LOG_WARN("⚠️ [IN] Mismatched input lengths during transfer (idx=%d)", idx);
+    }
+}
+
 int eval_invocation(Invocation *inv, Block *blk)
 {
   if (!inv)
@@ -320,7 +354,6 @@ int eval_invocation(Invocation *inv, Block *blk)
 
   LOG_INFO("🚀 Evaluating Invocation: %s", inv->name);
 
-  int side_effects = 0;
   LOG_INFO("📥 Copying inputs for invocation: %s", inv->name);
   transfer_invocation_inputs_to_definition(inv, inv->definition);
 
@@ -328,7 +361,7 @@ int eval_invocation(Invocation *inv, Block *blk)
   if (!ci)
   {
     LOG_WARN("⚠️ Invocation '%s' has no ConditionalInvocation", inv->name);
-    return side_effects;
+    return 0;
   }
 
   LOG_INFO("🔍 Invocation '%s' ConditionalInvocation: arg_count=%d", inv->name, ci->arg_count);
@@ -336,12 +369,12 @@ int eval_invocation(Invocation *inv, Block *blk)
   if (ci->arg_count > 16)
   {
     LOG_ERROR("❌ Invocation '%s' has suspicious arg_count=%d", inv->name, ci->arg_count);
-    return side_effects;
+    return 0;
   }
   if (!ci->resolved_template_args || ci->arg_count == 0)
   {
     LOG_WARN("⚠️ ConditionalInvocation for '%s' has no resolved_template_args or zero arg_count", inv->name);
-    return side_effects;
+    return 0;
   }
 
   LOG_INFO("🔧 About to build pattern for Invocation '%s'", inv->name);
@@ -350,7 +383,7 @@ int eval_invocation(Invocation *inv, Block *blk)
   if (!build_input_pattern(inv->definition, ci->resolved_template_args, ci->arg_count, pattern, sizeof(pattern)))
   {
     LOG_WARN("❌ Failed to build input pattern for Invocation: %s", inv->name);
-    return side_effects;
+    return 0;
   }
 
   LOG_INFO("🔎 Built input pattern for '%s': %s", inv->name, pattern);
@@ -359,11 +392,11 @@ int eval_invocation(Invocation *inv, Block *blk)
   if (!result)
   {
     LOG_WARN("❌ No matching case for pattern: %s", pattern);
-    return side_effects;
+    return 0;
   }
 
   LOG_INFO("📤 Matched result for '%s': %s", inv->name, result);
-
+  int side_effects = 0;
   int output_status = write_result_to_named_output(inv->definition, ci->resolved_output, result);
   if (output_status < 0)
   {
@@ -534,7 +567,7 @@ int eval(Block *blk)
       side_effect_this_round += pull_outputs_from_definition(blk, inv);
     }
 
-    side_effect_this_round += propagate_block_content(blk);
+    side_effect_this_round += propagate_intrablock_signals(blk);
 
     total_side_effects += side_effect_this_round;
 
