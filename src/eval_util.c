@@ -1,3 +1,4 @@
+#include "eval_util.h"
 #include <string.h>
 #include "eval.h"
 #include "log.h"
@@ -5,10 +6,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-bool build_input_pattern(Definition *def, const char **arg_names, size_t arg_count, char *out_buf, size_t out_buf_size)
+bool build_input_pattern(Definition *def, char **arg_names, size_t arg_count, char *out_buf, size_t out_buf_size)
 {
     if (!def || !arg_names || !out_buf || out_buf_size == 0)
+    {
+        LOG_ERROR("❌ build_input_pattern: Invalid arguments — def=%p, arg_names=%p, out_buf=%p, out_buf_size=%zu",
+                  def, arg_names, out_buf, out_buf_size);
         return false;
+    }
 
     out_buf[0] = '\0'; // start empty
     size_t offset = 0;
@@ -16,91 +21,167 @@ bool build_input_pattern(Definition *def, const char **arg_names, size_t arg_cou
     for (size_t i = 0; i < arg_count; ++i)
     {
         const char *arg = arg_names[i];
-        SourcePlace *src = def->sources;
+        if (!arg)
+        {
+            LOG_ERROR("❌ build_input_pattern: arg_names[%zu] is NULL", i);
+            return false;
+        }
 
+        LOG_INFO("🔍 build_input_pattern: Looking for signal for arg[%zu] = '%s'", i, arg);
+
+        SourcePlace *src = def->sources;
+        if (!src)
+        {
+            LOG_ERROR("❌ build_input_pattern: def->sources is NULL!");
+            return false;
+        }
+
+        bool matched = false;
         while (src)
         {
+            LOG_INFO("   ➤ Checking SourcePlace: resolved_name='%s'", src->resolved_name);
+            LOG_INFO("🔍 Matching: src='%s' dst='%s'", src->resolved_name, arg);
+
             if (src->resolved_name && strcmp(src->resolved_name, arg) == 0)
             {
-                if (src->signal && src->signal->content)
+                matched = true;
+                if (src->content)
                 {
-                    size_t len = strlen(src->signal->content);
+                    size_t len = strlen(src->content);
                     if (offset + len >= out_buf_size - 1)
                     {
-                        LOG_ERROR("🚨 build_input_pattern: Buffer overflow while appending '%s'", src->signal->content);
+                        LOG_ERROR("🚨 build_input_pattern: Buffer overflow while appending '%s'", src->content);
                         return false;
                     }
 
-                    memcpy(out_buf + offset, src->signal->content, len);
+                    memcpy(out_buf + offset, src->content, len);
                     offset += len;
                     out_buf[offset] = '\0';
+
+                    LOG_INFO("✅ Appended signal '%s' to pattern", src->content);
                 }
                 else
                 {
-                    LOG_WARN("⚠️ build_input_pattern: Missing signal for arg '%s'", arg);
+                    LOG_WARN("⚠️ build_input_pattern: Signal or content missing for arg '%s'", arg);
                     return false;
                 }
                 break;
             }
+
             src = src->next;
+        }
+
+        if (!matched)
+        {
+            LOG_WARN("⚠️ build_input_pattern: No SourcePlace matched for arg '%s'", arg);
+            return false;
         }
     }
 
-    LOG_INFO("🔎 build_input_pattern: result = %s", out_buf);
+    LOG_INFO("🔎 build_input_pattern: final result = '%s'", out_buf);
     return true;
 }
-
-int copy_invocation_inputs(Invocation *inv)
+int propagate_content(SourcePlace *src, DestinationPlace *dst)
 {
-    if (!inv || !inv->definition)
-        return 0;
+    LOG_INFO("📡 Attempting propagation: dst='%s' → src='%s'",
+             dst->resolved_name ? dst->resolved_name : "(null)",
+             src->resolved_name ? src->resolved_name : "(null)");
 
-    int side_effects = 0;
+    if (!dst->content)
+    {
+        LOG_INFO("🚫 Skipping: Destination has no content");
+        return 0;
+    }
+
+    if (src->content)
+    {
+        LOG_INFO("🔍 Existing src content: [%s]", src->content);
+        if (strcmp(src->content, dst->content) == 0)
+        {
+            LOG_INFO("🛑 No propagation needed: content already matches [%s]", src->content);
+            return 0;
+        }
+
+        LOG_INFO("♻️ Replacing old src content: [%s] with [%s]", src->content, dst->content);
+        free(src->content);
+    }
+    else
+    {
+        LOG_INFO("✅ Copying fresh content to src: [%s]", dst->content);
+    }
+
+    src->content = strdup(dst->content);
+
+    LOG_INFO("🔁 Propagated content from %s → %s: [%s]",
+             dst->resolved_name ? dst->resolved_name : "(null)",
+             src->resolved_name ? src->resolved_name : "(null)",
+             src->content);
+
+    return 1; // Side effect occurred
+}
+
+
+void transfer_invocation_inputs_to_definition(Invocation *inv, Definition *def)
+{
+    if (!inv || !def)
+        return;
 
     DestinationPlace *inv_dst = inv->destinations;
-    SourcePlace *def_src = inv->definition->sources;
+    SourcePlace *def_src = def->sources;
 
+    int idx = 0;
     while (inv_dst && def_src)
     {
-        if (inv_dst->signal != &NULL_SIGNAL && inv_dst->signal && inv_dst->signal->content)
+        if (inv_dst->content)
         {
-            if (def_src->signal == &NULL_SIGNAL)
-            {
-                Signal *new_sig = (Signal *)calloc(1, sizeof(Signal));
-                new_sig->content = strdup(inv_dst->signal->content);
-                def_src->signal = new_sig;
-                LOG_INFO("📥 Copied input: %s → %s = [%s]",
-                         inv_dst->resolved_name, def_src->resolved_name, new_sig->content);
-                side_effects++;
-            }
+            if (def_src->content)
+                free(def_src->content);
+            def_src->content = strdup(inv_dst->content);
+            LOG_INFO("🔁 [IN] Transfer #%d: %s → %s [%s]",
+                     idx,
+                     inv_dst->resolved_name ? inv_dst->resolved_name : "(null)",
+                     def_src->resolved_name ? def_src->resolved_name : "(null)",
+                     def_src->content);
+        }
+        else
+        {
+            LOG_WARN("⚠️ [IN] Input %d: Invocation destination '%s' is empty",
+                     idx, inv_dst->resolved_name ? inv_dst->resolved_name : "(null)");
         }
 
         inv_dst = inv_dst->next;
         def_src = def_src->next;
+        idx++;
     }
 
-    return side_effects;
+    if (inv_dst || def_src)
+    {
+        LOG_WARN("⚠️ [IN] Mismatched input lengths during transfer (idx=%d)", idx);
+    }
 }
 
-void propagate_output_to_invocations(Block *blk, DestinationPlace *dst, Signal *sig)
+int propagate_output_to_invocations(Block *blk, DestinationPlace *dst, const char *content)
 {
+
+    int side_effects = 0;
+
+    if (!dst || !content)
+        return side_effects;
+
     for (Invocation *inv = blk->invocations; inv; inv = inv->next)
     {
-        for (SourcePlace *inv_src = inv->sources; inv_src; inv_src = inv_src->next)
+        for (SourcePlace *src = inv->sources; src; src = src->next)
         {
-            if (inv_src->resolved_name &&
-                dst->resolved_name &&
-                strcmp(inv_src->resolved_name, dst->resolved_name) == 0)
+            LOG_INFO("🔍 Matching: src='%s' dst='%s'", src->resolved_name, dst->resolved_name);
+
+            if (src->resolved_name && dst->resolved_name &&
+                strcmp(src->resolved_name, dst->resolved_name) == 0)
             {
-                if (!inv_src->signal || inv_src->signal == &NULL_SIGNAL)
-                {
-                    inv_src->signal = sig;
-                    LOG_INFO("📤 Propagated result to Invocation '%s' SourcePlace: %s = [%s]",
-                             inv->name, inv_src->resolved_name, sig->content);
-                }
+                side_effects = side_effects + propagate_content(src, dst);
             }
         }
     }
+    return side_effects;
 }
 
 DestinationPlace *find_destination(Block *blk, const char *name)
@@ -109,6 +190,8 @@ DestinationPlace *find_destination(Block *blk, const char *name)
     {
         for (DestinationPlace *dst = inv->destinations; dst; dst = dst->next)
         {
+            LOG_INFO("🔍 Matching: '%s' =='%s'", dst->resolved_name, name);
+
             if (strcmp(dst->resolved_name, name) == 0)
             {
                 return dst;
@@ -119,6 +202,7 @@ DestinationPlace *find_destination(Block *blk, const char *name)
     {
         for (DestinationPlace *dst = def->destinations; dst; dst = dst->next)
         {
+            LOG_INFO("🔍 Matching: '%s' =='%s'", dst->resolved_name, name);
             if (strcmp(dst->resolved_name, name) == 0)
             {
                 return dst;
@@ -130,19 +214,24 @@ DestinationPlace *find_destination(Block *blk, const char *name)
 
 bool all_inputs_ready(Definition *def)
 {
-    for (SourcePlace *src = def->sources; src; src = src->next)
+    bool all_ready = true;
+
+    for (SourcePlace *sp = def->sources; sp; sp = sp->next)
     {
-        if (!src->signal || src->signal == &NULL_SIGNAL || !src->signal->content)
+        const char *name = sp->resolved_name ? sp->resolved_name : "(unnamed)";
+        if (!sp->content)
         {
-            return false;
+            LOG_WARN("⚠️ all_inputs_ready: input '%s' is NOT ready (null)", name);
+            all_ready = false;
+        }
+        else
+        {
+            LOG_INFO("✅ all_inputs_ready: input '%s' = [%s]", name, sp->content);
         }
     }
-    return true;
-}
 
-#include "eval_util.h"
-#include "log.h"
-#include <string.h>
+    return all_ready;
+}
 
 const char *match_conditional_case(ConditionalInvocation *ci, const char *pattern)
 {
@@ -151,6 +240,7 @@ const char *match_conditional_case(ConditionalInvocation *ci, const char *patter
 
     for (ConditionalInvocationCase *c = ci->cases; c; c = c->next)
     {
+        LOG_INFO("🔍 Matching: '%s' =='%s'", c->pattern, pattern);
         if (strcmp(c->pattern, pattern) == 0)
         {
             LOG_INFO("✅ match_conditional_case: Pattern matched: %s → %s", c->pattern, c->result);
@@ -161,58 +251,50 @@ const char *match_conditional_case(ConditionalInvocation *ci, const char *patter
     LOG_WARN("⚠️ match_conditional_case: No match for pattern: %s", pattern);
     return NULL;
 }
-
-int write_result_to_named_output(Definition *def, const char *output_name, const char *result, int* side_effects)
+int write_result_to_named_output(Definition *def, const char *output_name, const char *result)
 {
     LOG_INFO("📤 Attempting to write result [%s] to output '%s' in definition '%s'",
              result, output_name, def->name);
 
     DestinationPlace *dst = def->destinations;
-    int index = 0;
 
     while (dst)
     {
+        LOG_INFO("🔍 Matching: '%s' == '%s'", dst->resolved_name, output_name);
         if (dst->resolved_name && strcmp(dst->resolved_name, output_name) == 0)
         {
-            if (!dst->signal || dst->signal == &NULL_SIGNAL)
+            const char *existing = dst->content;
+
+            if (existing && strcmp(existing, result) == 0)
             {
-                Signal *sig = (Signal *)calloc(1, sizeof(Signal));
-                if (!sig)
-                {
-                    LOG_ERROR("❌ Failed to allocate signal for output '%s'", output_name);
-                    return -1;
-                }
-                sig->content = strdup(result);
-                dst->signal = sig;
-                if (side_effects) (*side_effects)++;
-                LOG_INFO("✍️ Output written: %s → [%s]", dst->resolved_name, result);
-                return index;
+                LOG_INFO("🛑 Output '%s' already matches result [%s], skipping write", dst->resolved_name, result);
+                return 0; // No change
             }
-            else
-            {
-                const char *existing = dst->signal->content;
-                if (existing && strcmp(existing, result) == 0)
-                {
-                    LOG_INFO("🛑 Output '%s' already matches result [%s], skipping write", dst->resolved_name, result);
-                    return index;
-                }
-                else
-                {
-                    LOG_INFO("♻️ Output '%s' changed: [%s] → [%s]", dst->resolved_name,
-                             existing ? existing : "(null)", result);
-                    free(dst->signal->content);
-                    dst->signal->content = strdup(result);
-                    if (side_effects) (*side_effects)++;
-                    return index;
-                }
-            }
+
+            if (existing)
+                free(dst->content);
+
+            dst->content = strdup(result);
+            LOG_INFO("✍️ Output written: %s → [%s]", dst->resolved_name, result);
+            return 1; // Side effect occurred
         }
+
         dst = dst->next;
-        index++;
     }
 
     LOG_WARN("⚠️ Could not find destination '%s' in definition '%s'", output_name, def->name);
-    return -1;
+    return -1; // Not found
 }
 
-
+void print_signal_places(Block *blk)
+{
+    LOG_INFO("🔍 Flattened Signal Places:");
+    for (SourcePlace *src = blk->sources; src; src = src->next_flat)
+    {
+        LOG_INFO("Source: %s [%s]", src->resolved_name, src->content);
+    }
+    for (DestinationPlace *dst = blk->destinations; dst; dst = dst->next_flat)
+    {
+        LOG_INFO("Destination: %s [%s]", dst->resolved_name, dst->content);
+    }
+}

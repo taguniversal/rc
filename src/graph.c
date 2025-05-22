@@ -74,7 +74,7 @@ void write_network_json(Block *blk, const char *filename)
         {
             LOG_INFO("🔍 Inspecting SourcePlace for Invocation '%s'", inv->name);
             LOG_INFO("    ➤ src->name: %s", src->name ? src->name : "(null)");
-            LOG_INFO("    ➤ src->signal: %s", src->signal ? src->signal->content : "null");
+            LOG_INFO("    ➤ src->content: %s", src->content ? src->content : "null");
 
             if (src->name)
             {
@@ -86,15 +86,15 @@ void write_network_json(Block *blk, const char *filename)
                 cJSON_AddStringToObject(edge, "type", "input");
                 cJSON_AddItemToArray(links, edge);
             }
-            else if (src->signal && src->signal != &NULL_SIGNAL && src->signal->content)
+            else if (src->content)
             {
                 char literal_id[64];
-                snprintf(literal_id, sizeof(literal_id), "%s", src->signal->content);
+                snprintf(literal_id, sizeof(literal_id), "%s", src->content);
 
                 cJSON *lit_node = cJSON_CreateObject();
                 cJSON_AddStringToObject(lit_node, "id", literal_id);
                 cJSON_AddStringToObject(lit_node, "type", "Literal");
-                cJSON_AddStringToObject(lit_node, "value", src->signal->content);
+                cJSON_AddStringToObject(lit_node, "value", src->content);
                 cJSON_AddItemToArray(nodes, lit_node);
 
                 cJSON *edge = cJSON_CreateObject();
@@ -103,23 +103,16 @@ void write_network_json(Block *blk, const char *filename)
                 cJSON_AddStringToObject(edge, "type", "input");
                 cJSON_AddItemToArray(links, edge);
 
-                LOG_INFO("📦 Added Literal '%s' for Invocation '%s'", src->signal->content, inv->name);
+                LOG_INFO("📦 Added Literal '%s' for Invocation '%s'", src->content, inv->name);
             }
             else
             {
                 LOG_WARN("⚠️ SourcePlace has neither name nor usable signal — ignoring");
-                if (!src->signal)
+                if (!src->content)
                 {
-                    LOG_INFO("    ➤ src->signal is NULL");
+                    LOG_INFO("    ➤ src->content is NULL");
                 }
-                else if (src->signal == &NULL_SIGNAL)
-                {
-                    LOG_INFO("    ➤ src->signal is &NULL_SIGNAL");
-                }
-                else if (!src->signal->content)
-                {
-                    LOG_INFO("    ➤ src->signal->content is NULL");
-                }
+            
             }
         }
 
@@ -141,9 +134,9 @@ void write_network_json(Block *blk, const char *filename)
                 }
 
                 // Always update its state
-                if (dst->signal && dst->signal != &NULL_SIGNAL && dst->signal->content)
+                if ( dst->content)
                 {
-                    cJSON_ReplaceItemInObject(dst_node, "state", cJSON_CreateString(dst->signal->content));
+                    cJSON_ReplaceItemInObject(dst_node, "state", cJSON_CreateString(dst->content));
                 }
                 else
                 {

@@ -1,6 +1,7 @@
 #include "sexpr_parser.h"
 #include "eval.h"
 #include "log.h"
+#include "rewrite_util.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -11,16 +12,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-static struct SExpr *parse_expr(const char **input);
-
-typedef struct NameCounter
-{
-  const char *name;
-  int count;
-  struct NameCounter *next;
-} NameCounter;
-
-static NameCounter *counters = NULL;
+struct SExpr *parse_expr(const char **input);
+static void emit_invocation(FILE *out, Invocation *inv, int indent);
 
 static const char *skip_whitespace(const char *s)
 {
@@ -116,18 +109,6 @@ ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
 {
   ConditionalInvocation *ci = calloc(1, sizeof(ConditionalInvocation));
 
-  // 1. Parse Output
-  SExpr *output_expr = get_child_by_tag(ci_expr, "Output");
-  if (output_expr && output_expr->count > 1 &&
-      output_expr->list[1]->type == S_EXPR_ATOM)
-  {
-    ci->output = strdup(output_expr->list[1]->atom);
-  }
-  else
-  {
-    LOG_WARN("⚠️ ConditionalInvocation missing (Output ...) field; defaulting to NULL");
-    ci->output = NULL;
-  }
 
   // 2. Parse Template
   SExpr *template_expr = get_child_by_tag(ci_expr, "Template");
@@ -147,22 +128,35 @@ ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
   for (size_t i = 1; i < template_expr->count; ++i)
   {
     if (template_expr->list[i]->type != S_EXPR_ATOM)
+    {
+      LOG_WARN("⚠️ Template element %zu is not an atom — skipping", i);
       continue;
+    }
 
     const char *arg = template_expr->list[i]->atom;
-    ci->template_args[i - 1] = strdup(arg);   // raw arg
-    ci->resolved_template_args[i - 1] = NULL; // to be populated later
+    ci->template_args[i - 1] = strdup(arg);
+    ci->resolved_template_args[i - 1] = strdup(arg);
+
+    LOG_INFO("🔣 Parsed template arg[%zu] = %s", i - 1, arg);
+
     joined_len += strlen(arg);
   }
 
-  // Create joined template string: e.g., "$A$B" → "$A$B"
-  char *joined = calloc(joined_len + 1 + ci->arg_count, 1); // add space for $ separators
+  char *joined = calloc(joined_len + 1 + ci->arg_count, 1);
   for (size_t i = 0; i < ci->arg_count; ++i)
   {
+    if (!ci->template_args[i])
+    {
+      LOG_ERROR("❌ Template arg[%zu] is NULL — skipping pattern creation", i);
+      free(joined);
+      return ci; // Let the failure show later
+    }
     strcat(joined, "$");
     strcat(joined, ci->template_args[i]);
   }
   ci->invocation_template = joined;
+
+  LOG_INFO("🧩 Template pattern joined: %s", joined);
 
   // 3. Parse Cases
   for (size_t i = 1; i < ci_expr->count; ++i)
@@ -188,11 +182,14 @@ ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
     cc->result = strdup(result_atom->atom);
     cc->next = ci->cases;
     ci->cases = cc;
+
+    LOG_INFO("📘 Added case: %s → %s", cc->pattern, cc->result);
   }
 
   return ci;
 }
 
+/*
 int parse_signal(SExpr *sig_expr, Signal **out_signal)
 {
 
@@ -249,6 +246,38 @@ int parse_signal(SExpr *sig_expr, Signal **out_signal)
   print_sexpr(sig_expr, 6);
   return 0;
 }
+*/
+int parse_signal(SExpr *sig_expr, char **out_content)
+{
+  if (!sig_expr || !out_content)
+    return 0;
+
+  if (sig_expr->count > 0 &&
+      sig_expr->list[0]->type == S_EXPR_ATOM &&
+      strcmp(sig_expr->list[0]->atom, "Signal") == 0)
+  {
+    for (size_t i = 1; i < sig_expr->count; ++i)
+    {
+      SExpr *child = sig_expr->list[i];
+      if (child->type != S_EXPR_LIST || child->count < 2)
+        continue;
+
+      if (child->list[0]->type == S_EXPR_ATOM &&
+          strcmp(child->list[0]->atom, "Content") == 0 &&
+          child->list[1]->type == S_EXPR_ATOM)
+      {
+        *out_content = strdup(child->list[1]->atom);
+        LOG_INFO("💡 parse_signal: Parsed signal content [%s]", *out_content);
+        return 1;
+      }
+    }
+
+    LOG_WARN("⚠️ parse_signal: Signal block found, but no valid Content");
+    return 0;
+  }
+
+  return 0;
+}
 
 /*
 The definition expresses the network of associations between the boundaries of the associated invocation.
@@ -257,8 +286,7 @@ a place of resolution followed by a place of contained definitions. Definitiocnn
 of the definition. The source list is the input for the definition through which a formed name is received,
 and the destination list is the output for the definition through which the results are delivered
 The place of resolution is best understood as a bounded pure value expression that can contain association expressions.
-*/
-Definition *parse_definition(SExpr *expr)
+*/Definition *parse_definition(SExpr *expr)
 {
   Definition *def = calloc(1, sizeof(Definition));
 
@@ -267,7 +295,7 @@ Definition *parse_definition(SExpr *expr)
   const char *name = get_atom_value(name_expr, 1);
   if (!name)
   {
-    LOG_ERROR("❌ [Definition:%s] Missing or invalid Name");
+    LOG_ERROR("❌ [Definition:<unknown>] Missing or invalid Name");
     free(def);
     return NULL;
   }
@@ -285,7 +313,6 @@ Definition *parse_definition(SExpr *expr)
         continue;
 
       SourcePlace *sp = calloc(1, sizeof(SourcePlace));
-      sp->signal = &NULL_SIGNAL;
 
       for (size_t j = 1; j < place->count; ++j)
       {
@@ -297,7 +324,7 @@ Definition *parse_definition(SExpr *expr)
         if (!tag)
           continue;
 
-        else if (strcmp(tag, "Signal") == 0)
+        if (strcmp(tag, "Signal") == 0)
         {
           for (size_t k = 1; k < field->count; ++k)
           {
@@ -306,17 +333,15 @@ Definition *parse_definition(SExpr *expr)
               LOG_INFO("🧪 About to call parse_signal with:");
               print_sexpr(field, 8);
 
-              parse_signal(field, &sp->signal); // or dp->signal
+              parse_signal(field, &sp->content);
             }
           }
         }
-
         else if (field->count >= 2)
         {
           const char *val = get_atom_value(field, 1);
           if (!val)
             continue;
-
           if (strcmp(tag, "Name") == 0)
             sp->name = strdup(val);
         }
@@ -325,11 +350,8 @@ Definition *parse_definition(SExpr *expr)
       sp->next = def->sources;
       def->sources = sp;
 
-      LOG_INFO("🧩 Parsed SourcePlace in def %s: name=%s signal_content=%s",
-               def->name, sp->name ? sp->name : "null",
-               (sp->signal && sp->signal != &NULL_SIGNAL && sp->signal->content)
-                   ? sp->signal->content
-                   : "null");
+      LOG_INFO("🧩 Parsed SourcePlace in def %s: name=%s content=%s",
+               def->name, sp->name ? sp->name : "null", sp->content ? sp->content : "null");
     }
   }
   else
@@ -348,7 +370,6 @@ Definition *parse_definition(SExpr *expr)
         continue;
 
       DestinationPlace *dp = calloc(1, sizeof(DestinationPlace));
-      dp->signal = &NULL_SIGNAL;
 
       for (size_t j = 1; j < place->count; ++j)
       {
@@ -360,7 +381,7 @@ Definition *parse_definition(SExpr *expr)
         if (!tag)
           continue;
 
-        else if (strcmp(tag, "Signal") == 0)
+        if (strcmp(tag, "Signal") == 0)
         {
           for (size_t k = 1; k < field->count; ++k)
           {
@@ -369,17 +390,15 @@ Definition *parse_definition(SExpr *expr)
               LOG_INFO("🧪 About to call parse_signal with:");
               print_sexpr(field, 8);
 
-              parse_signal(field, &dp->signal);
+              parse_signal(field, &dp->content);
             }
           }
         }
-
         else if (field->count >= 2)
         {
           const char *val = get_atom_value(field, 1);
           if (!val)
             continue;
-
           if (strcmp(tag, "Name") == 0)
             dp->name = strdup(val);
         }
@@ -388,12 +407,8 @@ Definition *parse_definition(SExpr *expr)
       dp->next = def->destinations;
       def->destinations = dp;
 
-      LOG_INFO(
-          "🧩 Parsed DestinationPlace in def %s: name=%s signal_content=%s",
-          def->name, dp->name ? dp->name : "null",
-          (dp->signal && dp->signal != &NULL_SIGNAL && dp->signal->content)
-              ? dp->signal->content
-              : "null");
+      LOG_INFO("🧩 Parsed DestinationPlace in def %s: name=%s content=%s",
+               def->name, dp->name ? dp->name : "null", dp->content ? dp->content : "null");
     }
   }
   else
@@ -420,9 +435,6 @@ Definition *parse_definition(SExpr *expr)
       if (strcmp(tag, "SourcePlace") == 0)
       {
         SourcePlace *sp = calloc(1, sizeof(SourcePlace));
-        sp->signal = &NULL_SIGNAL;
-
-        bool content_from_seen = false;
 
         for (size_t j = 1; j < place->count; ++j)
         {
@@ -442,33 +454,52 @@ Definition *parse_definition(SExpr *expr)
           else if (strcmp(key, "ContentFrom") == 0 &&
                    strcmp(val, "ConditionalInvocationResult") == 0)
           {
-            content_from_seen = true;
-            sp->signal = NULL; // will be filled in post-eval
-
             if (sp->name)
             {
               pending_conditional_output = strdup(sp->name);
               LOG_INFO("📌 Marked output '%s' as ConditionalInvocation result target", pending_conditional_output);
             }
+            if (pending_conditional_output)
+            {
+              // Check if there's already a DestinationPlace for it
+              bool found = false;
+              for (DestinationPlace *dst = def->destinations; dst; dst = dst->next)
+              {
+                if (dst->name && strcmp(dst->name, pending_conditional_output) == 0)
+                {
+                  found = true;
+                  break;
+                }
+              }
+
+              if (!found)
+              {
+                DestinationPlace *ci_out = calloc(1, sizeof(DestinationPlace));
+                ci_out->name = pending_conditional_output;
+                ci_out->next = def->destinations;
+                def->destinations = ci_out;
+
+                LOG_INFO("🛠️ Created missing DestinationPlace for CI output: %s", pending_conditional_output);
+              }
+            }
           }
         }
 
-        if (content_from_seen)
-        {
-          if (def->conditional_invocation && pending_conditional_output)
-          {
-            def->conditional_invocation->output = pending_conditional_output;
-            LOG_INFO("🧭 ConditionalInvocation output set to '%s' (unresolved)", sp->name);
-          }
-          else
-          {
-            LOG_WARN("⚠️ ContentFrom specified but no ConditionalInvocation present");
-          }
-        }
         sp->next = def->place_of_resolution_sources;
         def->place_of_resolution_sources = sp;
 
         LOG_INFO("🔁 PlaceOfResolution: added SourcePlace '%s' from ConditionalInvocationResult", sp->name);
+      }
+      else if (strcmp(tag, "Invocation") == 0)
+      {
+        Invocation *inv = parse_invocation(place);
+        if (!inv)
+          continue;
+
+        inv->next = def->place_of_resolution_invocations;
+        def->place_of_resolution_invocations = inv;
+
+        LOG_INFO("🔁 PlaceOfResolution: added Invocation '%s'", inv->name);
       }
     }
   }
@@ -486,12 +517,11 @@ Definition *parse_definition(SExpr *expr)
         LOG_INFO("    Case %s → %s", c->pattern, c->result);
       }
 
-      // PATCH: If no output was provided in (Output ...), infer from PlaceOfResolution
       if (!def->conditional_invocation->output && def->place_of_resolution_sources)
       {
         for (SourcePlace *sp = def->place_of_resolution_sources; sp; sp = sp->next)
         {
-          if (sp->signal == NULL) // Marked from ContentFrom CI
+          if (!sp->content)
           {
             def->conditional_invocation->output = strdup(sp->name);
             LOG_INFO("📌 Inferred ConditionalInvocation output from PlaceOfResolution: %s", sp->name);
@@ -500,6 +530,13 @@ Definition *parse_definition(SExpr *expr)
         }
       }
     }
+  }
+
+  if (pending_conditional_output && def->conditional_invocation)
+  {
+    def->conditional_invocation->output = pending_conditional_output;
+    LOG_INFO("📌 Inferred ConditionalInvocation output from PlaceOfResolution: %s", pending_conditional_output);
+    pending_conditional_output = NULL;
   }
 
   // 5. Inline Invocations
@@ -529,6 +566,7 @@ Definition *parse_definition(SExpr *expr)
   return def;
 }
 
+
 /*
 The Invocation - The invocation associates destination places to form an input boundary and associates
 source places to form an output boundary. The behavior model is that the boundaries are completeness
@@ -537,8 +575,7 @@ output boundaries When the content at the output boundary is complete the conten
 is complete. and the output is the correct resolution of the content presented to the input boundary.
 Invocation boundaries are the boundaries of the expression. They are composition boundaries, coordination
 boundaries, and partition boundaries.
-*/
-Invocation *parse_invocation(SExpr *expr)
+*/Invocation *parse_invocation(SExpr *expr)
 {
   Invocation *inv = calloc(1, sizeof(Invocation));
 
@@ -564,8 +601,6 @@ Invocation *parse_invocation(SExpr *expr)
         continue;
 
       DestinationPlace *dp = calloc(1, sizeof(DestinationPlace));
-      dp->signal = &NULL_SIGNAL;
-
       bool has_name = false;
 
       for (size_t j = 1; j < place->count; ++j)
@@ -595,7 +630,7 @@ Invocation *parse_invocation(SExpr *expr)
             {
               LOG_INFO("🧪 About to call parse_signal with:");
               print_sexpr(field, 8);
-              parse_signal(field, &dp->signal);
+              parse_signal(field, &dp->content);
             }
           }
         }
@@ -630,7 +665,6 @@ Invocation *parse_invocation(SExpr *expr)
         continue;
 
       SourcePlace *sp = calloc(1, sizeof(SourcePlace));
-      sp->signal = &NULL_SIGNAL;
 
       for (size_t j = 1; j < place->count; ++j)
       {
@@ -655,7 +689,7 @@ Invocation *parse_invocation(SExpr *expr)
             {
               LOG_INFO("🧪 About to call parse_signal with:");
               print_sexpr(field, 8);
-              parse_signal(field, &sp->signal);
+              parse_signal(field, &sp->content);
             }
           }
         }
@@ -666,9 +700,7 @@ Invocation *parse_invocation(SExpr *expr)
 
       LOG_INFO("🧩 Parsed SourcePlace: name=%s, content=%s",
                sp->name ? sp->name : "null",
-               (sp->signal && sp->signal != &NULL_SIGNAL && sp->signal->content)
-                   ? sp->signal->content
-                   : "null");
+               sp->content ? sp->content : "null");
     }
   }
   else
@@ -884,7 +916,7 @@ void validate_invocation_wiring(Block *blk)
     for (SourcePlace *sp = inv->sources; sp; sp = sp->next)
     {
       const char *sig_name = sp->resolved_name ? sp->resolved_name : sp->name;
-      if (!sp->signal || sp->signal == &NULL_SIGNAL || !sp->signal->content)
+      if (!sp->content)
       {
         LOG_WARN(
             "⚠️ Invocation '%s': SourcePlace '%s' is unwired or missing content",
@@ -893,14 +925,14 @@ void validate_invocation_wiring(Block *blk)
       else
       {
         LOG_INFO("✅ Invocation '%s': SourcePlace '%s' has content [%s]",
-                 inv->name, sig_name, sp->signal->content);
+                 inv->name, sig_name, sp->content);
       }
     }
 
     for (DestinationPlace *dp = inv->destinations; dp; dp = dp->next)
     {
       const char *sig_name = dp->resolved_name ? dp->resolved_name : dp->name;
-      if (!dp->signal || dp->signal == &NULL_SIGNAL || !dp->signal->content)
+      if (!dp->content)
       {
         LOG_WARN("⚠️ Invocation '%s': DestinationPlace '%s' is unwired or "
                  "missing content",
@@ -909,157 +941,41 @@ void validate_invocation_wiring(Block *blk)
       else
       {
         LOG_INFO("✅ Invocation '%s': DestinationPlace '%s' has content [%s]",
-                 inv->name, sig_name, dp->signal->content);
+                 inv->name, sig_name, dp->content);
       }
     }
   }
-}
-
-int get_next_instance_id(const char *name)
-{
-  for (NameCounter *nc = counters; nc; nc = nc->next)
-  {
-    if (strcmp(nc->name, name) == 0)
-    {
-      return ++nc->count;
-    }
-  }
-  NameCounter *nc = calloc(1, sizeof(NameCounter));
-  nc->name = strdup(name);
-  nc->count = 0;
-  nc->next = counters;
-  counters = nc;
-  return 0;
 }
 
 int rewrite_signals(Block *blk)
 {
   LOG_INFO("🧪 Starting global signal name rewriting pass...");
 
-  for (Invocation *inv = blk->invocations; inv != NULL; inv = inv->next)
-  {
-    int id = get_next_instance_id(inv->name);
-    inv->instance_id = id;
-
-    // Rewrite SourcePlaces
-    for (SourcePlace *src = inv->sources; src != NULL; src = src->next)
-    {
-      char *new_name;
-      asprintf(&new_name, "%s.%d.%s", inv->name, id, src->name);
-      src->resolved_name = new_name;
-      LOG_INFO("🔁 SourcePlace rewritten: %s → %s", src->name, new_name);
-    }
-
-    // Rewrite DestinationPlaces
-    int param_index = 0;
-    for (DestinationPlace *dst = inv->destinations; dst != NULL; dst = dst->next, param_index++)
-    {
-      if (!dst->name)
-      {
-        char synth[64];
-        snprintf(synth, sizeof(synth), "%s.%d.%d", inv->name, id, param_index);
-        dst->name = strdup(synth);
-        LOG_INFO("💡 Synthesized destination name: %s", dst->name);
-      }
-
-      char *new_name;
-      if (strncmp(dst->name, inv->name, strlen(inv->name)) == 0)
-      {
-        // Already prefixed
-        dst->resolved_name = strdup(dst->name);
-        LOG_INFO("✅ Skipping double-prefix: %s", dst->resolved_name);
-      }
-      else
-      {
-        asprintf(&new_name, "%s.%d.%s", inv->name, id, dst->name);
-        dst->resolved_name = new_name;
-        LOG_INFO("🔁 DestinationPlace rewritten: %s → %s", dst->name, new_name);
-      }
-    }
-  }
+  LOG_INFO("🔁 Rewriting top-level invocations...");
+  rewrite_top_level_invocations(blk);
 
   for (Definition *def = blk->definitions; def != NULL; def = def->next)
   {
-    for (SourcePlace *src = def->sources; src != NULL; src = src->next)
-    {
-      char *new_name;
-      asprintf(&new_name, "%s.local.%s", def->name, src->name);
-      src->resolved_name = new_name;
-      LOG_INFO("🔁 Definition SourcePlace rewritten: %s → %s", src->name, new_name);
-    }
+    LOG_INFO("📘 Processing Definition: %s", def->name);
 
-    for (DestinationPlace *dst = def->destinations; dst != NULL; dst = dst->next)
-    {
-      char *new_name;
-      asprintf(&new_name, "%s.local.%s", def->name, dst->name);
-      dst->resolved_name = new_name;
-      LOG_INFO("🔁 Definition DestinationPlace rewritten: %s → %s", dst->name, new_name);
-    }
+    LOG_INFO("  🔤 Rewriting definition-level signal names...");
+    rewrite_definition_signals(def);
 
-    if (def->conditional_invocation && def->conditional_invocation->output)
-    {
-      char *new_output;
-      asprintf(&new_output, "%s.local.%s", def->name, def->conditional_invocation->output);
-      def->conditional_invocation->resolved_output = new_output;
-      LOG_INFO("🔁 ConditionalInvocation Output rewritten: %s → %s", def->conditional_invocation->output, new_output);
-    }
+    LOG_INFO("  🧠 Rewriting PlaceOfResolution invocations...");
+    rewrite_por_invocations(def);
 
-    for (Invocation *inv = def->invocations; inv != NULL; inv = inv->next)
-    {
-      for (SourcePlace *src = inv->sources; src != NULL; src = src->next)
-      {
-        char *new_name;
-        asprintf(&new_name, "%s.%s.%s", def->name, inv->name, src->name);
-        src->resolved_name = new_name;
-        LOG_INFO("🔁 Nested SourcePlace rewritten: %s → %s", src->name, new_name);
-      }
+    LOG_INFO("🔧 Patch resolved_template_args for CI to use fully qualified signal names");
+    rewrite_conditional_invocation(def);
 
-      for (DestinationPlace *dst = inv->destinations; dst != NULL; dst = dst->next)
-      {
-        char *new_name;
-        asprintf(&new_name, "%s.%s.%s", def->name, inv->name, dst->name);
-        dst->resolved_name = new_name;
-        LOG_INFO("🔁 Nested DestinationPlace rewritten: %s → %s", dst->name, new_name);
-      }
-    }
+    LOG_INFO("  🔌 Wiring outputs → POR sources...");
+    wire_por_outputs_to_sources(def);
 
-    ConditionalInvocation *ci = def->conditional_invocation;
-    if (ci && ci->arg_count > 0 && ci->template_args)
-    {
-      for (size_t i = 0; i < ci->arg_count; ++i)
-      {
-        const char *raw_arg = ci->template_args[i];
-        for (SourcePlace *src = def->sources; src != NULL; src = src->next)
-        {
-          if (src->name && strcmp(src->name, raw_arg) == 0)
-          {
-            if (ci->resolved_template_args[i])
-              free(ci->resolved_template_args[i]);
-
-            ci->resolved_template_args[i] = strdup(src->resolved_name);
-            LOG_INFO("🔁 ConditionalInvocation Arg rewritten: %s → %s", raw_arg, ci->resolved_template_args[i]);
-            break;
-          }
-        }
-      }
-    }
-    for (SourcePlace *src = def->place_of_resolution_sources; src != NULL; src = src->next)
-    {
-      char *new_name;
-      asprintf(&new_name, "%s.local.%s", def->name, src->name);
-      src->resolved_name = new_name;
-      LOG_INFO("🔁 PlaceOfResolution SourcePlace rewritten: %s → %s", src->name, new_name);
-    }
+    LOG_INFO("  🔌 Wiring POR sources → outputs...");
+    wire_por_sources_to_outputs(def);
   }
 
-  // 🔚 Cleanup counters
-  while (counters)
-  {
-    NameCounter *next = counters->next;
-    free((void *)counters->name);
-    free(counters);
-    counters = next;
-  }
+  LOG_INFO("🧹 Cleaning up instance counters...");
+  cleanup_name_counters();
 
   LOG_INFO("✅ Signal rewrite pass completed.");
   return 0;
@@ -1189,7 +1105,7 @@ static struct SExpr *parse_list(const char **input)
   return expr;
 }
 
-static struct SExpr *parse_expr(const char **input)
+SExpr *parse_expr(const char **input)
 {
   *input = skip_whitespace(*input);
   if (**input == '(')
@@ -1207,7 +1123,7 @@ static struct SExpr *parse_expr(const char **input)
     return atom;
   }
 }
-// TODO What is this?
+
 SExpr *parse_sexpr(const char *input) { return parse_expr(&input); }
 
 void print_sexpr(const SExpr *expr, int indent)
@@ -1278,20 +1194,20 @@ static void emit_source_list(FILE *out, SourcePlace *src, int indent)
       fputs(")\n", out);
     }
 
-    if (src->signal && src->signal != &NULL_SIGNAL && src->signal->content)
+    if (src->content)
     {
       LOG_INFO(
           "✏️ Emitting SourcePlace: name=%s signal=%s",
           signame,
-          (src->signal && src->signal != &NULL_SIGNAL && src->signal->content)
-              ? src->signal->content
+          (src->content)
+              ? src->content
               : "null");
 
       emit_indent(out, indent + 4);
       fputs("(Signal\n", out);
       emit_indent(out, indent + 6);
       fputs("(Content ", out);
-      emit_atom(out, src->signal->content);
+      emit_atom(out, src->content);
       fputs(")\n", out);
       emit_indent(out, indent + 4);
       fputs(")\n", out);
@@ -1330,13 +1246,13 @@ static void emit_destination_list(FILE *out, DestinationPlace *dst,
       fputs(")\n", out);
     }
 
-    if (dst->signal && dst->signal != &NULL_SIGNAL && dst->signal->content)
+    if (dst->content)
     {
       emit_indent(out, indent + 4);
       fputs("(Signal\n", out);
       emit_indent(out, indent + 6);
       fputs("(Content ", out);
-      emit_atom(out, dst->signal->content);
+      emit_atom(out, dst->content);
       fputs(")\n", out);
       emit_indent(out, indent + 4);
       fputs(")\n", out);
@@ -1350,15 +1266,22 @@ static void emit_destination_list(FILE *out, DestinationPlace *dst,
   fputs(")\n", out);
 }
 
-void emit_place_of_resolution(FILE *out, SourcePlace *por_sources, int indent)
+void emit_place_of_resolution(FILE *out, Definition *def, int indent)
 {
-  if (!por_sources)
+  if (!def || (!def->place_of_resolution_invocations && !def->place_of_resolution_sources))
     return;
 
   emit_indent(out, indent);
   fputs("(PlaceOfResolution\n", out);
 
-  for (SourcePlace *sp = por_sources; sp; sp = sp->next)
+  // Emit internal invocations
+  for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
+  {
+    emit_invocation(out, inv, indent + 2);
+  }
+
+  // Emit resolved output sources
+  for (SourcePlace *sp = def->place_of_resolution_sources; sp; sp = sp->next)
   {
     emit_indent(out, indent + 2);
     fputs("(SourcePlace\n", out);
@@ -1370,7 +1293,7 @@ void emit_place_of_resolution(FILE *out, SourcePlace *por_sources, int indent)
     }
 
     emit_indent(out, indent + 4);
-    fputs("(ContentFrom ConditionalInvocationResult)\n", out); // TODO hardcoded for now
+    fputs("(ContentFrom ConditionalInvocationResult)\n", out); // keep or make dynamic later
 
     emit_indent(out, indent + 2);
     fputs(")\n", out);
@@ -1384,13 +1307,6 @@ static void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
 {
   emit_indent(out, indent);
   fputs("(ConditionalInvocation\n", out);
-
-  // Emit Output if present
-  if (ci->resolved_output)
-  {
-    emit_indent(out, indent + 2);
-    fprintf(out, "(Output %s)\n", ci->resolved_output);
-  }
 
   // Emit Resolved Template
   emit_indent(out, indent + 2);
@@ -1451,7 +1367,7 @@ void emit_definition(FILE *out, Definition *def, int indent)
   emit_source_list(out, def->sources, indent + 2);
   emit_destination_list(out, def->destinations, indent + 2);
 
-  emit_place_of_resolution(out, def->place_of_resolution_sources, indent + 2);
+  emit_place_of_resolution(out, def, indent + 2);
 
   if (def->conditional_invocation)
   {

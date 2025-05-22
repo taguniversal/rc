@@ -1,3 +1,17 @@
+#include "udp_send.h"
+#include "mkrand.h"
+#include "tinyosc.h"
+#include "sqlite3.h"
+#include "eval.h"
+#include "osc.h"
+#include "graph.h"
+#include "log.h"
+#include "wiring.h"
+#include "rewrite_util.h"
+#include "spirv.h"
+#include "sexpr_parser.h"
+#include "vulkan_driver.h"
+#include "spirv_asm.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,19 +27,6 @@
 #include <time.h>
 #include <stdarg.h>
 #include <dirent.h>
-#include "udp_send.h"
-#include "mkrand.h"
-#include "tinyosc.h"
-#include "sqlite3.h"
-#include "eval.h"
-#include "osc.h"
-#include "graph.h"
-#include "log.h"
-#include "wiring.h"
-#include "spirv.h"
-#include "sexpr_parser.h"
-#include "vulkan_driver.h"
-#include "spirv_asm.h"
 
 #include "config.h"
 
@@ -242,13 +243,30 @@ int main(int argc, char *argv[])
         rewrite_signals(active_block);                       // 2. Rewrite names to be globally unique
         flatten_signal_places(active_block);                 // 2.5. Collect all SourcePlace/DestinationPlace pointers
         print_signal_places(active_block);
-        allocate_signals(active_block);                      // 3. Allocate signal memory (needed before linking)
-        link_invocations_by_position(active_block);          // 4. Wire by position (Invocation ↔ Definition)
-        wire_by_name_correspondence(active_block);           // 4.5. Wire intra-expression signals by name
-        validate_invocation_wiring(active_block);            // 5. Confirm everything is hooked up
-        emit_all_definitions(active_block, sexpr_out_dir);   // 6. Emit definitions
-        emit_all_invocations(active_block, sexpr_out_dir);   // 7. Emit invocations
-        spirv_parse_block(active_block, spirv_sexpr_dir);    // 8. Lower to SPIR-V
+        link_invocations_by_position(active_block); // 4. Wire by position (Invocation ↔ Definition)
+        wire_by_name_correspondence(active_block);  // 4.5. Wire intra-expression signals by name
+        wire_invocation_sources_to_definition_outputs(active_block);
+        validate_invocation_wiring(active_block); // 5. Confirm everything is hooked up
+
+        if (!active_block || !active_block->invocations)
+        {
+            LOG_ERROR("🚨 Block or invocations list is null before eval — aborting.");
+            return 1;
+        }
+
+        for (Invocation *inv = active_block->invocations; inv; inv = inv->next)
+        {
+            if (inv->definition)
+                LOG_INFO("🔗 Eval-ready: %s → %s", inv->name, inv->definition->name);
+            else
+                LOG_WARN("❌ No definition linked for %s", inv->name);
+        }
+
+        eval(active_block);
+        //   wire_conditional_results_to_invocation_sources(active_block);
+        emit_all_definitions(active_block, sexpr_out_dir); // 6. Emit definitions
+        emit_all_invocations(active_block, sexpr_out_dir); // 7. Emit invocations
+        spirv_parse_block(active_block, spirv_sexpr_dir);  // 8. Lower to SPIR-V
         char main_sexpr_path[256], main_spvasm_path[256];
         snprintf(main_sexpr_path, sizeof(main_sexpr_path), "%s/main.spvasm.sexpr", spirv_unified_dir);
         snprintf(main_spvasm_path, sizeof(main_spvasm_path), "%s/main.spvasm", spirv_asm_dir);
@@ -257,7 +275,7 @@ int main(int argc, char *argv[])
         emit_spirv_asm_file(main_sexpr_path, main_spvasm_path);
 
         dump_wiring(active_block);
-        eval(active_block);
+
         dump_signals(active_block);
 
         return 0;

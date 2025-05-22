@@ -5,11 +5,13 @@
 #include "eval.h"
 #include <stdbool.h>
 
-bool build_input_pattern(Definition *def, const char **arg_names, size_t arg_count, char *out_buf, size_t out_buf_size);
-int copy_invocation_inputs(Invocation *inv);
-void propagate_output_to_invocations(Block *blk, DestinationPlace *dst, Signal *sig);
+bool build_input_pattern(Definition *def, char **arg_names, size_t arg_count, char *out_buf, size_t out_buf_size);
+void transfer_invocation_inputs_to_definition(Invocation *inv, Definition *def);
+int propagate_output_to_invocations(Block *blk, DestinationPlace *dst, const char *content);
+int propagate_content(SourcePlace *src, DestinationPlace *dst);
 bool all_inputs_ready(Definition *def);
 DestinationPlace *find_destination(Block *blk, const char *name);
 const char *match_conditional_case(ConditionalInvocation *ci, const char *pattern);
-int write_result_to_named_output(Definition *def, const char *output_name, const char *result, int* side_effects);
+int write_result_to_named_output(Definition *def, const char *output_name, const char *result);
+void print_signal_places(Block *blk);
 #endif

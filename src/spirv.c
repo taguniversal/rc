@@ -226,7 +226,7 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
         const char *arg_name = ci->template_args[i];
 
         for (SourcePlace *sp = inv->sources; sp; sp = sp->next) {
-            if (sp->signal == &NULL_SIGNAL || !sp->resolved_name)
+            if (!sp->resolved_name)
                 continue;
 
             if (strcmp(sp->name, arg_name) == 0) {

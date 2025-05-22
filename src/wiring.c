@@ -9,29 +9,22 @@
 
 void dump_wiring(Block *blk)
 {
-  LOG_INFO("🧪 Dumping wiring for all invocations in block PSI: %s", blk->psi);
+    LOG_INFO("🧪 Dumping wiring for all invocations in block PSI: %s", blk->psi);
 
-  Invocation *inv = blk->invocations;
-  while (inv)
-  {
-    LOG_INFO("  🔽 Invocation: %s", inv->name);
-
-    SourcePlace *src = inv->sources;
-    while (src)
+    for (Invocation *inv = blk->invocations; inv; inv = inv->next)
     {
-      const char *sigval = (src->signal && src->signal->content) ? src->signal->content : "(null)";
-      LOG_INFO("    ➤ Source: %-12s → Signal: %p (%s)", src->name, (void *)src->signal, sigval);
-      src = src->next;
-    }
+        LOG_INFO("  🔽 Invocation: %s", inv->name);
 
-    DestinationPlace *dst = inv->destinations;
-    while (dst)
-    {
-      const char *sigval = (dst->signal && dst->signal->content) ? dst->signal->content : "(null)";
-      LOG_INFO("    ➤ Dest:   %-12s → Signal: %p (%s)", dst->name, (void *)dst->signal, sigval);
-      dst = dst->next;
-    }
+        for (SourcePlace *src = inv->sources; src; src = src->next)
+        {
+            const char *val = (src->content) ? src->content : "(null)";
+            LOG_INFO("    ➤ Source: %-20s → Content: %s", src->resolved_name ? src->resolved_name : "(unnamed)", val);
+        }
 
-    inv = inv->next;
-  }
+        for (DestinationPlace *dst = inv->destinations; dst; dst = dst->next)
+        {
+            const char *val = (dst->content) ? dst->content : "(null)";
+            LOG_INFO("    ➤ Dest:   %-20s → Content: %s", dst->resolved_name ? dst->resolved_name : "(unnamed)", val);
+        }
+    }
 }

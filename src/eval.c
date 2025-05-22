@@ -17,16 +17,8 @@
 
 #include "eval.h"
 
-struct Signal NULL_SIGNAL = {
-    .content = NULL,
-    .next = NULL,
-#ifdef SAFETY_GUARD
-    .safety_guard = 0xDEADBEEFCAFEBABE,
-#endif
-};
-
 int eval(Block *blk);
-int eval_definition(Definition *def, Block *blk, int *side_effects);
+int eval_definition(Definition *def, Block *blk);
 int eval_invocation(Invocation *inv, Block *blk);
 int pull_outputs_from_definition(Block *blk, Invocation *inv);
 DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Definition *def);
@@ -51,29 +43,39 @@ int pull_outputs_from_definition(Block *blk, Invocation *inv)
 
   while (inv_dst && def_dst)
   {
-    if (inv_dst->signal == &NULL_SIGNAL && def_dst->signal && def_dst->signal->content)
+    LOG_INFO("🔎 Checking Definition output: %s = [%s]",
+             def_dst->resolved_name ? def_dst->resolved_name : "(null)",
+             def_dst->content ? def_dst->content : "(null)");
+
+    if (def_dst->content)
     {
-      Signal *new_sig = (Signal *)calloc(1, sizeof(Signal));
-      if (!new_sig)
+      // Propagate to invocation destination
+      if (inv_dst->content == NULL || strcmp(inv_dst->content, def_dst->content) != 0)
       {
-        LOG_ERROR("❌ Memory allocation failed while copying Definition output");
-        continue;
+        if (inv_dst->content)
+          free(inv_dst->content);
+
+        inv_dst->content = strdup(def_dst->content);
+        LOG_INFO("📤 Pulled output [%s] into Invocation destination [%s]",
+                 def_dst->content, inv_dst->resolved_name);
+        side_effects++;
       }
-
-      new_sig->content = strdup(def_dst->signal->content);
-      new_sig->next = NULL;
-      inv_dst->signal = new_sig;
-
-      LOG_INFO("📤 Pulled output [%s] into Invocation destination [%s]",
-               def_dst->signal->content, inv_dst->resolved_name);
-      side_effects++;
     }
 
+    // Attempt to propagate outward to the block-level destination
     DestinationPlace *outer_dst = find_destination(blk, inv_dst->resolved_name);
-    if (outer_dst && (outer_dst->signal == &NULL_SIGNAL))
+    if (outer_dst)
     {
-      outer_dst->signal = inv_dst->signal;
-      LOG_INFO("🔗 Propagated Invocation Destination [%s] outward", inv_dst->resolved_name);
+      if (outer_dst->content == NULL || (inv_dst->content &&
+                                         strcmp(outer_dst->content, inv_dst->content) != 0))
+      {
+        if (outer_dst->content)
+          free(outer_dst->content);
+
+        outer_dst->content = inv_dst->content ? strdup(inv_dst->content) : NULL;
+        LOG_INFO("🔗 Propagated Invocation Destination [%s] outward", inv_dst->resolved_name);
+        side_effects++;
+      }
     }
 
     inv_dst = inv_dst->next;
@@ -83,12 +85,6 @@ int pull_outputs_from_definition(Block *blk, Invocation *inv)
   return side_effects;
 }
 
-void wire_output(SourcePlace *src, DestinationPlace *dst)
-{
-  src->signal = dst->signal;
-  LOG_INFO("Wired SourcePlace '%s' to DestinationPlace '%s' → %p", src->resolved_name, dst->resolved_name, dst->signal);
-}
-
 void wire_by_name_correspondence(Block *blk)
 {
   if (!blk)
@@ -96,44 +92,60 @@ void wire_by_name_correspondence(Block *blk)
 
   for (Definition *def = blk->definitions; def; def = def->next)
   {
-    // For each DestinationPlace in this definition...
     for (DestinationPlace *dst = def->destinations; dst; dst = dst->next)
     {
       bool matched = false;
 
-      // Look for a SourcePlace with the same name
+      // Match against regular sources
       for (SourcePlace *src = def->sources; src; src = src->next)
       {
-        if (strcmp(dst->resolved_name, src->resolved_name) == 0)
+        if (dst->resolved_name && src->resolved_name &&
+            strcmp(dst->resolved_name, src->resolved_name) == 0)
         {
-          dst->signal = src->signal;
+          int changed = propagate_content(src, dst);
+          if (changed)
+          {
+            LOG_INFO("🔁 Name-copy: Destination '%s' received updated content from Source '%s' → [%s]",
+                     dst->resolved_name, src->resolved_name, dst->content);
+          }
           matched = true;
-          LOG_INFO("🔁 Name-wire: Destination '%s' gets signal from Source '%s' → (0x%p)", dst->resolved_name, src->resolved_name, src->signal);
           break;
         }
       }
 
-      for (SourcePlace *resolution_src = def->place_of_resolution_sources; resolution_src; resolution_src = resolution_src->next)
+      // Match against place-of-resolution sources
+      if (!matched)
       {
-        if (strcmp(dst->resolved_name, resolution_src->resolved_name) == 0)
+        for (SourcePlace *resolution_src = def->place_of_resolution_sources; resolution_src; resolution_src = resolution_src->next)
         {
-          dst->signal = resolution_src->signal;
-          matched = true;
-          LOG_INFO("🔁 Name-wire: Destination '%s' gets signal from Place of Resolution Source '%s' → (0x%p)", dst->resolved_name, resolution_src->resolved_name, resolution_src->signal);
-          break;
+          if (dst->resolved_name && resolution_src->resolved_name &&
+              strcmp(dst->resolved_name, resolution_src->resolved_name) == 0)
+          {
+            int changed = propagate_content(resolution_src, dst);
+            if (changed)
+            {
+              LOG_INFO("🔁 Name-copy: Destination '%s' received updated content from POR Source '%s' → [%s]",
+                       dst->resolved_name, resolution_src->resolved_name, dst->content);
+            }
+            matched = true;
+            break;
+          }
         }
       }
 
       if (!matched)
       {
-        LOG_WARN("⚠️ Name-wire: No source found matching destination '%s' in definition '%s'", dst->resolved_name, def->name);
+        LOG_WARN("⚠️ Name-copy: No source matched destination '%s' in definition '%s'",
+                 dst->resolved_name ? dst->resolved_name : "(null)", def->name);
       }
     }
   }
 }
 
-void link_invocations_by_position(Block *blk)
+int link_invocations_by_position(Block *blk)
 {
+  int side_effects = 0;
+
   for (Invocation *inv = blk->invocations; inv; inv = inv->next)
   {
     for (Definition *def = blk->definitions; def; def = def->next)
@@ -143,33 +155,61 @@ void link_invocations_by_position(Block *blk)
         inv->definition = def;
         LOG_INFO("🔗 Linked Invocation %s → Definition %s", inv->name, def->name);
 
-        // Wire outputs (Invocation SourcePlaces ← Definition Destinations)
+        // Step 1: Copy content from POR Source → Definition Destinations
+        if (def->destinations && def->place_of_resolution_sources)
+        {
+          for (DestinationPlace *def_dst = def->destinations; def_dst; def_dst = def_dst->next)
+          {
+            for (SourcePlace *por_src = def->place_of_resolution_sources; por_src; por_src = por_src->next)
+            {
+              if (def_dst->resolved_name && por_src->resolved_name &&
+                  strcmp(def_dst->resolved_name, por_src->resolved_name) == 0)
+              {
+                if (por_src->content)
+                {
+                  if (!def_dst->content || strcmp(def_dst->content, por_src->content) != 0)
+                  {
+                    if (def_dst->content)
+                      free(def_dst->content);
+                    def_dst->content = strdup(por_src->content);
+                    side_effects++;
+                    LOG_INFO("🔁 Name-copy: Destination '%s' gets content from POR Source '%s' → [%s]",
+                             def_dst->resolved_name, por_src->resolved_name, def_dst->content);
+                  }
+                }
+              }
+            }
+          }
+        }
+        else
+        {
+          LOG_WARN("🚨 Missing destinations or POR sources for def=%s", def->name);
+        }
+
+        // Step 2: Transfer inputs from Invocation Destinations → Definition Sources
+        transfer_invocation_inputs_to_definition(inv, def); // NOTE: you can optionally refactor this too
+
+        // Step 3: Transfer outputs from Definition Destinations → Invocation Sources
         SourcePlace *inv_src = inv->sources;
         DestinationPlace *def_dst = def->destinations;
         int i = 0;
         while (inv_src && def_dst)
         {
-          inv_src->signal = def_dst->signal;
-          LOG_INFO("🔌 [OUT] [%d] %s ← %s (0x%p)", i, inv_src->resolved_name, def_dst->resolved_name, def_dst->signal);
+          if (def_dst->content)
+          {
+            if (!inv_src->content || strcmp(inv_src->content, def_dst->content) != 0)
+            {
+              side_effects = side_effects + propagate_content(inv_src, def_dst);
+              LOG_INFO("🔌 [OUT] [%d] %s ← %s [%s]", i,
+                       inv_src->resolved_name, def_dst->resolved_name, def_dst->content);
+            }
+          }
           inv_src = inv_src->next;
           def_dst = def_dst->next;
           i++;
         }
 
-        // Wire inputs (Invocation Destinations → Definition Sources)
-        DestinationPlace *inv_dst = inv->destinations;
-        SourcePlace *def_src = def->sources;
-        i = 0;
-        while (inv_dst && def_src)
-        {
-          def_src->signal = inv_dst->signal;
-          LOG_INFO("🔌 [IN]  [%d] %s ← %s (0x%p)", i, def_src->resolved_name, inv_dst->resolved_name, inv_dst->signal);
-          inv_dst = inv_dst->next;
-          def_src = def_src->next;
-          i++;
-        }
-
-        break;
+        break; // Stop once matched
       }
     }
 
@@ -178,21 +218,32 @@ void link_invocations_by_position(Block *blk)
       LOG_WARN("⚠️ No matching Definition found for Invocation %s", inv->name);
     }
   }
+
+  return side_effects;
 }
 
-void wire_signal_propagation_by_name(Block *blk)
+int wire_signal_propagation_by_name(Block *blk)
 {
+  int side_effects = 0;
+
   for (SourcePlace *src = blk->sources; src; src = src->next)
   {
+    if (!src->resolved_name || !src->content)
+      continue;
+
     for (DestinationPlace *dst = blk->destinations; dst; dst = dst->next)
     {
+      if (!dst->resolved_name)
+        continue;
+
       if (strcmp(src->resolved_name, dst->resolved_name) == 0)
       {
-        dst->signal = src->signal;
-        LOG_INFO("📡 Signal propagation: %s → %s (0x%p)", src->resolved_name, dst->resolved_name, dst->signal);
+        side_effects = side_effects + propagate_content(src, dst);
       }
     }
   }
+
+  return side_effects;
 }
 
 static void append_source(SourcePlace ***tail, SourcePlace *list)
@@ -203,6 +254,13 @@ static void append_source(SourcePlace ***tail, SourcePlace *list)
     **tail = s;
     *tail = &s->next_flat;
   }
+}
+
+static void append_one_source(SourcePlace ***tail, SourcePlace *s)
+{
+  s->next_flat = NULL;
+  **tail = s;
+  *tail = &s->next_flat;
 }
 
 static void append_dest(DestinationPlace ***tail, DestinationPlace *list)
@@ -239,6 +297,11 @@ void flatten_signal_places(Block *blk)
     append_source(&src_tail, def->sources);
     append_dest(&dst_tail, def->destinations);
 
+    for (SourcePlace *por = def->place_of_resolution_sources; por; por = por->next)
+    {
+      append_one_source(&src_tail, por);
+    }
+
     for (Invocation *inline_inv = def->invocations; inline_inv; inline_inv = inline_inv->next)
     {
       append_source(&src_tail, inline_inv->sources);
@@ -246,25 +309,35 @@ void flatten_signal_places(Block *blk)
     }
   }
 
+  // No signal allocation anymore; ensure each destination has a content field initialized
+  for (DestinationPlace *dst = blk->destinations; dst; dst = dst->next_flat)
+  {
+    if (!dst->content)
+    {
+      dst->content = NULL; // Optionally set to strdup("") if needed
+      LOG_INFO("🧪 Initialized content for Destination: %s", dst->resolved_name);
+    }
+  }
+
   LOG_INFO("🧩 Flattened signal places: sources and destinations collected.");
 }
 
-void print_signal_places(Block *blk)
+DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Definition *def)
 {
-  LOG_INFO("🔍 Flattened Signal Places:");
-  for (SourcePlace *src = blk->sources; src; src = src->next_flat)
+  for (DestinationPlace *dst = def->destinations; dst != NULL; dst = dst->next)
   {
-    LOG_INFO("Source: %s (0x%p)", src->resolved_name, src->signal);
+    if (dst->resolved_name && strcmp(dst->resolved_name, resolved_name) == 0)
+    {
+      return dst;
+    }
   }
-  for (DestinationPlace *dst = blk->destinations; dst; dst = dst->next_flat)
-  {
-    LOG_INFO("Destination: %s (0x%p)", dst->resolved_name, dst->signal);
-  }
+
+  LOG_WARN("⚠️ No destination found matching resolved name: %s in def: %s", resolved_name, def->name);
+  return NULL;
 }
 
 int eval_invocation(Invocation *inv, Block *blk)
 {
-  (void)blk;
   if (!inv)
   {
     LOG_WARN("⚠️ Null Invocation passed to eval_invocation, skipping.");
@@ -279,11 +352,31 @@ int eval_invocation(Invocation *inv, Block *blk)
 
   LOG_INFO("🚀 Evaluating Invocation: %s", inv->name);
 
-  int side_effects = copy_invocation_inputs(inv);
+  int side_effects = 0;
+  LOG_INFO("📥 Copying inputs for invocation: %s", inv->name);
+  transfer_invocation_inputs_to_definition(inv, inv->definition);
 
   ConditionalInvocation *ci = inv->definition->conditional_invocation;
   if (!ci)
+  {
+    LOG_WARN("⚠️ Invocation '%s' has no ConditionalInvocation", inv->name);
     return side_effects;
+  }
+
+  LOG_INFO("🔍 Invocation '%s' ConditionalInvocation: arg_count=%d", inv->name, ci->arg_count);
+
+  if (ci->arg_count > 16)
+  {
+    LOG_ERROR("❌ Invocation '%s' has suspicious arg_count=%d", inv->name, ci->arg_count);
+    return side_effects;
+  }
+  if (!ci->resolved_template_args || ci->arg_count == 0)
+  {
+    LOG_WARN("⚠️ ConditionalInvocation for '%s' has no resolved_template_args or zero arg_count", inv->name);
+    return side_effects;
+  }
+
+  LOG_INFO("🔧 About to build pattern for Invocation '%s'", inv->name);
 
   char pattern[128];
   if (!build_input_pattern(inv->definition, ci->resolved_template_args, ci->arg_count, pattern, sizeof(pattern)))
@@ -301,51 +394,69 @@ int eval_invocation(Invocation *inv, Block *blk)
     return side_effects;
   }
 
-  int output_index = write_result_to_named_output(inv->definition, ci->resolved_output, result, &side_effects);
-  if (output_index < 0)
-    return side_effects;
+  LOG_INFO("📤 Matched result for '%s': %s", inv->name, result);
 
-  // Step 2: Copy result to corresponding Invocation SourcePlace by position
-  SourcePlace *src_in_inv = inv->sources;
-  size_t i = 0;
-  while (src_in_inv && i < output_index)
+  int output_status = write_result_to_named_output(inv->definition, ci->resolved_output, result);
+  if (output_status < 0)
   {
-    src_in_inv = src_in_inv->next;
-    i++;
+    LOG_ERROR("❌ Failed to write result to named output '%s'", ci->resolved_output);
+    return 0;
+  }
+  side_effects += output_status;
+
+  DestinationPlace *def_dst = find_output_by_resolved_name(ci->resolved_output, inv->definition);
+  if (!def_dst || !def_dst->content)
+  {
+    LOG_ERROR("❌ Output destination '%s' has no content", ci->resolved_output);
+    return side_effects;
   }
 
-  if (src_in_inv && (!src_in_inv->signal || src_in_inv->signal == &NULL_SIGNAL))
+  for (SourcePlace *sp = inv->sources; sp; sp = sp->next)
   {
-    Signal *sig = (Signal *)calloc(1, sizeof(Signal));
-    sig->content = strdup(result);
-    sig->next = NULL;
-    src_in_inv->signal = sig;
+    if (!sp->name)
+    {
+      LOG_WARN("⚠️ Encountered unnamed SourcePlace, skipping...");
+      continue;
+    }
+
+    if (sp->resolved_name && strcmp(sp->resolved_name, ci->resolved_output) == 0)
+    {
+      sp->content = strdup(def_dst->content);
+      LOG_INFO("🔁 Bound Invocation SourcePlace '%s' to result [%s]", sp->name, sp->content);
+    }
+    else
+    {
+      LOG_INFO("🛑 SourcePlace '%s' does not match output '%s'", sp->name, ci->resolved_output);
+    }
+
+    if (sp->content)
+    {
+      LOG_INFO("✅ Signal content after eval: %s → %s", sp->name, sp->content);
+    }
+    else
+    {
+      LOG_WARN("⚠️ Signal content unavailable after eval for SourcePlace '%s'", sp->name);
+    }
   }
 
   return side_effects;
 }
 
-DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Definition *def)
+int eval_definition(Definition *def, Block *blk)
 {
-  for (DestinationPlace *dst = def->destinations; dst != NULL; dst = dst->next)
-  {
-    if (dst->resolved_name && strcmp(dst->resolved_name, resolved_name) == 0)
-    {
-      return dst;
-    }
-  }
-
-  LOG_WARN("⚠️ No destination found matching resolved name: %s in def: %s", resolved_name, def->name);
-  return NULL;
-}
-
-int eval_definition(Definition *def, Block *blk, int *side_effects)
-{
+  int side_effects = 0;
 
   if (!def || !def->conditional_invocation)
+  {
+    LOG_WARN("⚠️ Definition '%s' has no conditional_invocation; skipping.", def ? def->name : "(null)");
     return 0;
+  }
+
   if (!all_inputs_ready(def))
+  {
+    LOG_WARN("⚠️ Definition '%s' inputs not ready; skipping.", def->name);
     return 0;
+  }
 
   LOG_INFO("🔬 Preparing evaluation for definition: %s", def->name);
 
@@ -353,8 +464,8 @@ int eval_definition(Definition *def, Block *blk, int *side_effects)
   {
     if (src->resolved_name)
       LOG_INFO("🛰️ SourcePlace name: %s", src->resolved_name);
-    else if (src->signal && src->signal->content)
-      LOG_INFO("💎 SourcePlace literal: %s", src->signal->content);
+    else if (src->content)
+      LOG_INFO("💎 SourcePlace literal: %s", src->content);
     else
       LOG_WARN("❓ SourcePlace unnamed and empty?");
   }
@@ -378,69 +489,58 @@ int eval_definition(Definition *def, Block *blk, int *side_effects)
     return 0;
   }
 
-  // Inject the result into the matching SourcePlace
+ 
+
+  // 1. Write result to named output
+  int output_status = write_result_to_named_output(def, def->conditional_invocation->resolved_output, result);
+  if (output_status < 0)
+    return 0;
+  side_effects += output_status;
+
+//  DestinationPlace *dst = find_output_by_resolved_name(def->conditional_invocation->resolved_output, def);
+ //  LOG_WARN("🛠️ TEMP PATCH: Writing output directly to %s", dst->resolved_name);
+ // if (dst->content) free(dst->content);
+ // dst->content = strdup("1"); // hardcode
+ // TODO END DEBUG
+  
+  if (!dst || !dst->content)
+  {
+    LOG_ERROR("❌ Destination written but content is missing: %s", def->conditional_invocation->resolved_output);
+    return 0;
+  }
+
+  LOG_INFO("✍️ Output written: %s → [%s]", dst->resolved_name, dst->content);
+
+  // 2. Sync internal SourcePlace(s) that have the same name as the output
   for (SourcePlace *sp = def->sources; sp; sp = sp->next)
   {
     if (sp->name && strcmp(sp->name, def->conditional_invocation->resolved_output) == 0)
     {
-      if (sp->signal == &NULL_SIGNAL)
-      {
-        sp->signal = calloc(1, sizeof(Signal));
-      }
-      sp->signal->content = strdup(result);
-      LOG_INFO("💾 Wrote result to SourcePlace '%s' → [%s]", sp->name, result);
+      if (sp->content)
+        free(sp->content);
+      sp->content = strdup(result);
+      side_effects++;
+      LOG_INFO("🔁 Synced SourcePlace '%s' with content [%s]", sp->name, sp->content);
     }
   }
 
-  DestinationPlace *dst = find_output_by_resolved_name(def->conditional_invocation->resolved_output, def);
-  if (dst && dst->signal == &NULL_SIGNAL)
+  // 2.5. Sync Place-of-Resolution sources too
+  for (SourcePlace *sp = def->place_of_resolution_sources; sp; sp = sp->next)
   {
-    int output_index = write_result_to_named_output(def, def->conditional_invocation->resolved_output, result, &side_effects);
-    if (output_index < 0)
-      return 0;
-
-    DestinationPlace *dst = find_output_by_resolved_name(def->conditional_invocation->resolved_output, def);
-    if (!dst || !dst->signal)
+    if (sp->name && strcmp(sp->name, def->conditional_invocation->resolved_output) == 0)
     {
-      LOG_ERROR("❌ Destination written but signal not found: %s", def->conditional_invocation->resolved_output);
-      return 0;
-    }
-
-    LOG_INFO("✍️ Output written: %s → [%s]", dst->resolved_name, dst->signal->content);
-    propagate_output_to_invocations(blk, dst, dst->signal);
-  }
-  else
-  {
-    LOG_WARN("⚠️ No destination ready for output in %s", def->name);
-    return 0;
-  }
-  return 0;
-}
-
-void allocate_signals(Block *blk)
-{
-  LOG_INFO("🔧 Allocating signals for destination places...");
-
-  for (Invocation *inv = blk->invocations; inv != NULL; inv = inv->next)
-  {
-    for (DestinationPlace *dst = inv->destinations; dst != NULL; dst = dst->next)
-    {
-      if (dst->signal == &NULL_SIGNAL)
-      {
-        dst->signal = calloc(1, sizeof(Signal));
-        if (!dst->signal)
-        {
-          LOG_ERROR("❌ Failed to allocate signal for destination '%s' in '%s'", dst->resolved_name, inv->name);
-          exit(1);
-        }
-        dst->signal->content = NULL; // Or set default
-        LOG_INFO("✅ Allocated Signal %p for Destination '%s' in Invocation '%s'",
-                 (void *)dst->signal, dst->resolved_name, inv->name);
-      }
+      if (sp->content)
+        free(sp->content);
+      sp->content = strdup(result);
+      side_effects++;
+      LOG_INFO("🔁 Synced POR SourcePlace '%s' with content [%s]", sp->name, sp->content);
     }
   }
 
-  LOG_INFO("✅ Signal allocation complete.");
+  // 3. Propagate to invocations watching this signal
+  side_effects += propagate_output_to_invocations(blk, dst, dst->content);
+
+  return side_effects;
 }
 
 int eval(Block *blk)
@@ -457,22 +557,19 @@ int eval(Block *blk)
     // 1. Inject inputs into definitions
     for (Invocation *inv = blk->invocations; inv; inv = inv->next)
     {
-      int effects = eval_invocation(inv, blk);
-      side_effect_this_round += effects;
+      side_effect_this_round += eval_invocation(inv, blk);
     }
 
     // 2. Evaluate definitions
     for (Definition *def = blk->definitions; def; def = def->next)
     {
-      int effects = eval_definition(def, blk, &side_effect_this_round);
-      side_effect_this_round += effects;
+      side_effect_this_round += eval_definition(def, blk);
     }
 
     // 3. Pull outputs back into invocations
     for (Invocation *inv = blk->invocations; inv; inv = inv->next)
     {
-      int effects = pull_outputs_from_definition(blk, inv);
-      side_effect_this_round += effects;
+      side_effect_this_round +=  pull_outputs_from_definition(blk, inv);
     }
 
     total_side_effects += side_effect_this_round;
@@ -502,8 +599,8 @@ void dump_signals(Block *blk)
   for (SourcePlace *src = blk->sources; src != NULL; src = src->next_flat)
   {
     const char *label = src->resolved_name ? src->resolved_name : (src->name ? src->name : "<unnamed>");
-    const char *content = (src->signal && src->signal->content)
-                              ? src->signal->content
+    const char *content = (src->content)
+                              ? src->content
                               : "<null>";
     LOG_INFO("📡 [%d] %s → %s", ++count, label, content);
   }

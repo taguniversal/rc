@@ -19,16 +19,6 @@ typedef struct Block Block;
 
 // === Core Structures ===
 
-struct Signal
-{
-  char *content;
-  struct Signal *next;
-#ifdef SAFETY_GUARD
-  uint64_t safety_guard;
-#endif
-};
-
-extern struct Signal NULL_SIGNAL;
 
 // === Boundary Structs ===
 
@@ -37,7 +27,7 @@ struct SourcePlace
   char *name;     // If pulling from a place, this is set (from=...)
   char *resolved_name; //De-conflicted for entire block by rewrite_signals
   int spirv_id;
-  Signal *signal; // Points to actual signal (or &NULL_SIGNAL)
+  char *content; 
   SourcePlace *next;
   SourcePlace *next_flat;
 };
@@ -47,7 +37,7 @@ struct DestinationPlace
   char *name;     // Name of the destination
   char *resolved_name;  //De-conflicted for entire block by rewrite_signals
   int spirv_id;
-  Signal *signal; // Points to actual signal (or &NULL_SIGNAL)
+  char *content; 
   DestinationPlace *next;
   DestinationPlace *next_flat;
 };
@@ -93,6 +83,8 @@ struct Definition
   DestinationPlace *destinations; // Expected outputs
   Invocation *invocations;
   SourcePlace *place_of_resolution_sources;
+  Invocation *place_of_resolution_invocations;
+
   ConditionalInvocation *conditional_invocation; // Optional logic
 
   Definition *next;
@@ -120,12 +112,11 @@ typedef struct
 } DefinitionLibrary;
 
 // === API ===
-void link_invocations_by_position(Block *blk);
+int link_invocations_by_position(Block *blk);
 int eval(Block *blk);
 void flatten_signal_places(Block *blk);
 void print_signal_places(Block *blk);
 void wire_by_name_correspondence(Block *blk);
-void allocate_signals(Block *blk);
 int count_invocations(Definition *def);
 void dump_signals(Block *blk);
 #endif
