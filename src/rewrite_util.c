@@ -2,6 +2,7 @@
 #include "log.h" // your logging macros
 #include "log.h"
 #include "eval_util.h"
+#include "string_set.h"
 #include <stdio.h>  // for asprintf
 #include <stdlib.h> // for free
 #include <string.h> // for strcmp
@@ -35,21 +36,30 @@ void rewrite_top_level_invocations(Block *blk)
         int id = get_next_instance_id(inv->name);
         inv->instance_id = id;
 
-        for (SourcePlace *src = inv->sources; src != NULL; src = src->next)
+        // 🔁 Rewrite each SourcePlace
+        for (size_t i = 0; i < inv->sources.count; ++i)
         {
+            SourcePlace *src = inv->sources.items[i];
+            if (!src || !src->name)
+                continue;
+
             char *new_name;
             asprintf(&new_name, "%s.%d.%s", inv->name, id, src->name);
             src->resolved_name = new_name;
             LOG_INFO("🔁 SourcePlace rewritten: %s → %s", src->name, new_name);
         }
 
-        int param_index = 0;
-        for (DestinationPlace *dst = inv->destinations; dst != NULL; dst = dst->next, param_index++)
+        // 🔁 Rewrite each DestinationPlace
+        for (size_t i = 0; i < inv->destinations.count; ++i)
         {
+            DestinationPlace *dst = inv->destinations.items[i];
+            if (!dst)
+                continue;
+
             if (!dst->name)
             {
                 char synth[64];
-                snprintf(synth, sizeof(synth), "%s.%d.%d", inv->name, id, param_index);
+                snprintf(synth, sizeof(synth), "%s.%d.%zu", inv->name, id, i);
                 dst->name = strdup(synth);
                 LOG_INFO("💡 Synthesized destination name: %s", dst->name);
             }
@@ -72,16 +82,18 @@ void rewrite_top_level_invocations(Block *blk)
 
 void rewrite_definition_signals(Definition *def)
 {
-    for (SourcePlace *src = def->sources; src != NULL; src = src->next)
+    for (size_t i = 0; i < def->sources.count; ++i)
     {
+        SourcePlace *src = def->sources.items[i];
         char *new_name;
         asprintf(&new_name, "%s.local.%s", def->name, src->name);
         src->resolved_name = new_name;
         LOG_INFO("🔁 Definition SourcePlace rewritten: %s → %s", src->name, new_name);
     }
 
-    for (DestinationPlace *dst = def->destinations; dst != NULL; dst = dst->next)
+    for (size_t i = 0; i < def->destinations.count; ++i)
     {
+        DestinationPlace *dst = def->destinations.items[i];
         char *new_name;
         asprintf(&new_name, "%s.local.%s", def->name, dst->name);
         dst->resolved_name = new_name;
@@ -99,54 +111,100 @@ void rewrite_definition_signals(Definition *def)
 
 void rewrite_por_invocations(Definition *def)
 {
-    for (Invocation *inv = def->place_of_resolution_invocations; inv != NULL; inv = inv->next)
+    if (!def || !def->place_of_resolution_invocations)
+        return;
+
+    StringSet *seen = create_string_set();
+    StringSet *shared = create_string_set();
+
+    // Step 1: Count signal name frequency to detect shared names
+    for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
+    {
+        for (size_t i = 0; i < inv->sources.count; ++i)
+        {
+            SourcePlace *sp = inv->sources.items[i];
+            if (string_set_count(seen, sp->name))
+                string_set_add_or_increment(shared, sp->name);
+            else
+                string_set_add_or_increment(seen, sp->name);
+        }
+
+        for (size_t i = 0; i < inv->destinations.count; ++i)
+        {
+            DestinationPlace *dp = inv->destinations.items[i];
+            if (string_set_count(seen, dp->name))
+                string_set_add_or_increment(shared, dp->name);
+            else
+                string_set_add_or_increment(seen, dp->name);
+        }
+    }
+
+    for (size_t i = 0; i < def->sources.count; ++i)
+    {
+        SourcePlace *sp = def->sources.items[i];
+        if (string_set_count(seen, sp->name))
+            string_set_add_or_increment(shared, sp->name);
+        else
+            string_set_add_or_increment(seen, sp->name);
+    }
+
+    for (size_t i = 0; i < def->destinations.count; ++i)
+    {
+        DestinationPlace *dp = def->destinations.items[i];
+        if (string_set_count(seen, dp->name))
+            string_set_add_or_increment(shared, dp->name);
+        else
+            string_set_add_or_increment(seen, dp->name);
+    }
+
+    for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
+    {
+        SourcePlace *por_src = def->place_of_resolution_sources.items[i];
+        if (string_set_count(seen, por_src->name))
+            string_set_add_or_increment(shared, por_src->name);
+        else
+            string_set_add_or_increment(seen, por_src->name);
+    }
+
+    // Step 2: Rewrite signal names
+    for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
     {
         int id = get_next_instance_id(inv->name);
         inv->instance_id = id;
 
-        for (SourcePlace *src = inv->sources; src != NULL; src = src->next)
+        for (size_t i = 0; i < inv->sources.count; ++i)
         {
+            SourcePlace *sp = inv->sources.items[i];
             char *new_name;
-            asprintf(&new_name, "%s.%s.%s", def->name, inv->name, src->name);
-            src->resolved_name = new_name;
-            LOG_INFO("🔁 POR SourcePlace rewritten: %s → %s", src->name, new_name);
+            if (string_set_count(shared, sp->name))
+                asprintf(&new_name, "%s.local.%s", def->name, sp->name);
+            else
+                asprintf(&new_name, "%s.%s.%s", def->name, inv->name, sp->name);
+            sp->resolved_name = new_name;
+            LOG_INFO("🔁 POR SourcePlace rewritten: %s → %s", sp->name, new_name);
         }
 
-        for (DestinationPlace *dst = inv->destinations; dst != NULL; dst = dst->next)
+        for (size_t i = 0; i < inv->destinations.count; ++i)
         {
+            DestinationPlace *dp = inv->destinations.items[i];
             char *new_name;
-            asprintf(&new_name, "%s.%s.%s", def->name, inv->name, dst->name);
-            dst->resolved_name = new_name;
-            LOG_INFO("🔁 POR DestinationPlace rewritten: %s → %s", dst->name, new_name);
-        }
-    }
-
-    for (Invocation *inv = def->invocations; inv != NULL; inv = inv->next)
-    {
-        for (SourcePlace *src = inv->sources; src != NULL; src = src->next)
-        {
-            char *new_name;
-            asprintf(&new_name, "%s.%s.%s", def->name, inv->name, src->name);
-            src->resolved_name = new_name;
-            LOG_INFO("🔁 Nested SourcePlace rewritten: %s → %s", src->name, new_name);
-        }
-
-        for (DestinationPlace *dst = inv->destinations; dst != NULL; dst = dst->next)
-        {
-            char *new_name;
-            asprintf(&new_name, "%s.%s.%s", def->name, inv->name, dst->name);
-            dst->resolved_name = new_name;
-            LOG_INFO("🔁 Nested DestinationPlace rewritten: %s → %s", dst->name, new_name);
+            if (string_set_count(shared, dp->name))
+                asprintf(&new_name, "%s.local.%s", def->name, dp->name);
+            else
+                asprintf(&new_name, "%s.%s.%s", def->name, inv->name, dp->name);
+            dp->resolved_name = new_name;
+            LOG_INFO("🔁 POR DestinationPlace rewritten: %s → %s", dp->name, new_name);
         }
     }
 
-    // Patch: rewrite def->place_of_resolution_sources
-    for (SourcePlace *por_src = def->place_of_resolution_sources; por_src; por_src = por_src->next)
+    // Step 3: Rewrite POR loose sources
+    for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
     {
+        SourcePlace *por_src = def->place_of_resolution_sources.items[i];
         if (por_src->name)
         {
             char *new_name;
-            asprintf(&new_name, "%s.local.%s", def->name, por_src->name); // or your preferred naming
+            asprintf(&new_name, "%s.local.%s", def->name, por_src->name);
             por_src->resolved_name = new_name;
             LOG_INFO("🔁 POR SourcePlace (loose) rewritten: %s → %s", por_src->name, new_name);
         }
@@ -155,6 +213,9 @@ void rewrite_por_invocations(Definition *def)
             LOG_WARN("⚠️ POR SourcePlace in def %s has null name", def->name);
         }
     }
+
+    destroy_string_set(seen);
+    destroy_string_set(shared);
 }
 
 void rewrite_conditional_invocation(Definition *def)
@@ -176,8 +237,9 @@ void rewrite_conditional_invocation(Definition *def)
         if (!arg)
             continue;
 
-        for (SourcePlace *sp = def->sources; sp; sp = sp->next)
+        for (size_t j = 0; j < def->sources.count; ++j)
         {
+            SourcePlace *sp = def->sources.items[j];
             if (sp->name && strcmp(sp->name, arg) == 0)
             {
                 LOG_INFO("🔁 CI arg rewrite: %s.%zu → %s", def->name, i, sp->resolved_name);

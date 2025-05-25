@@ -28,8 +28,6 @@ struct SourcePlace
   char *resolved_name; //De-conflicted for entire block by rewrite_signals
   int spirv_id;
   char *content; 
-  SourcePlace *next;
-  SourcePlace *next_flat;
 };
 
 struct DestinationPlace
@@ -38,9 +36,17 @@ struct DestinationPlace
   char *resolved_name;  //De-conflicted for entire block by rewrite_signals
   int spirv_id;
   char *content; 
-  DestinationPlace *next;
-  DestinationPlace *next_flat;
 };
+
+typedef struct {
+  size_t count;
+  SourcePlace **items;
+} SourcePlaceList;
+
+typedef struct {
+  size_t count;
+  DestinationPlace **items;
+} DestinationPlaceList;
 
 // === Conditional Invocation for dynamic behavior ===
 
@@ -68,8 +74,8 @@ struct Invocation
 {
   char *name; // Unique name of invocation
   int instance_id; // Assigned during signal rewriting for uniqueness
-  SourcePlace *sources;           // Boundary input points
-  DestinationPlace *destinations; // Boundary output points
+  SourcePlaceList sources;           // Boundary input points
+  DestinationPlaceList destinations; // Boundary output points
 
   Definition *definition; // Linked back to definition (if any)
   Invocation *next;       // Linked list
@@ -79,10 +85,11 @@ struct Definition
 {
   char *name; // Logic block name ("AND", "XOR", etc.)
 
-  SourcePlace *sources;           // Expected inputs
-  DestinationPlace *destinations; // Expected outputs
+  SourcePlaceList sources;           // Expected inputs
+  DestinationPlaceList destinations; // Expected outputs
   Invocation *invocations;
-  SourcePlace *place_of_resolution_sources;
+  SourcePlaceList place_of_resolution_sources;
+
   Invocation *place_of_resolution_invocations;
 
   ConditionalInvocation *conditional_invocation; // Optional logic
@@ -95,8 +102,8 @@ struct Block
   char *psi;               // Unique block ID (from mkrand)
   Invocation *invocations; // Linked list of invocations
   Definition *definitions; // Linked list of definitions
-  SourcePlace* sources;
-  DestinationPlace* destinations;
+  SourcePlaceList sources;
+  DestinationPlaceList destinations;
 };
 
 typedef struct
@@ -118,4 +125,5 @@ void flatten_signal_places(Block *blk);
 void print_signal_places(Block *blk);
 int count_invocations(Definition *def);
 void dump_signals(Block *blk);
+int wire_signal_propagation_by_name(Block *blk);
 #endif

@@ -22,7 +22,6 @@ cJSON *find_node_by_id(cJSON *nodes, const char *id)
     }
     return NULL;
 }
-
 void write_network_json(Block *blk, const char *filename)
 {
     if (!blk || !filename)
@@ -70,16 +69,18 @@ void write_network_json(Block *blk, const char *filename)
         cJSON_AddStringToObject(node, "type", "Invocation");
         cJSON_AddItemToArray(nodes, node);
 
-        for (SourcePlace *src = inv->sources; src; src = src->next)
+        // Input links from SourcePlaces
+        for (size_t i = 0; i < inv->sources.count; ++i)
         {
+            SourcePlace *src = inv->sources.items[i];
+            if (!src) continue;
+
             LOG_INFO("🔍 Inspecting SourcePlace for Invocation '%s'", inv->name);
             LOG_INFO("    ➤ src->name: %s", src->name ? src->name : "(null)");
             LOG_INFO("    ➤ src->content: %s", src->content ? src->content : "null");
 
             if (src->name)
             {
-                LOG_INFO("🔗 SourcePlace with name: %s → %s", src->name, inv->name);
-
                 cJSON *edge = cJSON_CreateObject();
                 cJSON_AddStringToObject(edge, "source", src->name);
                 cJSON_AddStringToObject(edge, "target", inv->name);
@@ -105,59 +106,38 @@ void write_network_json(Block *blk, const char *filename)
 
                 LOG_INFO("📦 Added Literal '%s' for Invocation '%s'", src->content, inv->name);
             }
-            else
-            {
-                LOG_WARN("⚠️ SourcePlace has neither name nor usable signal — ignoring");
-                if (!src->content)
-                {
-                    LOG_INFO("    ➤ src->content is NULL");
-                }
-            
-            }
         }
 
-        for (DestinationPlace *dst = inv->destinations; dst; dst = dst->next)
+        // Output links from DestinationPlaces
+        for (size_t j = 0; j < inv->destinations.count; ++j)
         {
-            if (dst->name)
-            {
-                LOG_INFO("🧩 Emitting destination: %s", dst->name);
-
-                // Check if the node already exists
-                cJSON *dst_node = find_node_by_id(nodes, dst->name);
-                if (!dst_node)
-                {
-                    // If it doesn't exist, create it
-                    dst_node = cJSON_CreateObject();
-                    cJSON_AddStringToObject(dst_node, "id", dst->name);
-                    cJSON_AddStringToObject(dst_node, "type", "Signal");
-                    cJSON_AddItemToArray(nodes, dst_node);
-                }
-
-                // Always update its state
-                if ( dst->content)
-                {
-                    cJSON_ReplaceItemInObject(dst_node, "state", cJSON_CreateString(dst->content));
-                }
-                else
-                {
-                    cJSON_ReplaceItemInObject(dst_node, "state", cJSON_CreateString("unknown"));
-                }
-
-                // Create a link from invocation to destination
-                cJSON *edge = cJSON_CreateObject();
-                cJSON_AddStringToObject(edge, "source", inv->name);
-                cJSON_AddStringToObject(edge, "target", dst->name);
-                cJSON_AddStringToObject(edge, "type", "output");
-                cJSON_AddItemToArray(links, edge);
-            }
-            else
-            {
+            DestinationPlace *dst = inv->destinations.items[j];
+            if (!dst || !dst->name) {
                 LOG_WARN("⚠️ DestinationPlace with NULL name found.");
+                continue;
             }
+
+            LOG_INFO("🧩 Emitting destination: %s", dst->name);
+
+            cJSON *dst_node = find_node_by_id(nodes, dst->name);
+            if (!dst_node)
+            {
+                dst_node = cJSON_CreateObject();
+                cJSON_AddStringToObject(dst_node, "id", dst->name);
+                cJSON_AddStringToObject(dst_node, "type", "Signal");
+                cJSON_AddItemToArray(nodes, dst_node);
+            }
+
+            cJSON_ReplaceItemInObject(dst_node, "state", cJSON_CreateString(dst->content ? dst->content : "unknown"));
+
+            cJSON *edge = cJSON_CreateObject();
+            cJSON_AddStringToObject(edge, "source", inv->name);
+            cJSON_AddStringToObject(edge, "target", dst->name);
+            cJSON_AddStringToObject(edge, "type", "output");
+            cJSON_AddItemToArray(links, edge);
         }
     }
 
-    // === NOW Create Root JSON ===
     cJSON *root = cJSON_CreateObject();
     cJSON_AddItemToObject(root, "nodes", nodes);
     cJSON_AddItemToObject(root, "links", links);

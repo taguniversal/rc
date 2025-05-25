@@ -18,12 +18,15 @@ rcnode_sources = files(
   'src/main.c',
   'src/eval_util.c',
   'src/rewrite_util.c',
+  'src/string_set.c',
   'src/eval.c',
   'src/spirv.c',
+  'src/sexpr_parser_util.c',
   'src/sexpr_parser.c',
   'src/spirv_asm.c',
   'src/spirv_passes.c',
   'src/util.c',
+  'src/compiler.c',
   'src/log.c',
   'src/graph.c',
   'src/vulkan_driver.c',
@@ -49,11 +52,18 @@ rcnode_bin = executable('rcnode',
 # --- Validator ---
 validate_sources = files(
   'src/validate_sexpr.c',
+  'src/compiler.c',
+  'src/sexpr_parser_util.c',
   'src/sexpr_parser.c',
+  'src/string_set.c',
   'src/eval_util.c',
   'src/rewrite_util.c',
   'src/eval.c',
-  'src/log.c'
+  'src/log.c',
+  'src/spirv.c',
+  'src/spirv_asm.c',
+  'src/spirv_passes.c',
+  'src/wiring.c'
 )
 
 validate_bin = executable('validate_sexpr',

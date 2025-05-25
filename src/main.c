@@ -11,6 +11,7 @@
 #include "spirv.h"
 #include "sexpr_parser.h"
 #include "vulkan_driver.h"
+#include "compiler.h"
 #include "spirv_asm.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -223,42 +224,16 @@ int main(int argc, char *argv[])
     {
         LOG_INFO("✅ Schema loaded");
     }
-    int parse_status = parse_block_from_sexpr(active_block, inv_dir);
-    LOG_INFO("Parse status: %d", parse_status);
-
-    // parse_block_from_xml(active_block, inv_dir);
-    char graph_path[256];
-    snprintf(graph_path, sizeof(graph_path), "%s/graph.json", out_dir);
-    write_network_json(active_block, graph_path);
 
     if (compile_only)
     {
-        LOG_INFO("🎯 Compile-only mode enabled");
-        LOG_INFO("📂 Emitting definitions to: %s", out_dir);
-        LOG_INFO("📂 Outputs:");
-        LOG_INFO("   S-expressions: %s", sexpr_out_dir);
-        LOG_INFO("   SPIR-V S-expr: %s", spirv_sexpr_dir);
-        LOG_INFO("   SPIR-V Asm   : %s", spirv_asm_dir);
-        parse_block_from_sexpr(active_block, sexpr_out_dir); // 1. Load structure
-        rewrite_signals(active_block);                       // 2. Rewrite names to be globally unique
-        flatten_signal_places(active_block);                 // 2.5. Collect all SourcePlace/DestinationPlace pointers
-        print_signal_places(active_block);
-        boundary_link_invocations_by_position(active_block); // 4. Wire by position (Invocation ↔ Definition)
-        validate_invocation_wiring(active_block); // 5. Confirm everything is hooked up
-        eval(active_block);
-        emit_all_definitions(active_block, sexpr_out_dir); // 6. Emit definitions
-        emit_all_invocations(active_block, sexpr_out_dir); // 7. Emit invocations
-        spirv_parse_block(active_block, spirv_sexpr_dir);  // 8. Lower to SPIR-V
-        char main_sexpr_path[256], main_spvasm_path[256];
-        snprintf(main_sexpr_path, sizeof(main_sexpr_path), "%s/main.spvasm.sexpr", spirv_unified_dir);
-        snprintf(main_spvasm_path, sizeof(main_spvasm_path), "%s/main.spvasm", spirv_asm_dir);
-
-        emit_spirv_block(active_block, spirv_sexpr_dir, main_sexpr_path);
-        emit_spirv_asm_file(main_sexpr_path, main_spvasm_path);
-
-        dump_wiring(active_block);
-
-        dump_signals(active_block);
+        compile_block(active_block, 
+        inv_dir,\
+        out_dir,          \
+        sexpr_out_dir,    \
+        spirv_sexpr_dir,  \
+        spirv_asm_dir,    \
+        spirv_unified_dir);
 
         return 0;
     }

@@ -7,28 +7,28 @@
   )
 
   (DestinationList
-    (DestinationPlace (Name Out0))
+    (DestinationPlace (Name NOR_Out))
   )
 
   (PlaceOfResolution
     (Invocation
       (Name OR)
       (DestinationList
-        (DestinationPlace (Name Temp0))
+       (DestinationPlace (Name A))
+        (DestinationPlace (Name B))   
       )
       (SourceList 
-        (SourcePlace (Name A))
-        (SourcePlace (Name B))
+       (SourcePlace (Name OrOut))
       )
     )
 
     (Invocation
       (Name NOT)
       (DestinationList
-        (DestinationPlace (Name Out0))
+        (DestinationPlace (Name OrOut))
       )
       (SourceList 
-        (SourcePlace (Name Temp0))
+        (SourcePlace (Name NOR_Out))
       )
     )
   )

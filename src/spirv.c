@@ -225,8 +225,9 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
     for (size_t i = 0; i < ci->arg_count; ++i) {
         const char *arg_name = ci->template_args[i];
 
-        for (SourcePlace *sp = inv->sources; sp; sp = sp->next) {
-            if (!sp->resolved_name)
+        for (size_t j = 0; j < inv->sources.count; ++j) {
+            SourcePlace *sp = inv->sources.items[j];
+            if (!sp || !sp->resolved_name)
                 continue;
 
             if (strcmp(sp->name, arg_name) == 0) {
@@ -247,8 +248,9 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
     // ─── 3. Output Variable ──────────────────────────────────────────────
     emit_op(mod, "OpVariable", (const char *[]){"%out_var", "%bool", "Output"}, 3);
 
-    for (DestinationPlace *dp = inv->destinations; dp; dp = dp->next) {
-        if (dp->resolved_name) {
+    for (size_t i = 0; i < inv->destinations.count; ++i) {
+        DestinationPlace *dp = inv->destinations.items[i];
+        if (dp && dp->resolved_name) {
             LOG_INFO("🔁 Registering external signal: %s => %%out_var", dp->resolved_name);
             register_external_signal(dp->resolved_name, "%out_var");
         }
@@ -269,9 +271,12 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
             const char *bit = (c->pattern[i] == '1') ? "%true" : "%false";
 
             char input_var[128];
-            snprintf(input_var, sizeof(input_var), "%%%s", inv->sources->resolved_name);  // fallback
+            snprintf(input_var, sizeof(input_var), "%%fallback");
 
-            for (SourcePlace *sp = inv->sources; sp; sp = sp->next) {
+            for (size_t j = 0; j < inv->sources.count; ++j) {
+                SourcePlace *sp = inv->sources.items[j];
+                if (!sp) continue;
+
                 if (strcmp(sp->name, ci->template_args[i]) == 0 && sp->resolved_name) {
                     snprintf(input_var, sizeof(input_var), "%%%s", sp->resolved_name);
                     break;
@@ -315,7 +320,6 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
     emit_op(mod, "OpReturn", NULL, 0);
     emit_op(mod, "OpFunctionEnd", NULL, 0);
 }
-
 
 void free_external_signal_table(void)
 {
