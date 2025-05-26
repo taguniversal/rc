@@ -87,14 +87,26 @@ foreach d : out_dirs
   run_command('mkdir', '-p', d, check: true)
 endforeach
 
+# --- Clean output dir ---
+clean_outdir = custom_target('clean_outdir',
+  output: 'clean.out',
+  command: [
+    'sh', '-c',
+    'rm -rf out/stage && touch out/clean.out'
+  ],
+  build_by_default: true
+)
+
 # --- Compilation step ---
 compile_output = custom_target('compile-all',
+  input: clean_outdir,  # <-- depends on cleanup!
   output: 'main.spvasm.sexpr', 
   command: [rcnode_bin, '--compile',
             '--inv', join_paths(meson.source_root(), 'inv'),
             '--output', out_root],
   build_by_default: true
 )
+
 
 
 # --- SPIR-V binary ---
@@ -107,15 +119,6 @@ spirv_bin = custom_target('spirv-bin',
   input: compile_output,
   output: 'main.spv',
   command: ['spirv-as', spirv_asm_file, '-o', spirv_compiled_file],
-  build_by_default: true
-)
-
-custom_target('clean_outdir',
-  output: 'clean.out',
-  command: [
-    'sh', '-c',
-    'rm -rf out/sexpr/* out/spirv_*/* out/graph.json && touch out/clean.out'
-  ],
   build_by_default: true
 )
 

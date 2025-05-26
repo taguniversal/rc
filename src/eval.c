@@ -31,71 +31,7 @@ int count_invocations(Definition *def)
   return count;
 }
 
-int pull_outputs_from_definition(Block *blk, Invocation *inv)
-{
-  if (!inv || !inv->definition)
-  {
-    LOG_WARN("⚠️ pull_outputs_from_definition - either inv or inv->definition NULL");
-    return 0;
-  }
 
-  LOG_INFO("🧩 Pulling outputs for Invocation '%s'", inv->name);
-
-  int side_effects = 0;
-  size_t def_count = inv->definition->destinations.count;
-  size_t inv_count = inv->sources.count;
-  size_t limit = def_count < inv_count ? def_count : inv_count;
-
-  for (size_t idx = 0; idx < limit; ++idx)
-  {
-    DestinationPlace *def_dst = inv->definition->destinations.items[idx];
-    SourcePlace *inv_src = inv->sources.items[idx];
-
-    LOG_INFO("   [%zu] def_dst->resolved_name: %s", idx, def_dst->resolved_name ? def_dst->resolved_name : "(null)");
-    LOG_INFO("   [%zu] inv_src->resolved_name: %s", idx, inv_src->resolved_name ? inv_src->resolved_name : "(null)");
-    LOG_INFO("   [%zu] def_dst->content: %s", idx, def_dst->content ? def_dst->content : "(null)");
-    LOG_INFO("   [%zu] inv_src->content before: %s", idx, inv_src->content ? inv_src->content : "(null)");
-
-    if (def_dst->content)
-    {
-      if (!inv_src->content || strcmp(inv_src->content, def_dst->content) != 0)
-      {
-        if (inv_src->content)
-          free(inv_src->content);
-
-        inv_src->content = strdup(def_dst->content);
-        LOG_INFO("📤 [%zu] Copied [%s] → Invocation source [%s]",
-                 idx, def_dst->content, inv_src->resolved_name ? inv_src->resolved_name : "(null)");
-        side_effects++;
-      }
-      else
-      {
-        LOG_INFO("🛑 [%zu] Skipped copy: content already matches [%s]", idx, def_dst->content);
-      }
-    }
-    else
-    {
-      LOG_WARN("⚠️ [%zu] Definition destination [%s] has no content",
-               idx, def_dst->resolved_name ? def_dst->resolved_name : "(null)");
-    }
-
-    DestinationPlace *outer_dst = find_destination(blk, def_dst->resolved_name);
-    if (outer_dst)
-    {
-      if (!outer_dst->content || strcmp(outer_dst->content, def_dst->content) != 0)
-      {
-        if (outer_dst->content)
-          free(outer_dst->content);
-        outer_dst->content = def_dst->content ? strdup(def_dst->content) : NULL;
-        LOG_INFO("🔗 [%zu] Copied [%s] → Block-level destination [%s]",
-                 idx, def_dst->content, outer_dst->resolved_name ? outer_dst->resolved_name : "(null)");
-        side_effects++;
-      }
-    }
-  }
-
-  return side_effects;
-}
 
 int boundary_link_invocations_by_position(Block *blk)
 {
@@ -176,31 +112,6 @@ int boundary_link_invocations_by_position(Block *blk)
 }
 
 
-int wire_signal_propagation_by_name(Block *blk)
-{
-    int side_effects = 0;
-
-    for (size_t i = 0; i < blk->sources.count; ++i)
-    {
-        SourcePlace *src = blk->sources.items[i];
-        if (!src || !src->resolved_name || !src->content)
-            continue;
-
-        for (size_t j = 0; j < blk->destinations.count; ++j)
-        {
-            DestinationPlace *dst = blk->destinations.items[j];
-            if (!dst || !dst->resolved_name)
-                continue;
-
-            if (strcmp(src->resolved_name, dst->resolved_name) == 0)
-            {
-                side_effects += propagate_content(src, dst);
-            }
-        }
-    }
-
-    return side_effects;
-}
 
 void flatten_signal_places(Block *blk)
 {
@@ -657,10 +568,8 @@ int eval_definition(Definition *def, Block *blk)
         return side_effects;
     }
 
-    side_effects += propagate_output_to_invocations(blk, dst, dst->content);
     return side_effects;
 }
-
 
 int eval(Block *blk)
 {
@@ -673,27 +582,39 @@ int eval(Block *blk)
     int side_effect_this_round = 0;
     iteration++;
 
-    // 1. Inject inputs into definitions
+    // 🔁 Flatten all signal places (invocations + definitions) for global propagation
+    flatten_signal_places(blk);
+
+    // 🔢 Step 1: Evaluate each top-level invocation
     for (Invocation *inv = blk->invocations; inv; inv = inv->next)
     {
       side_effect_this_round += eval_invocation(inv, blk);
     }
 
-    // 2. Evaluate definitions and wire POR invocations inside each
+    // 🔢 Step 2: Evaluate definitions and their internal logic
     for (Definition *def = blk->definitions; def; def = def->next)
     {
-      side_effect_this_round += eval_definition(def, blk);
-      side_effect_this_round += propagate_por_signals(def); // 🔧 NEW
+      LOG_INFO("🔄 Evaluating definition: %s", def->name);
+      side_effect_this_round += eval_definition(def, blk);         // internal CI or POR evaluation
+      side_effect_this_round += propagate_por_signals(def);        // POR sources <-> POR destinations
+
+      // 🧩 Step 2.5: For each invocation of this definition, push definition outputs back to invocation outputs
+      for (Invocation *inv = blk->invocations; inv; inv = inv->next)
+      {
+        if (inv->definition == def)
+        {
+          side_effect_this_round += propagate_definition_signals(def, inv);
+        }
+      }
     }
 
-    side_effect_this_round += wire_signal_propagation_by_name(blk);
-
-    // 3. Pull outputs back into invocations
+    // 🔢 Step 3: Pull definition outputs back into their corresponding invocations
     for (Invocation *inv = blk->invocations; inv; inv = inv->next)
     {
       side_effect_this_round += pull_outputs_from_definition(blk, inv);
     }
 
+    // 🔢 Step 4: Final flat-level signal propagation (across entire block)
     side_effect_this_round += propagate_intrablock_signals(blk);
 
     total_side_effects += side_effect_this_round;
@@ -712,6 +633,8 @@ int eval(Block *blk)
 
   return total_side_effects;
 }
+
+
 void dump_signals(Block *blk)
 {
     LOG_INFO("🔍 Dumping signals for Block: %s", blk->psi);

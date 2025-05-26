@@ -4,6 +4,7 @@
 #include "log.h"
 #include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 void append_destination(DestinationPlaceList *list, DestinationPlace *dp)
@@ -107,42 +108,44 @@ bool build_input_pattern(Definition *def, char **arg_names, size_t arg_count, ch
 
 int propagate_content(SourcePlace *src, DestinationPlace *dst)
 {
-    LOG_INFO("📡 Attempting propagation: dst='%s' → src='%s'",
-             dst->resolved_name ? dst->resolved_name : "(null)",
-             src->resolved_name ? src->resolved_name : "(null)");
+    LOG_INFO("📡 Attempting propagation: src='%s' → dst='%s'",
+             src->resolved_name ? src->resolved_name : "(null)",
+             dst->resolved_name ? dst->resolved_name : "(null)");
 
-    if (!dst->content)
+    if (!src || !src->content)
     {
-        LOG_INFO("🚫 Skipping: Destination has no content");
+        LOG_INFO("🚫 Skipping: Source is null or has no content");
         return 0;
     }
 
-    if (src->content)
-    {
-        LOG_INFO("🔍 Existing src content: [%s]", src->content);
-        if (strcmp(src->content, dst->content) == 0)
-        {
-            LOG_INFO("🛑 No propagation needed: content already matches [%s]", src->content);
-            return 0;
-        }
+    LOG_INFO("🔍 Source content: [%s]", src->content);
 
-        LOG_INFO("♻️ Replacing old src content: [%s] with [%s]", src->content, dst->content);
-        free(src->content);
+    if (dst->content && strcmp(src->content, dst->content) == 0)
+    {
+        LOG_INFO("🛑 No propagation needed: destination already has [%s]", dst->content);
+        return 0;
+    }
+
+    if (dst->content)
+    {
+        LOG_INFO("♻️ Replacing destination content [%s] with [%s]", dst->content, src->content);
+        free(dst->content);
     }
     else
     {
-        LOG_INFO("✅ Copying fresh content to src: [%s]", dst->content);
+        LOG_INFO("✅ Copying fresh content to destination: [%s]", src->content);
     }
 
-    src->content = strdup(dst->content);
+    dst->content = strdup(src->content);
 
     LOG_INFO("🔁 Propagated content from %s → %s: [%s]",
-             dst->resolved_name ? dst->resolved_name : "(null)",
              src->resolved_name ? src->resolved_name : "(null)",
-             src->content);
+             dst->resolved_name ? dst->resolved_name : "(null)",
+             dst->content);
 
     return 1; // Side effect occurred
 }
+
 int propagate_intrablock_signals(Block *blk)
 {
     int count = 0;
@@ -238,32 +241,85 @@ int propagate_por_outputs_to_definition(Definition *def)
     return side_effects;
 }
 
-int propagate_output_to_invocations(Block *blk, DestinationPlace *dst, const char *content)
+
+
+int pull_outputs_from_definition(Block *blk, Invocation *inv)
 {
-    int side_effects = 0;
+  if (!inv || !inv->definition)
+  {
+    LOG_WARN("⚠️ pull_outputs_from_definition - either inv or inv->definition is NULL");
+    return 0;
+  }
 
-    if (!dst || !content)
-        return side_effects;
+  LOG_INFO("🧩 Pulling outputs for Invocation '%s' from Definition '%s'",
+           inv->name, inv->definition->name);
 
-    for (Invocation *inv = blk->invocations; inv; inv = inv->next)
+  int side_effects = 0;
+
+  // Match destination[i] → source[i] by position only
+  size_t def_count = inv->definition->destinations.count;
+  size_t inv_count = inv->sources.count;
+  size_t limit = def_count < inv_count ? def_count : inv_count;
+
+  for (size_t i = 0; i < limit; ++i)
+  {
+    DestinationPlace *def_dst = inv->definition->destinations.items[i];
+    SourcePlace *inv_src = inv->sources.items[i];
+
+    if (!def_dst || !inv_src)
+      continue;
+
+    LOG_INFO("🔢 [%zu] Def output → Invocation source", i);
+    LOG_INFO("     def_dst content: %s", def_dst->content ? def_dst->content : "(null)");
+    LOG_INFO("     inv_src before : %s", inv_src->content ? inv_src->content : "(null)");
+
+    if (def_dst->content)
     {
-        for (size_t i = 0; i < inv->sources.count; ++i)
-        {
-            SourcePlace *src = inv->sources.items[i];
-            if (!src || !src->resolved_name || !dst->resolved_name)
-                continue;
+      if (!inv_src->content || strcmp(inv_src->content, def_dst->content) != 0)
+      {
+        if (inv_src->content)
+          free(inv_src->content);
 
-            LOG_INFO("🔍 Matching: src='%s' dst='%s'", src->resolved_name, dst->resolved_name);
-
-            if (strcmp(src->resolved_name, dst->resolved_name) == 0)
-            {
-                side_effects += propagate_content(src, dst);
-            }
-        }
+        inv_src->content = strdup(def_dst->content);
+        LOG_INFO("📤 [%zu] Copied [%s] → Invocation source", i, def_dst->content);
+        side_effects++;
+      }
+      else
+      {
+        LOG_INFO("🛑 [%zu] Skipped: content already matches [%s]", i, def_dst->content);
+      }
+    }
+    else
+    {
+      LOG_WARN("⚠️ [%zu] Definition destination has no content", i);
     }
 
-    return side_effects;
+    // Optional: update outer block-level destination if found
+    if (def_dst->resolved_name)
+    {
+      DestinationPlace *outer_dst = find_destination(blk, def_dst->resolved_name);
+      if (outer_dst)
+      {
+        if (!outer_dst->content || strcmp(outer_dst->content, def_dst->content) != 0)
+        {
+          if (outer_dst->content)
+            free(outer_dst->content);
+          outer_dst->content = def_dst->content ? strdup(def_dst->content) : NULL;
+          LOG_INFO("🌐 [%zu] Copied [%s] → Block-level destination [%s]",
+                   i, def_dst->content, outer_dst->resolved_name);
+          side_effects++;
+        }
+        else
+        {
+          LOG_INFO("🌐 [%zu] Block-level destination already has matching content [%s]", i, outer_dst->content);
+        }
+      }
+    }
+  }
+
+  return side_effects;
 }
+
 
 DestinationPlace *find_destination(Block *blk, const char *name)
 {
@@ -311,7 +367,8 @@ bool all_inputs_ready(Definition *def)
     for (size_t i = 0; i < def->sources.count; ++i)
     {
         SourcePlace *sp = def->sources.items[i];
-        if (!sp) continue;
+        if (!sp)
+            continue;
 
         const char *name = sp->resolved_name ? sp->resolved_name : "(unnamed)";
         if (!sp->content)
@@ -494,50 +551,35 @@ void link_por_invocations_to_definitions(Block *blk)
         }
     }
 }
-int propagate_definition_signals(Definition *def)
+
+int propagate_definition_signals(Definition *def, Invocation *inv)
 {
     int count = 0;
-
-    // sources (definition) → destinations (POR)
-    for (size_t i = 0; i < def->sources.count; ++i)
+    if (!def || !inv)
     {
-        SourcePlace *src = def->sources.items[i];
-        if (!src || !src->resolved_name || !src->content)
-            continue;
-
-        for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
-        {
-            for (size_t j = 0; j < inv->destinations.count; ++j)
-            {
-                DestinationPlace *dst = inv->destinations.items[j];
-                if (!dst || !dst->resolved_name)
-                    continue;
-                if (strcmp(src->resolved_name, dst->resolved_name) == 0)
-                {
-                    count += propagate_content(src, dst);
-                }
-            }
-        }
+        LOG_WARN("⚠️ propagate_definition_signals called with null definition or invocation");
+        return 0;
     }
 
-    // sources (POR) → destinations (definition)
-    for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
+    LOG_INFO("🔄 propagate_definition_signals: [%s] → [%s]", def->name, inv->name);
+
+    for (size_t i = 0; i < def->destinations.count; ++i)
     {
-        for (size_t i = 0; i < inv->sources.count; ++i)
+        DestinationPlace *def_dst = def->destinations.items[i];
+        if (!def_dst || !def_dst->resolved_name || !def_dst->content)
+            continue;
+
+        for (size_t j = 0; j < inv->sources.count; ++j)
         {
-            SourcePlace *src = inv->sources.items[i];
-            if (!src || !src->resolved_name || !src->content)
+            SourcePlace *inv_src = inv->sources.items[j];
+            if (!inv_src || !inv_src->resolved_name)
                 continue;
 
-            for (size_t j = 0; j < def->destinations.count; ++j)
+            if (strcmp(inv_src->resolved_name, def_dst->resolved_name) == 0)
             {
-                DestinationPlace *dst = def->destinations.items[j];
-                if (!dst || !dst->resolved_name)
-                    continue;
-                if (strcmp(src->resolved_name, dst->resolved_name) == 0)
-                {
-                    count += propagate_content(src, dst);
-                }
+                LOG_INFO("🔁 propagate_definition_signals: %s → %s [%s]",
+                         inv_src->resolved_name, def_dst->resolved_name, inv_src->content);
+                count += propagate_content(inv_src, def_dst);
             }
         }
     }

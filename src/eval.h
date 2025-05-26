@@ -74,6 +74,7 @@ struct Invocation
 {
   char *name; // Unique name of invocation
   int instance_id; // Assigned during signal rewriting for uniqueness
+  char *origin_sexpr_path;
   SourcePlaceList sources;           // Boundary input points
   DestinationPlaceList destinations; // Boundary output points
 
@@ -84,7 +85,7 @@ struct Invocation
 struct Definition
 {
   char *name; // Logic block name ("AND", "XOR", etc.)
-
+  char *origin_sexpr_path;
   SourcePlaceList sources;           // Expected inputs
   DestinationPlaceList destinations; // Expected outputs
   Invocation *invocations;
@@ -125,5 +126,4 @@ void flatten_signal_places(Block *blk);
 void print_signal_places(Block *blk);
 int count_invocations(Definition *def);
 void dump_signals(Block *blk);
-int wire_signal_propagation_by_name(Block *blk);
 #endif

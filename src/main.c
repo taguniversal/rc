@@ -227,13 +227,7 @@ int main(int argc, char *argv[])
 
     if (compile_only)
     {
-        compile_block(active_block, 
-        inv_dir,\
-        out_dir,          \
-        sexpr_out_dir,    \
-        spirv_sexpr_dir,  \
-        spirv_asm_dir,    \
-        spirv_unified_dir);
+        compile_block(active_block, inv_dir, out_dir);
 
         return 0;
     }

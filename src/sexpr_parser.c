@@ -746,7 +746,7 @@ void emit_definition(FILE *out, Definition *def, int indent)
 
   // 🚧 Role Hint: Inputs to the definition
   emit_indent(out, indent + 2);
-  fputs(";; Inputs (from invocation → used inside definition)\n", out);
+  fputs(";; Inputs (from invocation → used inside definition %s\n", out);
   emit_source_list(out, def->sources, indent + 2, "input");
 
   // 🚧 Role Hint: Outputs from the definition
