@@ -105,10 +105,10 @@ void parse_definition_sources(Definition *def, SExpr *expr)
         }
 
         // Append to array-style list
-        size_t new_count = def->sources.count + 1;
-        def->sources.items = realloc(def->sources.items, new_count * sizeof(SourcePlace *));
-        def->sources.items[def->sources.count] = sp;
-        def->sources.count = new_count;
+        size_t new_count = def->boundary_sources.count + 1;
+        def->boundary_sources.items = realloc(def->boundary_sources.items, new_count * sizeof(SourcePlace *));
+        def->boundary_sources.items[def->boundary_sources.count] = sp;
+        def->boundary_sources.count = new_count;
 
         LOG_INFO("🧩 Parsed SourcePlace in def %s: name=%s content=%s",
                  def->name,
@@ -167,7 +167,7 @@ void parse_definition_destinations(Definition *def, SExpr *expr)
             }
         }
 
-        append_destination(&def->destinations, dp);
+        append_destination(&def->boundary_destinations, dp);
 
         LOG_INFO("🧩 Parsed DestinationPlace in def %s: name=%s content=%s",
                  def->name,
@@ -286,7 +286,7 @@ void parse_conditional_invocation_block(Definition *def, SExpr *expr, char **pen
     }
 }
 
-void parse_inline_invocations(Definition *def, SExpr *expr)
+void parse_por_invocations(Definition *def, SExpr *expr)
 {
     for (size_t i = 1; i < expr->count; ++i)
     {
@@ -308,10 +308,10 @@ void parse_inline_invocations(Definition *def, SExpr *expr)
             continue;
         }
 
-        inv->next = def->invocations;
-        def->invocations = inv;
+        inv->next = def->place_of_resolution_invocations;
+        def->place_of_resolution_invocations = inv;
 
-        LOG_INFO("🔹 Parsed inline Invocation: %s in %s", inv->name, def->name);
+        LOG_INFO("🔹 Parsed POR Invocation: %s in %s", inv->name, def->name);
     }
 }
 
@@ -389,7 +389,7 @@ void parse_invocation_destinations(Invocation *inv, SExpr *expr)
             LOG_INFO("🧠 Synthesized destination name: %s", dp->name);
         }
 
-        append_destination(&inv->destinations, dp);
+        append_destination(&inv->boundary_destinations, dp);
     }
 }
 
@@ -439,7 +439,7 @@ void parse_invocation_sources(Invocation *inv, SExpr *expr)
             }
         }
 
-        append_source(&inv->sources, sp);
+        append_source(&inv->boundary_sources, sp);
 
         LOG_INFO("🧩 Parsed SourcePlace: name=%s, content=%s",
                  sp->name ? sp->name : "null",

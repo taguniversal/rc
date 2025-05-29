@@ -1,5 +1,5 @@
-#ifndef SPIRV_H
-#define SPIRV_H
+#ifndef EMIT_SPIRV_H
+#define EMIT_SPIRV_H
 #include <stddef.h>
 #include <stdio.h>
 #include "eval.h"

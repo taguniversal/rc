@@ -14,7 +14,6 @@
 #include <sys/types.h>
 
 struct SExpr *parse_expr(const char **input);
-static void emit_invocation(FILE *out, Invocation *inv, int indent);
 
 static const char *skip_whitespace(const char *s)
 {
@@ -189,14 +188,7 @@ ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
   return ci;
 }
 
-/*
-The definition expresses the network of associations between the boundaries of the associated invocation.
-A definition is a named syntax structure containing a source list, a destination list.
-a place of resolution followed by a place of contained definitions. Definitiocnname is the correspondence name
-of the definition. The source list is the input for the definition through which a formed name is received,
-and the destination list is the output for the definition through which the results are delivered
-The place of resolution is best understood as a bounded pure value expression that can contain association expressions.
-*/
+
 Definition *parse_definition(SExpr *expr)
 {
   Definition *def = calloc(1, sizeof(Definition));
@@ -209,20 +201,12 @@ Definition *parse_definition(SExpr *expr)
   char *pending_output = NULL; // 🔁 shared buffer for CI output inference
   parse_place_of_resolution(def, expr, &pending_output);
   parse_conditional_invocation_block(def, expr, &pending_output);
-  parse_inline_invocations(def, expr);
+  parse_por_invocations(def, expr);
 
   return def;
 }
 
-/*
-The Invocation - The invocation associates destination places to form an input boundary and associates
-source places to form an output boundary. The behavior model is that the boundaries are completeness
-boundaries and that the invocation expresses completeness criterion behavior between its input and
-output boundaries When the content at the output boundary is complete the content presented to the input
-is complete. and the output is the correct resolution of the content presented to the input boundary.
-Invocation boundaries are the boundaries of the expression. They are composition boundaries, coordination
-boundaries, and partition boundaries.
-*/
+
 Invocation *parse_invocation(SExpr *expr)
 {
   Invocation *inv = calloc(1, sizeof(Invocation));
@@ -238,45 +222,6 @@ Invocation *parse_invocation(SExpr *expr)
 
   return inv;
 }
-void validate_invocation_wiring(Block *blk)
-{
-  LOG_INFO("🧪 Validating invocation wiring...");
-
-  for (Invocation *inv = blk->invocations; inv; inv = inv->next)
-  {
-    for (size_t i = 0; i < inv->sources.count; ++i)
-    {
-      SourcePlace *sp = inv->sources.items[i];
-      const char *sig_name = sp->resolved_name ? sp->resolved_name : sp->name;
-      if (!sp->content)
-      {
-        LOG_WARN("⚠️ Invocation '%s': SourcePlace '%s' is unwired or missing content",
-                 inv->name, sig_name);
-      }
-      else
-      {
-        LOG_INFO("✅ Invocation '%s': SourcePlace '%s' has content [%s]",
-                 inv->name, sig_name, sp->content);
-      }
-    }
-
-    for (size_t i = 0; i < inv->destinations.count; ++i)
-    {
-      DestinationPlace *dp = inv->destinations.items[i];
-      const char *sig_name = dp->resolved_name ? dp->resolved_name : dp->name;
-      if (!dp->content)
-      {
-        LOG_WARN("⚠️ Invocation '%s': DestinationPlace '%s' is unwired or missing content",
-                 inv->name, sig_name);
-      }
-      else
-      {
-        LOG_INFO("✅ Invocation '%s': DestinationPlace '%s' has content [%s]",
-                 inv->name, sig_name, dp->content);
-      }
-    }
-  }
-}
 
 void wire_por_sources_from_def_outputs(Definition *def)
 {
@@ -286,9 +231,9 @@ void wire_por_sources_from_def_outputs(Definition *def)
     if (!por_src || !por_src->resolved_name)
       continue;
 
-    for (size_t j = 0; j < def->destinations.count; ++j)
+    for (size_t j = 0; j < def->boundary_destinations.count; ++j)
     {
-      DestinationPlace *def_dst = def->destinations.items[j];
+      DestinationPlace *def_dst = def->boundary_destinations.items[j];
       if (!def_dst || !def_dst->resolved_name)
         continue;
 
@@ -307,47 +252,6 @@ void wire_por_sources_from_def_outputs(Definition *def)
   }
 }
 
-int rewrite_signals(Block *blk)
-{
-  LOG_INFO("🧪 Starting global signal name rewriting pass...");
-
-  LOG_INFO("🔁 Rewriting top-level invocations...");
-  rewrite_top_level_invocations(blk);
-
-  for (Definition *def = blk->definitions; def != NULL; def = def->next)
-  {
-    LOG_INFO("📘 Processing Definition: %s", def->name);
-
-    LOG_INFO("  🔤 Rewriting definition-level signal names...");
-    rewrite_definition_signals(def);
-
-    LOG_INFO("  🧠 Rewriting PlaceOfResolution invocations...");
-    for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
-    {
-      SourcePlace *sp = def->place_of_resolution_sources.items[i];
-      LOG_INFO("🔎 Pre-rewrite POR SourcePlace: name=%s", sp && sp->name ? sp->name : "NULL");
-    }
-
-    rewrite_por_invocations(def);
-
-    wire_por_sources_from_def_outputs(def);
-
-    LOG_INFO("🔧 Patch resolved_template_args for CI to use fully qualified signal names");
-    rewrite_conditional_invocation(def);
-
-    LOG_INFO("  🔌 Wiring outputs → POR sources...");
-    //  wire_por_outputs_to_sources(def);
-
-    LOG_INFO("  🔌 Wiring POR sources → outputs...");
-    // wire_por_sources_to_outputs(def);
-  }
-
-  LOG_INFO("🧹 Cleaning up instance counters...");
-  cleanup_name_counters();
-
-  LOG_INFO("✅ Signal rewrite pass completed.");
-  return 0;
-}
 
 int parse_block_from_sexpr(Block *blk, const char *inv_dir)
 {
@@ -410,6 +314,7 @@ int parse_block_from_sexpr(Block *blk, const char *inv_dir)
         free_sexpr(expr);
         exit(1);
       }
+      def->origin_sexpr_path = strdup(path);
       def->next = blk->definitions;
       blk->definitions = def;
       LOG_INFO("📦 Added Definition: %s", def->name);
@@ -423,6 +328,7 @@ int parse_block_from_sexpr(Block *blk, const char *inv_dir)
         free_sexpr(expr);
         exit(1);
       }
+      inv->origin_sexpr_path = strdup(path);
       inv->next = blk->invocations;
       blk->invocations = inv;
       LOG_INFO("📦 Added Invocation: %s", inv->name);
@@ -520,326 +426,4 @@ void free_sexpr(SExpr *expr)
     free(expr->atom);
   }
   free(expr);
-}
-
-static void emit_indent(FILE *out, int indent)
-{
-  for (int i = 0; i < indent; ++i)
-    fputc(' ', out);
-}
-
-static void emit_atom(FILE *out, const char *atom)
-{
-  // Quote if needed (e.g., contains non-alphanum)
-  if (strpbrk(atom, " ()\"\t\n"))
-    fprintf(out, "\"%s\"", atom);
-  else
-    fputs(atom, out);
-}
-static void emit_source_list(FILE *out, SourcePlaceList list, int indent, const char *role_hint)
-{
-  emit_indent(out, indent);
-  fputs("(SourceList\n", out);
-
-  for (size_t i = 0; i < list.count; ++i)
-  {
-    SourcePlace *src = list.items[i];
-    emit_indent(out, indent + 2);
-    fputs("(SourcePlace\n", out);
-
-    const char *signame = src->resolved_name ? src->resolved_name : src->name;
-    if (signame)
-    {
-      emit_indent(out, indent + 4);
-      fputs("(Name ", out);
-      emit_atom(out, signame);
-      fputs(")\n", out);
-
-      emit_indent(out, indent + 4);
-      fprintf(out, ";; role: %s\n", role_hint ? role_hint : "unknown");
-    }
-
-    if (src->content)
-    {
-      LOG_INFO(
-          "✏️ Emitting SourcePlace: name=%s signal=%s",
-          signame,
-          src->content);
-
-      emit_indent(out, indent + 4);
-      fputs("(Signal\n", out);
-      emit_indent(out, indent + 6);
-      fputs("(Content ", out);
-      emit_atom(out, src->content);
-      fputs(")\n", out);
-      emit_indent(out, indent + 4);
-      fputs(")\n", out);
-    }
-    else
-    {
-      emit_indent(out, indent + 4);
-      fputs(";; ⚠️ Unwired SourcePlace\n", out);
-    }
-
-    emit_indent(out, indent + 2);
-    fputs(")\n", out);
-  }
-
-  emit_indent(out, indent);
-  fputs(")\n", out);
-}
-static void emit_destination_list(FILE *out, DestinationPlaceList list,
-                                  int indent, const char *role_hint)
-{
-  emit_indent(out, indent);
-  fputs("(DestinationList\n", out);
-
-  for (size_t i = 0; i < list.count; ++i)
-  {
-    DestinationPlace *dst = list.items[i];
-
-    emit_indent(out, indent + 2);
-    fputs("(DestinationPlace\n", out);
-
-    const char *signame = dst->resolved_name ? dst->resolved_name : dst->name;
-    if (signame)
-    {
-      emit_indent(out, indent + 4);
-      fputs("(Name ", out);
-      emit_atom(out, signame);
-      fputs(")\n", out);
-
-      // 🔍 Add per-place role annotation
-      emit_indent(out, indent + 4);
-      fprintf(out, ";; role: %s\n", role_hint ? role_hint : "unknown");
-    }
-
-    if (dst->content)
-    {
-      emit_indent(out, indent + 4);
-      fputs("(Signal\n", out);
-      emit_indent(out, indent + 6);
-      fputs("(Content ", out);
-      emit_atom(out, dst->content);
-      fputs(")\n", out);
-      emit_indent(out, indent + 4);
-      fputs(")\n", out);
-    }
-
-    emit_indent(out, indent + 2);
-    fputs(")\n", out);
-  }
-
-  emit_indent(out, indent);
-  fputs(")\n", out);
-}
-
-void emit_place_of_resolution(FILE *out, Definition *def, int indent)
-{
-  if (!def || (!def->place_of_resolution_invocations && def->place_of_resolution_sources.count == 0))
-    return;
-
-  emit_indent(out, indent);
-  fputs("(PlaceOfResolution\n", out);
-
-  // Emit internal invocations
-  for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
-  {
-    emit_invocation(out, inv, indent + 2);
-  }
-
-  // Emit resolved output sources from array
-  for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
-  {
-    SourcePlace *sp = def->place_of_resolution_sources.items[i];
-    if (!sp)
-      continue;
-
-    emit_indent(out, indent + 2);
-    fputs("(SourcePlace\n", out);
-
-    if (sp->resolved_name)
-    {
-      emit_indent(out, indent + 4);
-      fprintf(out, "(Name %s)\n", sp->resolved_name);
-    }
-
-    emit_indent(out, indent + 4);
-    fputs("(ContentFrom ConditionalInvocationResult)\n", out); // placeholder
-
-    emit_indent(out, indent + 2);
-    fputs(")\n", out);
-  }
-
-  emit_indent(out, indent);
-  fputs(")\n", out);
-}
-
-static void emit_invocation(FILE *out, Invocation *inv, int indent)
-{
-  emit_indent(out, indent);
-  fputs("(Invocation\n", out);
-
-  emit_indent(out, indent + 2);
-  fputs("(Name ", out);
-  emit_atom(out, inv->name);
-  fputs(")\n", out);
-
-  // 🚧 Role Hint: Inputs for invocation
-  emit_indent(out, indent + 2);
-  fputs(";; Inputs (flow into definition)\n", out);
-  emit_destination_list(out, inv->destinations, indent + 2, "input");
-
-  // 🚧 Role Hint: Outputs from invocation
-  emit_indent(out, indent + 2);
-  fputs(";; Outputs (flow out of definition)\n", out);
-  emit_source_list(out, inv->sources, indent + 2, "output");
-
-  emit_indent(out, indent);
-  fputs(")\n", out);
-}
-
-static void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
-{
-  emit_indent(out, indent);
-  fputs("(ConditionalInvocation\n", out);
-
-  // Emit Resolved Template  emit_indent(out, indent + 2);
-  fputs("(Template", out);
-  for (size_t i = 0; i < ci->arg_count; ++i)
-  {
-    const char *arg = ci->resolved_template_args[i];
-    if (arg)
-    {
-      fprintf(out, " %s", arg);
-    }
-    else
-    {
-      fprintf(out, " ???"); // fallback for debugging
-    }
-  }
-  fputs(")\n", out);
-
-  // Emit Cases
-  for (ConditionalInvocationCase *c = ci->cases; c; c = c->next)
-  {
-    emit_indent(out, indent + 2);
-    fprintf(out, "(Case %s %s)\n", c->pattern, c->result);
-  }
-
-  emit_indent(out, indent);
-  fputs(")\n", out);
-}
-
-void emit_definition(FILE *out, Definition *def, int indent)
-{
-  LOG_INFO("🧪 Emitting definition: %s", def->name);
-
-  emit_indent(out, indent);
-  fputs("(Definition\n", out);
-
-  // Emit definition name
-  emit_indent(out, indent + 2);
-  fputs("(Name ", out);
-  emit_atom(out, def->name);
-  fputs(")\n", out);
-
-  // 🚧 Role Hint: Inputs to the definition
-  emit_indent(out, indent + 2);
-  fputs(";; Inputs (from invocation → used inside definition %s\n", out);
-  emit_source_list(out, def->sources, indent + 2, "input");
-
-  // 🚧 Role Hint: Outputs from the definition
-  emit_indent(out, indent + 2);
-  fputs(";; Outputs (from definition → back to invocation)\n", out);
-  emit_destination_list(out, def->destinations, indent + 2, "output");
-
-  // Emit PlaceOfResolution if present
-  LOG_INFO("🧪 Emitting POR for def: %s", def->name);
-  if (!def->place_of_resolution_invocations && def->place_of_resolution_sources.count == 0)
-  {
-    LOG_WARN("⚠️ No POR data found in def: %s", def->name);
-  }
-  else
-  {
-    LOG_INFO("✅ POR present for def: %s", def->name);
-  }
-
-  emit_place_of_resolution(out, def, indent + 2);
-
-  // Emit ConditionalInvocation if present
-  if (def->conditional_invocation)
-  {
-    emit_conditional(out, def->conditional_invocation, indent + 2);
-  }
-
-  // Emit nested invocations if present
-  for (Invocation *inv = def->invocations; inv; inv = inv->next)
-  {
-    emit_invocation(out, inv, indent + 2);
-  }
-
-  emit_indent(out, indent);
-  fputs(")\n", out);
-}
-
-void emit_all_definitions(Block *blk, const char *dirpath)
-{
-  // Create the output directory if it doesn't exist
-  if (mkdir(dirpath, 0755) != 0 && errno != EEXIST)
-  {
-    LOG_ERROR("❌ Failed to create output directory: %s", dirpath);
-    return;
-  }
-
-  for (Definition *def = blk->definitions; def; def = def->next)
-  {
-    char path[256];
-    snprintf(path, sizeof(path), "%s/%s.def.sexpr", dirpath, def->name);
-    FILE *out = fopen(path, "w");
-    if (!out)
-    {
-      LOG_ERROR("❌ Failed to open file for writing: %s", path);
-      continue;
-    }
-    // TODO DEBUG
-    for (Definition *def = blk->definitions; def; def = def->next)
-    {
-      LOG_INFO("👀 Definition in blk: %s", def->name);
-      if (def->place_of_resolution_invocations)
-      {
-        LOG_INFO("🔍 Has POR invocations");
-      }
-    }
-    emit_definition(out, def, 0);
-    fclose(out);
-    LOG_INFO("✅ Wrote definition '%s' to %s", def->name, path);
-  }
-}
-
-void emit_all_invocations(Block *blk, const char *dirpath)
-{
-  // Create the output directory if it doesn't exist
-  if (mkdir(dirpath, 0755) != 0 && errno != EEXIST)
-  {
-    LOG_ERROR("❌ Failed to create output directory: %s", dirpath);
-    return;
-  }
-
-  for (Invocation *inv = blk->invocations; inv; inv = inv->next)
-  {
-    char path[256];
-    snprintf(path, sizeof(path), "%s/%s.inv.sexpr", dirpath, inv->name);
-    FILE *out = fopen(path, "w");
-    if (!out)
-    {
-      LOG_ERROR("❌ Failed to open file for writing: %s", path);
-      continue;
-    }
-
-    // Emit the invocation
-    emit_invocation(out, inv, 0);
-    fclose(out);
-    LOG_INFO("✅ Wrote invocation '%s' to %s", inv->name, path);
-  }
 }

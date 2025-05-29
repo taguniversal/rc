@@ -7,7 +7,8 @@
 #include "log.h"
 #include <vulkan/vulkan.h>
 #include <assert.h>
-#include "spirv.h"
+#include "emit_spirv.h"
+#include "emit_util.h"
 #include "spirv_passes.h"
 
 int id_counter = 1;
@@ -225,8 +226,8 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
     for (size_t i = 0; i < ci->arg_count; ++i) {
         const char *arg_name = ci->template_args[i];
 
-        for (size_t j = 0; j < inv->sources.count; ++j) {
-            SourcePlace *sp = inv->sources.items[j];
+        for (size_t j = 0; j < inv->boundary_sources.count; ++j) {
+            SourcePlace *sp = inv->boundary_sources.items[j];
             if (!sp || !sp->resolved_name)
                 continue;
 
@@ -248,8 +249,8 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
     // ─── 3. Output Variable ──────────────────────────────────────────────
     emit_op(mod, "OpVariable", (const char *[]){"%out_var", "%bool", "Output"}, 3);
 
-    for (size_t i = 0; i < inv->destinations.count; ++i) {
-        DestinationPlace *dp = inv->destinations.items[i];
+    for (size_t i = 0; i < inv->boundary_destinations.count; ++i) {
+        DestinationPlace *dp = inv->boundary_destinations.items[i];
         if (dp && dp->resolved_name) {
             LOG_INFO("🔁 Registering external signal: %s => %%out_var", dp->resolved_name);
             register_external_signal(dp->resolved_name, "%out_var");
@@ -273,8 +274,8 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
             char input_var[128];
             snprintf(input_var, sizeof(input_var), "%%fallback");
 
-            for (size_t j = 0; j < inv->sources.count; ++j) {
-                SourcePlace *sp = inv->sources.items[j];
+            for (size_t j = 0; j < inv->boundary_sources.count; ++j) {
+                SourcePlace *sp = inv->boundary_sources.items[j];
                 if (!sp) continue;
 
                 if (strcmp(sp->name, ci->template_args[i]) == 0 && sp->resolved_name) {
@@ -351,8 +352,7 @@ void spirv_parse_block(Block *blk, const char *spirv_out_dir)
   {
     char path[512];
     snprintf(path, sizeof(path), "%s/%s.spvasm.sexpr", spirv_out_dir, def->name);
-    LOG_INFO("✅ Linked definition '%s' to %d invocation(s)", def->name, count_invocations(def));
-
+   
     FILE *f = fopen(path, "w");
     if (!f)
     {
@@ -369,19 +369,12 @@ void spirv_parse_block(Block *blk, const char *spirv_out_dir)
     if (def->conditional_invocation)
     {
       int inv_count = 0;
-      for (Invocation *inv = def->invocations; inv != NULL; inv = inv->next)
+      for (Invocation *inv = def->place_of_resolution_invocations; inv != NULL; inv = inv->next)
       {
         inv_count++;
       }
       LOG_INFO("🧩 %s has %d invocations", def->name, inv_count);
 
-      for (Invocation *inv = def->invocations; inv != NULL; inv = inv->next)
-      {
-        mod.current_invocation = inv;
-
-       emit_conditional_invocation(&mod,  def->conditional_invocation);
-
-      }
     }
 
     dedupe_prelude_ops(&mod);

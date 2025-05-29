@@ -20,7 +20,9 @@ rcnode_sources = files(
   'src/rewrite_util.c',
   'src/string_set.c',
   'src/eval.c',
-  'src/spirv.c',
+  'src/emit_spirv.c',
+  'src/emit_sexpr.c',
+  'src/emit_util.c',
   'src/sexpr_parser_util.c',
   'src/sexpr_parser.c',
   'src/spirv_asm.c',
@@ -55,12 +57,15 @@ validate_sources = files(
   'src/compiler.c',
   'src/sexpr_parser_util.c',
   'src/sexpr_parser.c',
+  'src/emit_spirv.c',
+  'src/emit_sexpr.c',
+  'src/emit_util.c',
   'src/string_set.c',
+  'src/eval.c',
   'src/eval_util.c',
   'src/rewrite_util.c',
-  'src/eval.c',
+  'src/block_util.c',
   'src/log.c',
-  'src/spirv.c',
   'src/spirv_asm.c',
   'src/spirv_passes.c',
   'src/wiring.c'
@@ -69,7 +74,8 @@ validate_sources = files(
 validate_bin = executable('validate_sexpr',
   validate_sources,
   include_directories: include_directories('src', 'external'),
-  dependencies: deps
+  dependencies: deps,
+  build_by_default: false
 )
 
 # --- Output directories ---
@@ -87,19 +93,9 @@ foreach d : out_dirs
   run_command('mkdir', '-p', d, check: true)
 endforeach
 
-# --- Clean output dir ---
-clean_outdir = custom_target('clean_outdir',
-  output: 'clean.out',
-  command: [
-    'sh', '-c',
-    'rm -rf out/stage && touch out/clean.out'
-  ],
-  build_by_default: true
-)
 
 # --- Compilation step ---
 compile_output = custom_target('compile-all',
-  input: clean_outdir,  # <-- depends on cleanup!
   output: 'main.spvasm.sexpr', 
   command: [rcnode_bin, '--compile',
             '--inv', join_paths(meson.source_root(), 'inv'),

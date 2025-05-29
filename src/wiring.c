@@ -14,17 +14,17 @@ void dump_wiring(Block *blk)
     {
         LOG_INFO("  🔽 Invocation: %s", inv->name);
 
-        for (size_t i = 0; i < inv->sources.count; ++i)
+        for (size_t i = 0; i < inv->boundary_sources.count; ++i)
         {
-            SourcePlace *src = inv->sources.items[i];
+            SourcePlace *src = inv->boundary_sources.items[i];
             const char *val = (src && src->content) ? src->content : "(null)";
             LOG_INFO("    ➤ Source: %-20s → Content: %s", 
                      (src && src->resolved_name) ? src->resolved_name : "(unnamed)", val);
         }
 
-        for (size_t j = 0; j < inv->destinations.count; ++j)
+        for (size_t j = 0; j < inv->boundary_destinations.count; ++j)
         {
-            DestinationPlace *dst = inv->destinations.items[j];
+            DestinationPlace *dst = inv->boundary_destinations.items[j];
             const char *val = (dst && dst->content) ? dst->content : "(null)";
             LOG_INFO("    ➤ Dest:   %-20s → Content: %s", 
                      (dst && dst->resolved_name) ? dst->resolved_name : "(unnamed)", val);

@@ -1,13 +1,16 @@
+
+#include "eval.h"
+#include "log.h"
+#include "emit_spirv.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <stdbool.h>
-#include "eval.h"
-#include "log.h"
+
 #include <vulkan/vulkan.h>
 #include <assert.h>
-#include "spirv.h"
+
 
 void emit_spirv_asm_file(const char *sexpr_path, const char *spvasm_path)
 {

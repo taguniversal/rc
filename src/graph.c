@@ -70,9 +70,9 @@ void write_network_json(Block *blk, const char *filename)
         cJSON_AddItemToArray(nodes, node);
 
         // Input links from SourcePlaces
-        for (size_t i = 0; i < inv->sources.count; ++i)
+        for (size_t i = 0; i < inv->boundary_sources.count; ++i)
         {
-            SourcePlace *src = inv->sources.items[i];
+            SourcePlace *src = inv->boundary_sources.items[i];
             if (!src) continue;
 
             LOG_INFO("🔍 Inspecting SourcePlace for Invocation '%s'", inv->name);
@@ -109,9 +109,9 @@ void write_network_json(Block *blk, const char *filename)
         }
 
         // Output links from DestinationPlaces
-        for (size_t j = 0; j < inv->destinations.count; ++j)
+        for (size_t j = 0; j < inv->boundary_destinations.count; ++j)
         {
-            DestinationPlace *dst = inv->destinations.items[j];
+            DestinationPlace *dst = inv->boundary_destinations.items[j];
             if (!dst || !dst->name) {
                 LOG_WARN("⚠️ DestinationPlace with NULL name found.");
                 continue;

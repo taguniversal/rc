@@ -4,6 +4,7 @@
 #include "wiring.h"
 #include "eval_util.h"
 #include "eval.h"
+#include "block_util.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -23,15 +24,6 @@ int eval_invocation(Invocation *inv, Block *blk);
 int pull_outputs_from_definition(Block *blk, Invocation *inv);
 DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Definition *def);
 
-int count_invocations(Definition *def)
-{
-  int count = 0;
-  for (Invocation *inv = def->invocations; inv; inv = inv->next)
-    count++;
-  return count;
-}
-
-
 
 int boundary_link_invocations_by_position(Block *blk)
 {
@@ -47,11 +39,11 @@ int boundary_link_invocations_by_position(Block *blk)
                 LOG_INFO("🔗 Linked Invocation %s → Definition %s", inv->name, def->name);
 
                 // Step 1: Copy content from POR Source → Definition Destinations
-                if (def->destinations.count > 0 && def->place_of_resolution_sources.count > 0)
+                if (def->boundary_destinations.count > 0 && def->place_of_resolution_sources.count > 0)
                 {
-                    for (size_t d = 0; d < def->destinations.count; ++d)
+                    for (size_t d = 0; d < def->boundary_destinations.count; ++d)
                     {
-                        DestinationPlace *def_dst = def->destinations.items[d];
+                        DestinationPlace *def_dst = def->boundary_destinations.items[d];
                         for (size_t s = 0; s < def->place_of_resolution_sources.count; ++s)
                         {
                             SourcePlace *por_src = def->place_of_resolution_sources.items[s];
@@ -81,11 +73,11 @@ int boundary_link_invocations_by_position(Block *blk)
                 }
 
                 // Step 3: Transfer outputs from Definition Destinations → Invocation Sources
-                size_t count = MIN(inv->sources.count, def->destinations.count);
+                size_t count = MIN(inv->boundary_sources.count, def->boundary_destinations.count);
                 for (size_t i = 0; i < count; ++i)
                 {
-                    SourcePlace *inv_src = inv->sources.items[i];
-                    DestinationPlace *def_dst = def->destinations.items[i];
+                    SourcePlace *inv_src = inv->boundary_sources.items[i];
+                    DestinationPlace *def_dst = def->boundary_destinations.items[i];
 
                     if (def_dst->content)
                     {
@@ -112,149 +104,19 @@ int boundary_link_invocations_by_position(Block *blk)
 }
 
 
-
-void flatten_signal_places(Block *blk)
-{
-    if (!blk)
-        return;
-
-    blk->sources.count = 0;
-    blk->sources.items = NULL;
-    blk->destinations.count = 0;
-    blk->destinations.items = NULL;
-
-    LOG_INFO("🔍 Beginning signal flattening...");
-
-    // Helper macros to add source/dest one-by-one
-    #define ADD_SRC(sp) do { if (sp) append_source(&blk->sources, sp); } while(0)
-    #define ADD_DST(dp) do { if (dp) append_destination(&blk->destinations, dp); } while(0)
-
-    // Top-level invocations
-    for (Invocation *inv = blk->invocations; inv; inv = inv->next)
-    {
-        for (size_t i = 0; i < inv->sources.count; ++i)
-        {
-            SourcePlace *sp = inv->sources.items[i];
-            LOG_INFO("➕ Source (top-level invocation): %s", sp->resolved_name);
-            ADD_SRC(sp);
-        }
-
-        for (size_t i = 0; i < inv->destinations.count; ++i)
-        {
-            DestinationPlace *dp = inv->destinations.items[i];
-            LOG_INFO("➕ Dest (top-level invocation): %s", dp->resolved_name);
-            ADD_DST(dp);
-        }
-    }
-
-    // Definitions
-    for (Definition *def = blk->definitions; def; def = def->next)
-    {
-        for (size_t i = 0; i < def->sources.count; ++i)
-        {
-            SourcePlace *sp = def->sources.items[i];
-            LOG_INFO("➕ Source (definition): %s", sp->resolved_name);
-            ADD_SRC(sp);
-        }
-
-        for (size_t i = 0; i < def->destinations.count; ++i)
-        {
-            DestinationPlace *dp = def->destinations.items[i];
-            LOG_INFO("➕ Dest (definition): %s", dp->resolved_name);
-            ADD_DST(dp);
-        }
-
-        for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
-        {
-            SourcePlace *por = def->place_of_resolution_sources.items[i];
-            LOG_INFO("➕ Source (POR): %s", por->resolved_name);
-            ADD_SRC(por);
-        }
-
-        for (Invocation *inline_inv = def->invocations; inline_inv; inline_inv = inline_inv->next)
-        {
-            for (size_t i = 0; i < inline_inv->sources.count; ++i)
-            {
-                SourcePlace *sp = inline_inv->sources.items[i];
-                LOG_INFO("➕ Source (inline invocation): %s", sp->resolved_name);
-                ADD_SRC(sp);
-            }
-
-            for (size_t i = 0; i < inline_inv->destinations.count; ++i)
-            {
-                DestinationPlace *dp = inline_inv->destinations.items[i];
-                LOG_INFO("➕ Dest (inline invocation): %s", dp->resolved_name);
-                ADD_DST(dp);
-            }
-        }
-
-        for (Invocation *por_inv = def->place_of_resolution_invocations; por_inv; por_inv = por_inv->next)
-        {
-            for (size_t i = 0; i < por_inv->sources.count; ++i)
-            {
-                SourcePlace *sp = por_inv->sources.items[i];
-                LOG_INFO("➕ Source (POR invocation): %s", sp->resolved_name);
-                ADD_SRC(sp);
-            }
-
-            for (size_t i = 0; i < por_inv->destinations.count; ++i)
-            {
-                DestinationPlace *dp = por_inv->destinations.items[i];
-                LOG_INFO("➕ Dest (POR invocation): %s", dp->resolved_name);
-                ADD_DST(dp);
-            }
-        }
-    }
-
-    // Print final
-    LOG_INFO("🧾 Final Flattened Source List:");
-    for (size_t i = 0; i < blk->sources.count; ++i)
-    {
-        SourcePlace *sp = blk->sources.items[i];
-        LOG_INFO("   📡 Source: %s [%s]", sp->resolved_name, sp->content ? sp->content : "null");
-    }
-
-    LOG_INFO("🧾 Final Flattened Destination List:");
-    for (size_t i = 0; i < blk->destinations.count; ++i)
-    {
-        DestinationPlace *dp = blk->destinations.items[i];
-        LOG_INFO("   🎯 Dest:   %s [%s]", dp->resolved_name, dp->content ? dp->content : "null");
-    }
-
-    #undef ADD_SRC
-    #undef ADD_DST
-}
-
-DestinationPlace *find_output_by_resolved_name(const char *resolved_name, Definition *def)
-{
-    if (!resolved_name || !def)
-        return NULL;
-
-    for (size_t i = 0; i < def->destinations.count; ++i)
-    {
-        DestinationPlace *dst = def->destinations.items[i];
-        if (dst && dst->resolved_name && strcmp(dst->resolved_name, resolved_name) == 0)
-        {
-            return dst;
-        }
-    }
-
-    LOG_WARN("⚠️ No destination found matching resolved name: %s in def: %s", resolved_name, def->name);
-    return NULL;
-}
 void transfer_invocation_inputs_to_definition(Invocation *inv, Definition *def)
 {
   if (!inv || !def)
     return;
 
-  size_t count = (inv->destinations.count < def->sources.count)
-                   ? inv->destinations.count
-                   : def->sources.count;
+  size_t count = (inv->boundary_destinations.count < def->boundary_sources.count)
+                   ? inv->boundary_destinations.count
+                   : def->boundary_sources.count;
 
   for (size_t idx = 0; idx < count; ++idx)
   {
-    DestinationPlace *inv_dst = inv->destinations.items[idx];
-    SourcePlace *def_src = def->sources.items[idx];
+    DestinationPlace *inv_dst = inv->boundary_destinations.items[idx];
+    SourcePlace *def_src = def->boundary_sources.items[idx];
 
     if (!inv_dst || !def_src)
       continue;
@@ -278,360 +140,236 @@ void transfer_invocation_inputs_to_definition(Invocation *inv, Definition *def)
     }
   }
 
-  if (inv->destinations.count != def->sources.count)
+  if (inv->boundary_destinations.count != def->boundary_sources.count)
   {
     LOG_WARN("⚠️ [IN] Mismatched input lengths during transfer: invocation.destinations=%zu, def.sources=%zu",
-             inv->destinations.count, def->sources.count);
+             inv->boundary_destinations.count, def->boundary_sources.count);
   }
 }
 
-
-int evaluate_definition_invocations_until_stable(Definition *def, Block *blk)
+char *build_conditional_pattern(ConditionalInvocation *ci, Block *blk)
 {
-  if (!def)
-  {
-    LOG_WARN("⚠️ Null Definition — skipping internal invocation evaluation.");
-    return 0;
-  }
-
-  LOG_INFO("🔁 Definition '%s' has no ConditionalInvocation — evaluating internal invocations until stable...", def->name);
-
-  int side_effects = 0;
-  int round = 0;
-
-  while (round++ < 5)
-  {
-    int changed = 0;
-
-    // 1. Evaluate all invocations with ready inputs
-    for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
+    if (!ci || !ci->resolved_template_args || ci->arg_count == 0)
     {
-      LOG_INFO("🔍 POR Eval Check: %s has definition? %s", inv->name, inv->definition ? "YES" : "NO");
-      if (inv->definition && all_inputs_ready(inv->definition))
-      {
-        LOG_INFO("🚀 Evaluating POR Invocation: %s (inputs ready)", inv->name);
-        changed += eval_invocation(inv, blk);
-      }
-      else
-      {
-        LOG_INFO("⏭️ Skipping POR Invocation: %s (inputs not ready)", inv->name);
-      }
+        LOG_ERROR("❌ Invalid ConditionalInvocation or missing arguments");
+        return NULL;
     }
 
-    // 2. Wire POR→POR and POR→Definition destinations
-    changed += propagate_por_signals(def);
-    // ✅ 3. Propagate POR outputs to definition destinations
-    changed += propagate_por_outputs_to_definition(def);
-    // 4. Sync to outer context 
-    changed += sync_invocation_outputs_to_definition(def);
-
-    if (changed == 0)
+    // First, determine total pattern length
+    size_t total_len = 0;
+    for (size_t i = 0; i < ci->arg_count; ++i)
     {
-      LOG_INFO("✅ Definition '%s' stabilized after %d rounds", def->name, round);
-      break;
+        const char *arg_name = ci->resolved_template_args[i];
+        SourcePlace *src = find_source(blk, arg_name);
+
+        if (src && src->content)
+            total_len += strlen(src->content);
+        else
+            total_len += 1;  // Use "?" placeholder if missing
     }
 
-    side_effects += changed;
-    LOG_INFO("🔁 Definition '%s' iteration %d changed signals: %d", def->name, round, changed);
-  }
+    // Allocate string (+1 for null terminator)
+    char *pattern = malloc(total_len + 1);
+    if (!pattern)
+    {
+        LOG_ERROR("❌ Memory allocation failed for pattern");
+        return NULL;
+    }
 
-  if (round >= 5)
-  {
-    LOG_WARN("⚠️ Definition '%s' did not stabilize after %d rounds", def->name, round);
-  }
+    pattern[0] = '\0'; // Start with empty string
 
-  return side_effects;
+    // Append each content (or "?" if not found)
+    for (size_t i = 0; i < ci->arg_count; ++i)
+    {
+        const char *arg_name = ci->resolved_template_args[i];
+        SourcePlace *src = find_source(blk, arg_name);
+
+        const char *content = (src && src->content) ? src->content : "?";
+        strcat(pattern, content);
+    }
+
+    LOG_INFO("🧩 Built conditional pattern: %s", pattern);
+    return pattern;
 }
 
-
-int eval_invocation(Invocation *inv, Block *blk)
+int eval_unit(Unit *unit, Block *blk)
 {
-    if (!inv)
+    int change_count = 0;
+
+    Definition *def = unit->definition;
+    Invocation *inv = unit->invocation;
+
+    if (!def || !inv)
     {
-        LOG_WARN("⚠️ Null Invocation passed to eval_invocation, skipping.");
+        LOG_WARN("⚠️ Unit missing definition or invocation: %s", unit->name);
         return 0;
     }
 
-    if (!inv->definition)
+    LOG_INFO("🔍 Evaluating unit: %s", unit->name);
+
+    // Step 1: Propagate inputs from invocation → definition
+    transfer_invocation_inputs_to_definition(inv, def);
+
+    // Step 2: Evaluate ConditionalInvocation if present
+    if (def->conditional_invocation)
     {
-        LOG_WARN("⚠️ Invocation %s has no linked Definition — skipping", inv->name);
-        return 0;
-    }
+        LOG_INFO("🔘 Running conditional logic for unit: %s", unit->name);
 
-    LOG_INFO("🚀 Evaluating Invocation: %s", inv->name);
-    LOG_INFO("📥 Copying inputs for invocation: %s", inv->name);
-    transfer_invocation_inputs_to_definition(inv, inv->definition);
-
-    ConditionalInvocation *ci = inv->definition->conditional_invocation;
-
-    // === Path A: POR-style internal evaluation
-    if (!ci)
-    {
-        if (inv->definition->place_of_resolution_invocations)
+        const char *pattern = build_conditional_pattern(def->conditional_invocation, blk);
+        if (!pattern)
         {
-            LOG_INFO("↪️ Invocation '%s' has no ConditionalInvocation — assuming POR internal definition", inv->name);
-            return evaluate_definition_invocations_until_stable(inv->definition, blk);
+            LOG_ERROR("❌ Failed to build pattern for ConditionalInvocation.");
+            return change_count;
+        }
+
+        LOG_INFO("🧩 Built pattern: %s", pattern);
+
+        const char *result = match_conditional_case(def->conditional_invocation, pattern);
+        free((void *)pattern);
+
+        if (!result)
+        {
+            LOG_WARN("⚠️ No match found for ConditionalInvocation pattern.");
         }
         else
         {
-            LOG_WARN("⚠️ Invocation '%s' has no ConditionalInvocation and no internal invocations — skipping", inv->name);
-            return 0;
+            LOG_INFO("📤 Match result: %s", result);
+
+            const char *output_name = def->conditional_invocation->resolved_output;
+            DestinationPlace *dst = find_destination(blk, output_name);
+            if (!dst)
+            {
+                LOG_ERROR("❌ Failed to find DestinationPlace for output name: %s", output_name);
+            }
+            else
+            {
+                if (dst->content)
+                    free(dst->content);
+                dst->content = strdup(result);
+                LOG_INFO("✅ Wrote result to output: %s = %s", output_name, dst->content);
+                change_count++;
+            }
+
+            // Also bind to invocation’s boundary_sources if any match
+            for (size_t i = 0; i < inv->boundary_sources.count; ++i)
+            {
+                SourcePlace *sp = inv->boundary_sources.items[i];
+                if (!sp || !sp->resolved_name)
+                    continue;
+                if (strcmp(sp->resolved_name, output_name) == 0)
+                {
+                    if (sp->content)
+                        free(sp->content);
+                    sp->content = strdup(result);
+                    LOG_INFO("🔁 Bound invocation output: %s = %s", sp->resolved_name, sp->content);
+                    change_count++;
+                }
+            }
         }
     }
 
-    // === Path B: Evaluate using conditional logic
-    LOG_INFO("🔍 Invocation '%s' ConditionalInvocation: arg_count=%d", inv->name, ci->arg_count);
-
-    if (ci->arg_count > 16)
+    // Step 3: Propagate internal signals between invocations inside definition
+    for (Invocation *a = def->place_of_resolution_invocations; a; a = a->next)
     {
-        LOG_ERROR("❌ Invocation '%s' has suspicious arg_count=%d", inv->name, ci->arg_count);
-        return 0;
-    }
-
-    if (!ci->resolved_template_args || ci->arg_count == 0)
-    {
-        LOG_WARN("⚠️ ConditionalInvocation for '%s' has no resolved_template_args or zero arg_count", inv->name);
-        return 0;
-    }
-
-    LOG_INFO("🔧 About to build pattern for Invocation '%s'", inv->name);
-
-    char pattern[128];
-    if (!build_input_pattern(inv->definition, ci->resolved_template_args, ci->arg_count, pattern, sizeof(pattern)))
-    {
-        LOG_WARN("❌ Failed to build input pattern for Invocation: %s", inv->name);
-        return 0;
-    }
-
-    LOG_INFO("🔎 Built input pattern for '%s': %s", inv->name, pattern);
-
-    const char *result = match_conditional_case(ci, pattern);
-    if (!result)
-    {
-        LOG_WARN("❌ No matching case for pattern: %s", pattern);
-        return 0;
-    }
-
-    LOG_INFO("📤 Matched result for '%s': %s", inv->name, result);
-
-    int side_effects = 0;
-    int output_status = write_result_to_named_output(inv->definition, ci->resolved_output, result);
-    if (output_status < 0)
-    {
-        LOG_ERROR("❌ Failed to write result to named output '%s'", ci->resolved_output);
-        return 0;
-    }
-
-    side_effects += output_status;
-
-    DestinationPlace *def_dst = find_output_by_resolved_name(ci->resolved_output, inv->definition);
-    if (!def_dst || !def_dst->content)
-    {
-        LOG_ERROR("❌ Output destination '%s' has no content", ci->resolved_output);
-        return side_effects;
-    }
-
-    for (size_t i = 0; i < inv->sources.count; ++i)
-    {
-        SourcePlace *sp = inv->sources.items[i];
-        if (!sp || !sp->name)
+        for (size_t i = 0; i < a->boundary_sources.count; ++i)
         {
-            LOG_WARN("⚠️ Encountered unnamed SourcePlace, skipping...");
+            SourcePlace *src = a->boundary_sources.items[i];
+            if (!src || !src->resolved_name || !src->content)
+                continue;
+
+            for (Invocation *b = def->place_of_resolution_invocations; b; b = b->next)
+            {
+                for (size_t j = 0; j < b->boundary_destinations.count; ++j)
+                {
+                    DestinationPlace *dst = b->boundary_destinations.items[j];
+                    if (!dst || !dst->resolved_name)
+                        continue;
+
+                    if (strcmp(src->resolved_name, dst->resolved_name) == 0)
+                    {
+                        change_count += propagate_content(src, dst);
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 4: Propagate outputs from unit → block
+    for (size_t i = 0; i < inv->boundary_sources.count; ++i)
+    {
+        SourcePlace *src = inv->boundary_sources.items[i];
+        if (!src || !src->resolved_name || !src->content)
             continue;
-        }
 
-        if (sp->resolved_name && strcmp(sp->resolved_name, ci->resolved_output) == 0)
+        DestinationPlace *dst = find_destination(blk, src->resolved_name);
+        if (dst)
         {
-            if (sp->content)
-                free(sp->content);
-            sp->content = strdup(def_dst->content);
-            LOG_INFO("🔁 Bound Invocation SourcePlace '%s' to result [%s]", sp->name, sp->content);
-        }
-        else
-        {
-            LOG_INFO("🛑 SourcePlace '%s' does not match output '%s'", sp->resolved_name, ci->resolved_output);
-        }
-
-        if (sp->content)
-        {
-            LOG_INFO("✅ Signal content after eval: %s → %s", sp->name, sp->content);
-        }
-        else
-        {
-            LOG_WARN("⚠️ Signal content unavailable after eval for SourcePlace '%s'", sp->name);
+            change_count += propagate_content(src, dst);
         }
     }
 
-    return side_effects;
+    // Step 5: Propagate inputs from block → unit
+    for (size_t i = 0; i < inv->boundary_destinations.count; ++i)
+    {
+        DestinationPlace *dst = inv->boundary_destinations.items[i];
+        if (!dst || !dst->resolved_name)
+            continue;
+
+        SourcePlace *src = find_source(blk, dst->resolved_name);
+        if (src && src->content)
+        {
+            change_count += propagate_content(src, dst);
+        }
+    }
+
+    return change_count;
 }
 
-int eval_definition(Definition *def, Block *blk)
+
+void wire_global_sources_to_destinations(Block *blk)
 {
-    int side_effects = 0;
+    LOG_INFO("🔁 Propagating values from Block.sources → Block.destinations...");
 
-    if (!def)
+    for (size_t i = 0; i < blk->sources.count; ++i)
     {
-        LOG_WARN("⚠️ Null Definition — skipping.");
-        return 0;
-    }
+        SourcePlace *src = blk->sources.items[i];
+        if (!src || !src->resolved_name || !src->content)
+            continue;
 
-    if (!def->conditional_invocation)
-    {
-        LOG_INFO("🔁 Definition '%s' has no ConditionalInvocation — evaluating internal invocations until stable...", def->name);
-        side_effects += evaluate_definition_invocations_until_stable(def, blk);
-        return side_effects;
-    }
-
-    if (!all_inputs_ready(def))
-    {
-        LOG_WARN("⚠️ Definition '%s' inputs not ready; skipping.", def->name);
-        return 0;
-    }
-
-    LOG_INFO("🔬 Preparing evaluation for definition: %s", def->name);
-
-    for (size_t i = 0; i < def->sources.count; ++i)
-    {
-        SourcePlace *src = def->sources.items[i];
-        if (!src) continue;
-
-        if (src->resolved_name)
-            LOG_INFO("🛰️ SourcePlace name: %s", src->resolved_name);
-        else if (src->content)
-            LOG_INFO("💎 SourcePlace literal: %s", src->content);
-        else
-            LOG_WARN("❓ SourcePlace unnamed and empty?");
-    }
-
-    char pattern[128];
-    if (!build_input_pattern(def,
-                             def->conditional_invocation->resolved_template_args,
-                             def->conditional_invocation->arg_count,
-                             pattern, sizeof(pattern)))
-    {
-        LOG_ERROR("❌ Failed to build input pattern for definition: %s", def->name);
-        return 0;
-    }
-
-    LOG_INFO("🔎 Evaluating definition %s with input pattern [%s]", def->name, pattern);
-
-    const char *result = match_conditional_case(def->conditional_invocation, pattern);
-    if (!result)
-    {
-        LOG_WARN("⚠️ No pattern matched in %s for input [%s]", def->name, pattern);
-        return 0;
-    }
-
-    LOG_INFO("📦 Writing result to output signal: %s (resolved as: %s)",
-             def->conditional_invocation->resolved_output,
-             def->conditional_invocation->resolved_output ? def->conditional_invocation->resolved_output : "(null)");
-
-    int output_status = write_result_to_named_output(def, def->conditional_invocation->resolved_output, result);
-    if (output_status < 0)
-        return 0;
-    side_effects += output_status;
-
-    // 2. Sync internal SourcePlaces
-    for (size_t i = 0; i < def->sources.count; ++i)
-    {
-        SourcePlace *sp = def->sources.items[i];
-        if (!sp || !sp->name) continue;
-
-        if (strcmp(sp->name, def->conditional_invocation->resolved_output) == 0)
+        for (size_t j = 0; j < blk->destinations.count; ++j)
         {
-            if (sp->content) free(sp->content);
-            sp->content = strdup(result);
-            side_effects++;
-            LOG_INFO("🔁 Synced SourcePlace '%s' with content [%s]", sp->name, sp->content);
+            DestinationPlace *dst = blk->destinations.items[j];
+            if (!dst || !dst->resolved_name)
+                continue;
+
+            if (strcmp(src->resolved_name, dst->resolved_name) == 0)
+            {
+                LOG_INFO("🔗 Propagating %s → %s = %s", src->resolved_name, dst->resolved_name, src->content);
+
+                free(dst->content); // clear any previous value
+                dst->content = strdup(src->content);
+            }
         }
     }
-
-    // 2.5. Sync Place-of-Resolution sources too
-    for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
-    {
-        SourcePlace *sp = def->place_of_resolution_sources.items[i];
-        if (!sp || !sp->name) continue;
-
-        if (strcmp(sp->name, def->conditional_invocation->resolved_output) == 0)
-        {
-            if (sp->content) free(sp->content);
-            sp->content = strdup(result);
-            side_effects++;
-            LOG_INFO("🔁 Synced POR SourcePlace '%s' with content [%s]", sp->name, sp->content);
-        }
-    }
-
-    DestinationPlace *dst = find_output_by_resolved_name(def->conditional_invocation->resolved_output, def);
-    if (!dst || !dst->content)
-    {
-        LOG_ERROR("❌ Destination written but content is missing: %s", def->conditional_invocation->resolved_output);
-        return side_effects;
-    }
-
-    return side_effects;
 }
+
 
 int eval(Block *blk)
 {
-  LOG_INFO("⚙️  Starting eval() pass for %s (until stabilization)", blk->psi);
-  int total_side_effects = 0;
-  int iteration = 0;
+    int total_changes = 0;
 
-  while (iteration < MAX_ITERATIONS)
-  {
-    int side_effect_this_round = 0;
-    iteration++;
+    wire_global_sources_to_destinations(blk);
 
-    // 🔁 Flatten all signal places (invocations + definitions) for global propagation
-    flatten_signal_places(blk);
-
-    // 🔢 Step 1: Evaluate each top-level invocation
-    for (Invocation *inv = blk->invocations; inv; inv = inv->next)
+    for (UnitList *node = blk->units; node != NULL; node = node->next)
     {
-      side_effect_this_round += eval_invocation(inv, blk);
+        Unit *unit = node->unit;
+        int changed = eval_unit(unit, blk);  // <- blk passed for global signal access
+        total_changes += changed;
     }
 
-    // 🔢 Step 2: Evaluate definitions and their internal logic
-    for (Definition *def = blk->definitions; def; def = def->next)
-    {
-      LOG_INFO("🔄 Evaluating definition: %s", def->name);
-      side_effect_this_round += eval_definition(def, blk);         // internal CI or POR evaluation
-      side_effect_this_round += propagate_por_signals(def);        // POR sources <-> POR destinations
+    wire_global_sources_to_destinations(blk);
 
-      // 🧩 Step 2.5: For each invocation of this definition, push definition outputs back to invocation outputs
-      for (Invocation *inv = blk->invocations; inv; inv = inv->next)
-      {
-        if (inv->definition == def)
-        {
-          side_effect_this_round += propagate_definition_signals(def, inv);
-        }
-      }
-    }
-
-    // 🔢 Step 3: Pull definition outputs back into their corresponding invocations
-    for (Invocation *inv = blk->invocations; inv; inv = inv->next)
-    {
-      side_effect_this_round += pull_outputs_from_definition(blk, inv);
-    }
-
-    // 🔢 Step 4: Final flat-level signal propagation (across entire block)
-    side_effect_this_round += propagate_intrablock_signals(blk);
-
-    total_side_effects += side_effect_this_round;
-
-    if (side_effect_this_round == 0)
-    {
-      LOG_INFO("✅ Stabilization reached after %d iterations.", iteration);
-      break;
-    }
-  }
-
-  if (iteration >= MAX_ITERATIONS)
-  {
-    LOG_WARN("⚠️ Eval for %s did not stabilize after %d iterations. Bailout triggered.", blk->psi, MAX_ITERATIONS);
-  }
-
-  return total_side_effects;
+    return total_changes;
 }
 
 

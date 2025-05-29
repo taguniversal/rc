@@ -37,9 +37,9 @@ void rewrite_top_level_invocations(Block *blk)
         inv->instance_id = id;
 
         // 🔁 Rewrite each SourcePlace
-        for (size_t i = 0; i < inv->sources.count; ++i)
+        for (size_t i = 0; i < inv->boundary_sources.count; ++i)
         {
-            SourcePlace *src = inv->sources.items[i];
+            SourcePlace *src = inv->boundary_sources.items[i];
             if (!src || !src->name)
                 continue;
 
@@ -50,9 +50,9 @@ void rewrite_top_level_invocations(Block *blk)
         }
 
         // 🔁 Rewrite each DestinationPlace
-        for (size_t i = 0; i < inv->destinations.count; ++i)
+        for (size_t i = 0; i < inv->boundary_destinations.count; ++i)
         {
-            DestinationPlace *dst = inv->destinations.items[i];
+            DestinationPlace *dst = inv->boundary_destinations.items[i];
             if (!dst)
                 continue;
 
@@ -82,18 +82,18 @@ void rewrite_top_level_invocations(Block *blk)
 
 void rewrite_definition_signals(Definition *def)
 {
-    for (size_t i = 0; i < def->sources.count; ++i)
+    for (size_t i = 0; i < def->boundary_sources.count; ++i)
     {
-        SourcePlace *src = def->sources.items[i];
+        SourcePlace *src = def->boundary_sources.items[i];
         char *new_name;
         asprintf(&new_name, "%s.local.%s", def->name, src->name);
         src->resolved_name = new_name;
         LOG_INFO("🔁 Definition SourcePlace rewritten: %s → %s", src->name, new_name);
     }
 
-    for (size_t i = 0; i < def->destinations.count; ++i)
+    for (size_t i = 0; i < def->boundary_destinations.count; ++i)
     {
-        DestinationPlace *dst = def->destinations.items[i];
+        DestinationPlace *dst = def->boundary_destinations.items[i];
         char *new_name;
         asprintf(&new_name, "%s.local.%s", def->name, dst->name);
         dst->resolved_name = new_name;
@@ -120,18 +120,18 @@ void rewrite_por_invocations(Definition *def)
     // Step 1: Count signal name frequency to detect shared names
     for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
     {
-        for (size_t i = 0; i < inv->sources.count; ++i)
+        for (size_t i = 0; i < inv->boundary_sources.count; ++i)
         {
-            SourcePlace *sp = inv->sources.items[i];
+            SourcePlace *sp = inv->boundary_sources.items[i];
             if (string_set_count(seen, sp->name))
                 string_set_add_or_increment(shared, sp->name);
             else
                 string_set_add_or_increment(seen, sp->name);
         }
 
-        for (size_t i = 0; i < inv->destinations.count; ++i)
+        for (size_t i = 0; i < inv->boundary_destinations.count; ++i)
         {
-            DestinationPlace *dp = inv->destinations.items[i];
+            DestinationPlace *dp = inv->boundary_destinations.items[i];
             if (string_set_count(seen, dp->name))
                 string_set_add_or_increment(shared, dp->name);
             else
@@ -139,18 +139,18 @@ void rewrite_por_invocations(Definition *def)
         }
     }
 
-    for (size_t i = 0; i < def->sources.count; ++i)
+    for (size_t i = 0; i < def->boundary_sources.count; ++i)
     {
-        SourcePlace *sp = def->sources.items[i];
+        SourcePlace *sp = def->boundary_sources.items[i];
         if (string_set_count(seen, sp->name))
             string_set_add_or_increment(shared, sp->name);
         else
             string_set_add_or_increment(seen, sp->name);
     }
 
-    for (size_t i = 0; i < def->destinations.count; ++i)
+    for (size_t i = 0; i < def->boundary_destinations.count; ++i)
     {
-        DestinationPlace *dp = def->destinations.items[i];
+        DestinationPlace *dp = def->boundary_destinations.items[i];
         if (string_set_count(seen, dp->name))
             string_set_add_or_increment(shared, dp->name);
         else
@@ -172,9 +172,9 @@ void rewrite_por_invocations(Definition *def)
         int id = get_next_instance_id(inv->name);
         inv->instance_id = id;
 
-        for (size_t i = 0; i < inv->sources.count; ++i)
+        for (size_t i = 0; i < inv->boundary_sources.count; ++i)
         {
-            SourcePlace *sp = inv->sources.items[i];
+            SourcePlace *sp = inv->boundary_sources.items[i];
             char *new_name;
             if (string_set_count(shared, sp->name))
                 asprintf(&new_name, "%s.local.%s", def->name, sp->name);
@@ -184,9 +184,9 @@ void rewrite_por_invocations(Definition *def)
             LOG_INFO("🔁 POR SourcePlace rewritten: %s → %s", sp->name, new_name);
         }
 
-        for (size_t i = 0; i < inv->destinations.count; ++i)
+        for (size_t i = 0; i < inv->boundary_destinations.count; ++i)
         {
-            DestinationPlace *dp = inv->destinations.items[i];
+            DestinationPlace *dp = inv->boundary_destinations.items[i];
             char *new_name;
             if (string_set_count(shared, dp->name))
                 asprintf(&new_name, "%s.local.%s", def->name, dp->name);
@@ -194,23 +194,6 @@ void rewrite_por_invocations(Definition *def)
                 asprintf(&new_name, "%s.%s.%s", def->name, inv->name, dp->name);
             dp->resolved_name = new_name;
             LOG_INFO("🔁 POR DestinationPlace rewritten: %s → %s", dp->name, new_name);
-        }
-    }
-
-    // Step 3: Rewrite POR loose sources
-    for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
-    {
-        SourcePlace *por_src = def->place_of_resolution_sources.items[i];
-        if (por_src->name)
-        {
-            char *new_name;
-            asprintf(&new_name, "%s.local.%s", def->name, por_src->name);
-            por_src->resolved_name = new_name;
-            LOG_INFO("🔁 POR SourcePlace (loose) rewritten: %s → %s", por_src->name, new_name);
-        }
-        else
-        {
-            LOG_WARN("⚠️ POR SourcePlace in def %s has null name", def->name);
         }
     }
 
@@ -237,9 +220,9 @@ void rewrite_conditional_invocation(Definition *def)
         if (!arg)
             continue;
 
-        for (size_t j = 0; j < def->sources.count; ++j)
+        for (size_t j = 0; j < def->boundary_sources.count; ++j)
         {
-            SourcePlace *sp = def->sources.items[j];
+            SourcePlace *sp = def->boundary_sources.items[j];
             if (sp->name && strcmp(sp->name, arg) == 0)
             {
                 LOG_INFO("🔁 CI arg rewrite: %s.%zu → %s", def->name, i, sp->resolved_name);
@@ -259,4 +242,56 @@ void cleanup_name_counters(void)
         free(counters);
         counters = next;
     }
+}
+
+int qualify_local_signals(Block *blk)
+{
+    LOG_INFO("🧪 Starting qualify_local_signals pass...");
+
+    LOG_INFO("🔁 Rewriting top-level invocations...");
+    rewrite_top_level_invocations(blk);
+
+    for (Definition *def = blk->definitions; def != NULL; def = def->next)
+    {
+        LOG_INFO("📘 Processing Definition: %s", def->name);
+
+        LOG_INFO("  🔤 Rewriting definition-level signal names...");
+        rewrite_definition_signals(def);
+
+        // Step 3: Rewrite POR loose sources
+        for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
+        {
+            SourcePlace *por_src = def->place_of_resolution_sources.items[i];
+
+            if (!por_src || !por_src->name)
+            {
+                LOG_WARN("⚠️ POR SourcePlace in def %s has null name", def->name);
+                continue;
+            }
+
+            char *new_name;
+            asprintf(&new_name, "%s.local.%s", def->name, por_src->name);
+            por_src->resolved_name = new_name;
+            LOG_INFO("🔁 POR SourcePlace rewritten (no matching): %s → %s", por_src->name, new_name);
+        }
+        
+        LOG_INFO("  🧠 Rewriting PlaceOfResolution invocations...");
+
+        rewrite_por_invocations(def);
+
+        LOG_INFO("🔧 Patch resolved_template_args for CI to use fully qualified signal names");
+        rewrite_conditional_invocation(def);
+
+        LOG_INFO("  🔌 Wiring outputs → POR sources...");
+        //  wire_por_outputs_to_sources(def);
+
+        LOG_INFO("  🔌 Wiring POR sources → outputs...");
+        // wire_por_sources_to_outputs(def);
+    }
+
+    LOG_INFO("🧹 Cleaning up instance counters...");
+    cleanup_name_counters();
+
+    LOG_INFO("✅ Signal rewrite pass completed.");
+    return 0;
 }

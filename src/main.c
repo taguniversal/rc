@@ -8,7 +8,7 @@
 #include "log.h"
 #include "wiring.h"
 #include "rewrite_util.h"
-#include "spirv.h"
+#include "emit_spirv.h"
 #include "sexpr_parser.h"
 #include "vulkan_driver.h"
 #include "compiler.h"
@@ -118,22 +118,6 @@ char spirv_sexpr_dir[256];
 char spirv_asm_dir[256];
 char spirv_unified_dir[256];
 
-void init_output_dirs(const char *base)
-{
-    snprintf(sexpr_out_dir, sizeof(sexpr_out_dir), "%s/sexpr", base);
-    snprintf(spirv_sexpr_dir, sizeof(spirv_sexpr_dir), "%s/spirv_sexpr", base);
-    snprintf(spirv_asm_dir, sizeof(spirv_asm_dir), "%s/spirv_asm", base);
-    snprintf(spirv_unified_dir, sizeof(spirv_unified_dir), "%s/spirv_unified", base);
-
-    mkdir(base, 0755); // harmless if it already exists
-    mkdir(sexpr_out_dir, 0755);
-    mkdir(spirv_sexpr_dir, 0755);
-    mkdir(spirv_asm_dir, 0755);
-    mkdir(spirv_unified_dir, 0755);
-
-    // Don't mkdir(base) if meson already guarantees it exists.
-}
-
 int main(int argc, char *argv[])
 {
     const char *state_dir = "./state";
@@ -180,7 +164,7 @@ int main(int argc, char *argv[])
         {
             out_dir = argv[++i];
             output_flag_provided = 1;
-            init_output_dirs(out_dir);
+
         }
         else if (strcmp(argv[i], "--compile") == 0)
         {
@@ -188,10 +172,6 @@ int main(int argc, char *argv[])
         }
         else if (strcmp(argv[i], "--run_spirv") == 0)
         {
-            if (!output_flag_provided)
-            {
-                init_output_dirs(out_dir); // ensure spirv_asm_dir is populated
-            }
             return create_pipeline(spirv_asm_dir);
         }
     }

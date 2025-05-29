@@ -1,7 +1,8 @@
-#include "eval_util.h"
-#include <string.h>
 #include "eval.h"
 #include "log.h"
+#include "eval_util.h"
+#include "block_util.c"
+#include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -60,9 +61,9 @@ bool build_input_pattern(Definition *def, char **arg_names, size_t arg_count, ch
 
         bool matched = false;
 
-        for (size_t j = 0; j < def->sources.count; ++j)
+        for (size_t j = 0; j < def->boundary_sources.count; ++j)
         {
-            SourcePlace *src = def->sources.items[j];
+            SourcePlace *src = def->boundary_sources.items[j];
             if (!src || !src->resolved_name)
                 continue;
 
@@ -173,66 +174,75 @@ int propagate_intrablock_signals(Block *blk)
     return count;
 }
 
-int propagate_por_signals(Definition *def)
+int pull_outputs_from_definition(Block *blk, Invocation *inv)
 {
-    int count = 0;
-
-    for (Invocation *a = def->place_of_resolution_invocations; a; a = a->next)
+    if (!inv || !inv->definition)
     {
-        for (size_t i = 0; i < a->sources.count; ++i)
-        {
-            SourcePlace *src = a->sources.items[i];
-            if (!src || !src->resolved_name || !src->content)
-                continue;
-
-            for (Invocation *b = def->place_of_resolution_invocations; b; b = b->next)
-            {
-                for (size_t j = 0; j < b->destinations.count; ++j)
-                {
-                    DestinationPlace *dst = b->destinations.items[j];
-                    if (!dst || !dst->resolved_name)
-                        continue;
-
-                    if (strcmp(src->resolved_name, dst->resolved_name) == 0)
-                    {
-                        count += propagate_content(src, dst);
-                    }
-                }
-            }
-        }
+        LOG_WARN("⚠️ pull_outputs_from_definition - either inv or inv->definition is NULL");
+        return 0;
     }
 
-    return count;
-}
+    LOG_INFO("🧩 Pulling outputs for Invocation '%s' from Definition '%s'",
+             inv->name, inv->definition->name);
 
-int propagate_por_outputs_to_definition(Definition *def)
-{
     int side_effects = 0;
 
-    for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
+    // Match destination[i] → source[i] by position only
+    size_t def_count = inv->definition->boundary_destinations.count;
+    size_t inv_count = inv->boundary_sources.count;
+    size_t limit = def_count < inv_count ? def_count : inv_count;
+
+    for (size_t i = 0; i < limit; ++i)
     {
-        for (size_t i = 0; i < inv->sources.count; ++i)
+        DestinationPlace *def_dst = inv->definition->boundary_destinations.items[i];
+        SourcePlace *inv_src = inv->boundary_sources.items[i];
+
+        if (!def_dst || !inv_src)
+            continue;
+
+        LOG_INFO("🔢 [%zu] Def output → Invocation source", i);
+        LOG_INFO("     def_dst content: %s", def_dst->content ? def_dst->content : "(null)");
+        LOG_INFO("     inv_src before : %s", inv_src->content ? inv_src->content : "(null)");
+
+        if (def_dst->content)
         {
-            SourcePlace *src = inv->sources.items[i];
-            if (!src || !src->resolved_name || !src->content)
-                continue;
-
-            for (size_t j = 0; j < def->destinations.count; ++j)
+            if (!inv_src->content || strcmp(inv_src->content, def_dst->content) != 0)
             {
-                DestinationPlace *dst = def->destinations.items[j];
-                if (!dst || !dst->resolved_name)
-                    continue;
+                if (inv_src->content)
+                    free(inv_src->content);
 
-                if (strcmp(dst->resolved_name, src->resolved_name) == 0)
+                inv_src->content = strdup(def_dst->content);
+                LOG_INFO("📤 [%zu] Copied [%s] → Invocation source", i, def_dst->content);
+                side_effects++;
+            }
+            else
+            {
+                LOG_INFO("🛑 [%zu] Skipped: content already matches [%s]", i, def_dst->content);
+            }
+        }
+        else
+        {
+            LOG_WARN("⚠️ [%zu] Definition destination has no content", i);
+        }
+
+        // Optional: update outer block-level destination if found
+        if (def_dst->resolved_name)
+        {
+            DestinationPlace *outer_dst = find_destination(blk, def_dst->resolved_name);
+            if (outer_dst)
+            {
+                if (!outer_dst->content || strcmp(outer_dst->content, def_dst->content) != 0)
                 {
-                    if (!dst->content || strcmp(dst->content, src->content) != 0)
-                    {
-                        if (dst->content)
-                            free(dst->content);
-                        dst->content = strdup(src->content);
-                        side_effects++;
-                        LOG_INFO("🔁 Copied POR source '%s' → def->destination", src->resolved_name);
-                    }
+                    if (outer_dst->content)
+                        free(outer_dst->content);
+                    outer_dst->content = def_dst->content ? strdup(def_dst->content) : NULL;
+                    LOG_INFO("🌐 [%zu] Copied [%s] → Block-level destination [%s]",
+                             i, def_dst->content, outer_dst->resolved_name);
+                    side_effects++;
+                }
+                else
+                {
+                    LOG_INFO("🌐 [%zu] Block-level destination already has matching content [%s]", i, outer_dst->content);
                 }
             }
         }
@@ -241,132 +251,13 @@ int propagate_por_outputs_to_definition(Definition *def)
     return side_effects;
 }
 
-
-
-int pull_outputs_from_definition(Block *blk, Invocation *inv)
-{
-  if (!inv || !inv->definition)
-  {
-    LOG_WARN("⚠️ pull_outputs_from_definition - either inv or inv->definition is NULL");
-    return 0;
-  }
-
-  LOG_INFO("🧩 Pulling outputs for Invocation '%s' from Definition '%s'",
-           inv->name, inv->definition->name);
-
-  int side_effects = 0;
-
-  // Match destination[i] → source[i] by position only
-  size_t def_count = inv->definition->destinations.count;
-  size_t inv_count = inv->sources.count;
-  size_t limit = def_count < inv_count ? def_count : inv_count;
-
-  for (size_t i = 0; i < limit; ++i)
-  {
-    DestinationPlace *def_dst = inv->definition->destinations.items[i];
-    SourcePlace *inv_src = inv->sources.items[i];
-
-    if (!def_dst || !inv_src)
-      continue;
-
-    LOG_INFO("🔢 [%zu] Def output → Invocation source", i);
-    LOG_INFO("     def_dst content: %s", def_dst->content ? def_dst->content : "(null)");
-    LOG_INFO("     inv_src before : %s", inv_src->content ? inv_src->content : "(null)");
-
-    if (def_dst->content)
-    {
-      if (!inv_src->content || strcmp(inv_src->content, def_dst->content) != 0)
-      {
-        if (inv_src->content)
-          free(inv_src->content);
-
-        inv_src->content = strdup(def_dst->content);
-        LOG_INFO("📤 [%zu] Copied [%s] → Invocation source", i, def_dst->content);
-        side_effects++;
-      }
-      else
-      {
-        LOG_INFO("🛑 [%zu] Skipped: content already matches [%s]", i, def_dst->content);
-      }
-    }
-    else
-    {
-      LOG_WARN("⚠️ [%zu] Definition destination has no content", i);
-    }
-
-    // Optional: update outer block-level destination if found
-    if (def_dst->resolved_name)
-    {
-      DestinationPlace *outer_dst = find_destination(blk, def_dst->resolved_name);
-      if (outer_dst)
-      {
-        if (!outer_dst->content || strcmp(outer_dst->content, def_dst->content) != 0)
-        {
-          if (outer_dst->content)
-            free(outer_dst->content);
-          outer_dst->content = def_dst->content ? strdup(def_dst->content) : NULL;
-          LOG_INFO("🌐 [%zu] Copied [%s] → Block-level destination [%s]",
-                   i, def_dst->content, outer_dst->resolved_name);
-          side_effects++;
-        }
-        else
-        {
-          LOG_INFO("🌐 [%zu] Block-level destination already has matching content [%s]", i, outer_dst->content);
-        }
-      }
-    }
-  }
-
-  return side_effects;
-}
-
-
-DestinationPlace *find_destination(Block *blk, const char *name)
-{
-    for (Invocation *inv = blk->invocations; inv; inv = inv->next)
-    {
-        for (size_t i = 0; i < inv->destinations.count; ++i)
-        {
-            DestinationPlace *dst = inv->destinations.items[i];
-            if (!dst || !dst->resolved_name)
-                continue;
-
-            LOG_INFO("🔍 Matching: '%s' == '%s'", dst->resolved_name, name);
-
-            if (strcmp(dst->resolved_name, name) == 0)
-            {
-                return dst;
-            }
-        }
-    }
-
-    for (Definition *def = blk->definitions; def; def = def->next)
-    {
-        for (size_t i = 0; i < def->destinations.count; ++i)
-        {
-            DestinationPlace *dst = def->destinations.items[i];
-            if (!dst || !dst->resolved_name)
-                continue;
-
-            LOG_INFO("🔍 Matching: '%s' == '%s'", dst->resolved_name, name);
-
-            if (strcmp(dst->resolved_name, name) == 0)
-            {
-                return dst;
-            }
-        }
-    }
-
-    return NULL;
-}
-
 bool all_inputs_ready(Definition *def)
 {
     bool all_ready = true;
 
-    for (size_t i = 0; i < def->sources.count; ++i)
+    for (size_t i = 0; i < def->boundary_sources.count; ++i)
     {
-        SourcePlace *sp = def->sources.items[i];
+        SourcePlace *sp = def->boundary_sources.items[i];
         if (!sp)
             continue;
 
@@ -410,16 +301,16 @@ int write_result_to_named_output(Definition *def, const char *output_name, const
              result, output_name, def->name);
 
     LOG_INFO("🔍 Available Destinations in %s:", def->name);
-    for (size_t i = 0; i < def->destinations.count; ++i)
+    for (size_t i = 0; i < def->boundary_destinations.count; ++i)
     {
-        DestinationPlace *dst = def->destinations.items[i];
+        DestinationPlace *dst = def->boundary_destinations.items[i];
         if (dst && dst->resolved_name)
             LOG_INFO("   ➤ Destination: %s", dst->resolved_name);
     }
 
-    for (size_t i = 0; i < def->destinations.count; ++i)
+    for (size_t i = 0; i < def->boundary_destinations.count; ++i)
     {
-        DestinationPlace *dst = def->destinations.items[i];
+        DestinationPlace *dst = def->boundary_destinations.items[i];
         if (!dst || !dst->resolved_name)
             continue;
 
@@ -474,6 +365,7 @@ void print_signal_places(Block *blk)
         }
     }
 }
+
 int sync_invocation_outputs_to_definition(Definition *def)
 {
     if (!def)
@@ -483,15 +375,15 @@ int sync_invocation_outputs_to_definition(Definition *def)
 
     for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
     {
-        for (size_t i = 0; i < inv->sources.count; ++i)
+        for (size_t i = 0; i < inv->boundary_sources.count; ++i)
         {
-            SourcePlace *src = inv->sources.items[i];
+            SourcePlace *src = inv->boundary_sources.items[i];
             if (!src || !src->resolved_name || !src->content)
                 continue;
 
-            for (size_t j = 0; j < def->destinations.count; ++j)
+            for (size_t j = 0; j < def->boundary_destinations.count; ++j)
             {
-                DestinationPlace *dst = def->destinations.items[j];
+                DestinationPlace *dst = def->boundary_destinations.items[j];
                 if (!dst || !dst->resolved_name)
                     continue;
 
@@ -512,22 +404,6 @@ int sync_invocation_outputs_to_definition(Definition *def)
     }
 
     return side_effects;
-}
-
-Definition *find_definition_by_name(Block *blk, const char *name)
-{
-    if (!blk || !name)
-        return NULL;
-
-    for (Definition *def = blk->definitions; def; def = def->next)
-    {
-        if (def->name && strcmp(def->name, name) == 0)
-        {
-            return def;
-        }
-    }
-
-    return NULL; // Not found
 }
 
 void link_por_invocations_to_definitions(Block *blk)
@@ -563,15 +439,15 @@ int propagate_definition_signals(Definition *def, Invocation *inv)
 
     LOG_INFO("🔄 propagate_definition_signals: [%s] → [%s]", def->name, inv->name);
 
-    for (size_t i = 0; i < def->destinations.count; ++i)
+    for (size_t i = 0; i < def->boundary_destinations.count; ++i)
     {
-        DestinationPlace *def_dst = def->destinations.items[i];
+        DestinationPlace *def_dst = def->boundary_destinations.items[i];
         if (!def_dst || !def_dst->resolved_name || !def_dst->content)
             continue;
 
-        for (size_t j = 0; j < inv->sources.count; ++j)
+        for (size_t j = 0; j < inv->boundary_sources.count; ++j)
         {
-            SourcePlace *inv_src = inv->sources.items[j];
+            SourcePlace *inv_src = inv->boundary_sources.items[j];
             if (!inv_src || !inv_src->resolved_name)
                 continue;
 
@@ -585,4 +461,528 @@ int propagate_definition_signals(Definition *def, Invocation *inv)
     }
 
     return count;
+}
+
+Unit *make_unit(const char *name, Definition *def, Invocation *inv)
+{
+    Unit *unit = malloc(sizeof(Unit));
+    if (!unit)
+        return NULL;
+
+    unit->name = strdup(name); // strdup is safe for identifiers
+    unit->definition = def;
+    unit->invocation = inv;
+
+    return unit;
+}
+
+void append_unit(Block *blk, Unit *unit)
+{
+    UnitList *new_node = malloc(sizeof(UnitList));
+    if (!new_node)
+        return;
+
+    new_node->unit = unit;
+    new_node->next = NULL;
+
+    if (!blk->units)
+    {
+        blk->units = new_node;
+    }
+    else
+    {
+        UnitList *current = blk->units;
+        while (current->next)
+        {
+            current = current->next;
+        }
+        current->next = new_node;
+    }
+}
+
+void prepare_boundary_ports(Block *blk)
+{
+    if (!blk)
+        return;
+
+    blk->sources.count = 0;
+    blk->sources.items = NULL;
+    blk->destinations.count = 0;
+    blk->destinations.items = NULL;
+
+    LOG_INFO("🔍 Beginning prepare_boundary_ports...");
+
+// Helper macros to add source/dest one-by-one
+#define ADD_SRC(sp)                           \
+    do                                        \
+    {                                         \
+        if (sp)                               \
+            append_source(&blk->sources, sp); \
+    } while (0)
+#define ADD_DST(dp)                                     \
+    do                                                  \
+    {                                                   \
+        if (dp)                                         \
+            append_destination(&blk->destinations, dp); \
+    } while (0)
+
+    // Top-level invocations
+    for (Invocation *inv = blk->invocations; inv; inv = inv->next)
+    {
+        for (size_t i = 0; i < inv->boundary_sources.count; ++i)
+        {
+            SourcePlace *sp = inv->boundary_sources.items[i];
+            LOG_INFO("➕ Source (top-level invocation): %s", sp->resolved_name);
+            ADD_SRC(sp);
+        }
+
+        for (size_t i = 0; i < inv->boundary_destinations.count; ++i)
+        {
+            DestinationPlace *dp = inv->boundary_destinations.items[i];
+            LOG_INFO("➕ Dest (top-level invocation): %s", dp->resolved_name);
+            ADD_DST(dp);
+        }
+    }
+
+    // Definitions
+    for (Definition *def = blk->definitions; def; def = def->next)
+    {
+        for (size_t i = 0; i < def->boundary_sources.count; ++i)
+        {
+            SourcePlace *sp = def->boundary_sources.items[i];
+            LOG_INFO("➕ Source (definition): %s", sp->resolved_name);
+            ADD_SRC(sp);
+        }
+
+        for (size_t i = 0; i < def->boundary_destinations.count; ++i)
+        {
+            DestinationPlace *dp = def->boundary_destinations.items[i];
+            LOG_INFO("➕ Dest (definition): %s", dp->resolved_name);
+            ADD_DST(dp);
+        }
+
+        for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
+        {
+            SourcePlace *por = def->place_of_resolution_sources.items[i];
+            LOG_INFO("➕ Source (POR): %s", por->resolved_name);
+            ADD_SRC(por);
+        }
+
+        for (Invocation *por_inv = def->place_of_resolution_invocations; por_inv; por_inv = por_inv->next)
+        {
+            for (size_t i = 0; i < por_inv->boundary_sources.count; ++i)
+            {
+                SourcePlace *sp = por_inv->boundary_sources.items[i];
+                LOG_INFO("➕ Source (POR invocation): %s", sp->resolved_name);
+                ADD_SRC(sp);
+            }
+
+            for (size_t i = 0; i < por_inv->boundary_destinations.count; ++i)
+            {
+                DestinationPlace *dp = por_inv->boundary_destinations.items[i];
+                LOG_INFO("➕ Dest (POR invocation): %s", dp->resolved_name);
+                ADD_DST(dp);
+            }
+        }
+    }
+
+    // Print final
+    LOG_INFO("🧾 Final Flattened Source List:");
+    for (size_t i = 0; i < blk->sources.count; ++i)
+    {
+        SourcePlace *sp = blk->sources.items[i];
+        LOG_INFO("   📡 Source: %s [%s]", sp->resolved_name, sp->content ? sp->content : "null");
+    }
+
+    LOG_INFO("🧾 Final Flattened Destination List:");
+    for (size_t i = 0; i < blk->destinations.count; ++i)
+    {
+        DestinationPlace *dp = blk->destinations.items[i];
+        LOG_INFO("   🎯 Dest:   %s [%s]", dp->resolved_name, dp->content ? dp->content : "null");
+    }
+
+#undef ADD_SRC
+#undef ADD_DST
+}
+
+static char *prepend_unit_name(const char *unit_name, const char *sig)
+{
+    if (!sig)
+        return NULL;
+    size_t len = strlen(unit_name) + 1 + strlen(sig) + 1;
+    char *buf = malloc(len);
+    snprintf(buf, len, "%s.%s", unit_name, sig);
+    return buf;
+}
+
+void globalize_signal_names(Block *blk)
+{
+    LOG_INFO("🌐 Starting signal globalization for all Units...");
+
+    for (UnitList *ul = blk->units; ul != NULL; ul = ul->next)
+    {
+        Unit *unit = ul->unit;
+        const char *unit_name = unit->name;
+
+        // --- Invocation sources and destinations ---
+        for (size_t i = 0; i < unit->invocation->boundary_sources.count; ++i)
+        {
+            SourcePlace *sp = unit->invocation->boundary_sources.items[i];
+            if (sp->resolved_name)
+            {
+                sp->resolved_name = prepend_unit_name(unit_name, sp->resolved_name);
+            }
+        }
+        for (size_t i = 0; i < unit->invocation->boundary_destinations.count; ++i)
+        {
+            DestinationPlace *dp = unit->invocation->boundary_destinations.items[i];
+            if (dp->resolved_name)
+            {
+                dp->resolved_name = prepend_unit_name(unit_name, dp->resolved_name);
+            }
+        }
+
+        // --- Definition sources, destinations, POR ---
+        for (size_t i = 0; i < unit->definition->boundary_sources.count; ++i)
+        {
+            SourcePlace *sp = unit->definition->boundary_sources.items[i];
+            if (sp->resolved_name)
+            {
+                sp->resolved_name = prepend_unit_name(unit_name, sp->resolved_name);
+            }
+        }
+        for (size_t i = 0; i < unit->definition->boundary_destinations.count; ++i)
+        {
+            DestinationPlace *dp = unit->definition->boundary_destinations.items[i];
+            if (dp->resolved_name)
+            {
+                dp->resolved_name = prepend_unit_name(unit_name, dp->resolved_name);
+            }
+        }
+        
+        for (size_t i = 0; i < unit->definition->place_of_resolution_sources.count; ++i)
+        {
+            SourcePlace *sp = unit->definition->place_of_resolution_sources.items[i];
+
+            const char *base = sp->resolved_name ? sp->resolved_name : sp->name;
+            if (base)
+            {
+                sp->resolved_name = prepend_unit_name(unit_name, base);
+            }
+        }
+
+        // --- ConditionalInvocation (if present) ---
+        ConditionalInvocation *ci = unit->definition->conditional_invocation;
+        if (ci)
+        {
+            for (size_t i = 0; i < ci->arg_count; ++i)
+            {
+                if (ci->resolved_template_args[i])
+                {
+                    ci->resolved_template_args[i] =
+                        prepend_unit_name(unit_name, ci->resolved_template_args[i]);
+                }
+            }
+            if (ci->resolved_output)
+            {
+                ci->resolved_output = prepend_unit_name(unit_name, ci->resolved_output);
+            }
+        }
+
+        LOG_INFO("✅ Signals globalized for unit: %s", unit_name);
+    }
+
+    LOG_INFO("🌍 Signal globalization complete.");
+}
+
+static Unit *create_unit(const char *def_name, int instance_id, Definition *def, Invocation *inv)
+{
+    Unit *unit = malloc(sizeof(Unit));
+    if (!unit)
+        return NULL;
+
+    // Construct unit name: INV.<Definition>.<Instance>
+    char buf[256];
+    snprintf(buf, sizeof(buf), "INV.%s.%d", def_name, instance_id);
+    unit->name = strdup(buf);
+    unit->definition = def;
+    unit->invocation = inv;
+
+    return unit;
+}
+
+char *prefix_signal_name(const char *unit_prefix, const char *original_name)
+{
+    const char *base = original_name;
+    if (strncmp(original_name, "local.", 6) == 0)
+    {
+        base = original_name + 6;
+    }
+    size_t len = strlen(unit_prefix) + strlen(base) + 2;
+    char *result = malloc(len);
+    snprintf(result, len, "%s.%s", unit_prefix, base);
+    return result;
+}
+
+Invocation *clone_invocation(const Invocation *src, const char *unit_prefix)
+{
+    if (!src || !unit_prefix)
+        return NULL;
+
+    Invocation *inv = calloc(1, sizeof(Invocation));
+    if (!inv)
+        return NULL;
+
+    inv->name = strdup(src->name);
+    if (!inv->name)
+    {
+        free(inv);
+        return NULL;
+    }
+
+    inv->next = NULL;
+
+    // --- Clone boundary_sources ---
+    inv->boundary_sources.count = src->boundary_sources.count;
+    inv->boundary_sources.items = calloc(inv->boundary_sources.count, sizeof(SourcePlace *));
+    if (!inv->boundary_sources.items && inv->boundary_sources.count > 0)
+        goto fail;
+
+    for (size_t i = 0; i < inv->boundary_sources.count; ++i)
+    {
+        SourcePlace *orig = src->boundary_sources.items[i];
+        SourcePlace *copy = calloc(1, sizeof(SourcePlace));
+        if (!copy)
+            goto fail;
+
+        memcpy(copy, orig, sizeof(SourcePlace));
+        copy->resolved_name = orig->resolved_name ? prefix_signal_name(unit_prefix, orig->name) : NULL;
+        copy->content = orig->content ? strdup(orig->content) : NULL;
+
+        inv->boundary_sources.items[i] = copy;
+    }
+
+    // --- Clone boundary_destinations ---
+    inv->boundary_destinations.count = src->boundary_destinations.count;
+    inv->boundary_destinations.items = calloc(inv->boundary_destinations.count, sizeof(DestinationPlace *));
+    if (!inv->boundary_destinations.items && inv->boundary_destinations.count > 0)
+        goto fail;
+
+    for (size_t i = 0; i < inv->boundary_destinations.count; ++i)
+    {
+        DestinationPlace *orig = src->boundary_destinations.items[i];
+        DestinationPlace *copy = calloc(1, sizeof(DestinationPlace));
+        if (!copy)
+            goto fail;
+
+        memcpy(copy, orig, sizeof(DestinationPlace));
+        copy->resolved_name = orig->resolved_name ? prefix_signal_name(unit_prefix, orig->name) : NULL;
+        copy->content = orig->content ? strdup(orig->content) : NULL;
+
+        inv->boundary_destinations.items[i] = copy;
+    }
+
+    return inv;
+
+fail:
+    if (inv)
+    {
+        free(inv->name);
+
+        for (size_t i = 0; i < inv->boundary_sources.count; ++i)
+            free(inv->boundary_sources.items[i]);
+        free(inv->boundary_sources.items);
+
+        for (size_t i = 0; i < inv->boundary_destinations.count; ++i)
+            free(inv->boundary_destinations.items[i]);
+        free(inv->boundary_destinations.items);
+
+        free(inv);
+    }
+
+    return NULL;
+}
+
+Definition *clone_definition(const Definition *src, const char *unit_prefix)
+{
+    if (!src || !unit_prefix)
+        return NULL;
+
+    Definition *def = calloc(1, sizeof(Definition));
+    if (!def)
+        return NULL;
+
+    def->name = strdup(src->name);
+    if (!def->name)
+    {
+        free(def);
+        return NULL;
+    }
+
+    def->next = NULL;
+
+    // --- Clone boundary_sources ---
+    def->boundary_sources.count = src->boundary_sources.count;
+    def->boundary_sources.items = calloc(def->boundary_sources.count, sizeof(SourcePlace *));
+    if (!def->boundary_sources.items && def->boundary_sources.count > 0)
+        goto fail;
+
+    for (size_t i = 0; i < def->boundary_sources.count; ++i)
+    {
+        SourcePlace *orig = src->boundary_sources.items[i];
+        SourcePlace *copy = calloc(1, sizeof(SourcePlace));
+        if (!copy)
+            goto fail;
+
+        memcpy(copy, orig, sizeof(SourcePlace));
+        copy->resolved_name = orig->resolved_name ? prefix_signal_name(unit_prefix, orig->name) : NULL;
+        copy->content = orig->content ? strdup(orig->content) : NULL;
+
+        def->boundary_sources.items[i] = copy;
+    }
+
+    // --- Clone boundary_destinations ---
+    def->boundary_destinations.count = src->boundary_destinations.count;
+    def->boundary_destinations.items = calloc(def->boundary_destinations.count, sizeof(DestinationPlace *));
+    if (!def->boundary_destinations.items && def->boundary_destinations.count > 0)
+        goto fail;
+
+    for (size_t i = 0; i < def->boundary_destinations.count; ++i)
+    {
+        DestinationPlace *orig = src->boundary_destinations.items[i];
+        DestinationPlace *copy = calloc(1, sizeof(DestinationPlace));
+        if (!copy)
+            goto fail;
+
+        memcpy(copy, orig, sizeof(DestinationPlace));
+        copy->resolved_name = orig->resolved_name ? prefix_signal_name(unit_prefix, orig->name) : NULL;
+        copy->content = orig->content ? strdup(orig->content) : NULL;
+
+        def->boundary_destinations.items[i] = copy;
+    }
+
+    // --- Clone POR sources ---
+    def->place_of_resolution_sources.count = src->place_of_resolution_sources.count;
+    def->place_of_resolution_sources.items = calloc(def->place_of_resolution_sources.count, sizeof(SourcePlace *));
+    if (!def->place_of_resolution_sources.items && def->place_of_resolution_sources.count > 0)
+        goto fail;
+
+    for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
+    {
+        SourcePlace *orig = src->place_of_resolution_sources.items[i];
+        SourcePlace *copy = calloc(1, sizeof(SourcePlace));
+        if (!copy)
+            goto fail;
+
+        memcpy(copy, orig, sizeof(SourcePlace));
+        copy->resolved_name = orig->resolved_name ? prefix_signal_name(unit_prefix, orig->name) : NULL;
+        copy->content = orig->content ? strdup(orig->content) : NULL;
+
+        def->place_of_resolution_sources.items[i] = copy;
+    }
+
+    // --- Clone POR invocations ---
+    def->place_of_resolution_invocations = NULL;
+    Invocation **tail = &def->place_of_resolution_invocations;
+
+    for (Invocation *cur = src->place_of_resolution_invocations; cur; cur = cur->next)
+    {
+        Invocation *copy = clone_invocation(cur, unit_prefix);
+        if (!copy)
+            goto fail;
+
+        *tail = copy;
+        tail = &copy->next;
+    }
+
+    return def;
+
+fail:
+    // Clean up partial allocation (not full free_tree, just enough to not leak)
+    if (def)
+    {
+        free(def->name);
+
+        for (size_t i = 0; i < def->boundary_sources.count; ++i)
+            free(def->boundary_sources.items[i]);
+        free(def->boundary_sources.items);
+
+        for (size_t i = 0; i < def->boundary_destinations.count; ++i)
+            free(def->boundary_destinations.items[i]);
+        free(def->boundary_destinations.items);
+
+        for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
+            free(def->place_of_resolution_sources.items[i]);
+        free(def->place_of_resolution_sources.items);
+
+        Invocation *inv = def->place_of_resolution_invocations;
+        while (inv)
+        {
+            Invocation *next = inv->next;
+            free(inv); // optionally call a deeper free here
+            inv = next;
+        }
+
+        free(def);
+    }
+
+    return NULL;
+}
+
+void unify_invocations(Block *blk)
+{
+    LOG_INFO("🏗  Building Unit structures (invocation/definition pairs)...");
+
+    UnitList *head = NULL;
+    UnitList **tail = &head;
+
+    size_t count = 0;
+
+    for (Invocation *inv = blk->invocations; inv != NULL; inv = inv->next)
+    {
+        LOG_INFO("📦 Visiting Invocation: %s (%p)", inv->name, (void *)inv);
+    }
+
+    for (Invocation *inv = blk->invocations; inv != NULL; inv = inv->next)
+    {
+        // Find matching definition
+        Definition *def = blk->definitions;
+        while (def && strcmp(def->name, inv->name) != 0)
+        {
+            def = def->next;
+        }
+
+        if (!def)
+        {
+            LOG_WARN("⚠️  No matching definition for invocation: %s", inv->name);
+            continue;
+        }
+
+        // ✅ Declare and initialize buf BEFORE it's used
+        char buf[256];
+        snprintf(buf, sizeof(buf), "INV.%s.%d", inv->name, inv->instance_id);
+
+        LOG_INFO("🔗 Creating Unit: %s", buf);
+
+        Definition *def_copy = clone_definition(def, buf);
+        Invocation *inv_copy = clone_invocation(inv, buf);
+
+        // Construct Unit
+        Unit *unit = malloc(sizeof(Unit));
+        unit->name = strdup(buf);
+        unit->definition = def_copy;
+        unit->invocation = inv_copy;
+
+        // Append to UnitList
+        UnitList *node = malloc(sizeof(UnitList));
+        node->unit = unit;
+        node->next = NULL;
+
+        *tail = node;
+        tail = &node->next;
+        count += 1;
+    }
+
+    blk->units = head;
+    LOG_INFO("✅ Finished building %zu unit(s)", count);
 }
