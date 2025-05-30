@@ -26,16 +26,8 @@ void emit_unit(Unit *unit, const char *out_dir)
     fprintf(f, "(Unit\n");
     fprintf(f, "  (Name %s)\n", unit->name);
 
-    // Emit Invocation
-    fprintf(f, "  (Invocation\n");
-    fprintf(f, "    (Name %s)\n", unit->invocation->name);
-    fprintf(f, "    (InstanceID %d)\n", unit->invocation->instance_id);
-
-    // Emit SourceList and DestinationList using helpers
-    emit_source_list(f, unit->invocation->boundary_sources, 2, "outputs");
-    emit_destination_list(f, unit->invocation->boundary_destinations, 2, "inputs");
-
-    fprintf(f, "  )\n");
+    // 🔁 Use the shared helper — preserves parsed-from and roles
+    emit_invocation(f, unit->invocation, 2);
 
     // Emit Definition
     emit_definition(f, unit->definition, 2);
@@ -45,6 +37,7 @@ void emit_unit(Unit *unit, const char *out_dir)
 
     LOG_INFO("📤 Emitted unit to %s", path);
 }
+
 
 void emit_all_units(Block *blk, const char *dir)
 {

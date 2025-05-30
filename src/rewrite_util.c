@@ -107,6 +107,19 @@ void rewrite_definition_signals(Definition *def)
         def->conditional_invocation->resolved_output = new_output;
         LOG_INFO("🔁 ConditionalInvocation Output rewritten: %s → %s", def->conditional_invocation->output, new_output);
     }
+
+    // 🔁 Rewrite PlaceOfResolution sources (e.g., CI output signals)
+    for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
+    {
+        SourcePlace *sp = def->place_of_resolution_sources.items[i];
+        if (!sp || !sp->name)
+            continue;
+
+        char *new_name;
+        asprintf(&new_name, "%s.local.%s", def->name, sp->name);
+        sp->resolved_name = new_name;
+        LOG_INFO("🔁 POR (CI) SourcePlace rewritten: %s → %s", sp->name, new_name);
+    }
 }
 
 void rewrite_por_invocations(Definition *def)
@@ -258,23 +271,6 @@ int qualify_local_signals(Block *blk)
         LOG_INFO("  🔤 Rewriting definition-level signal names...");
         rewrite_definition_signals(def);
 
-        // Step 3: Rewrite POR loose sources
-        for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
-        {
-            SourcePlace *por_src = def->place_of_resolution_sources.items[i];
-
-            if (!por_src || !por_src->name)
-            {
-                LOG_WARN("⚠️ POR SourcePlace in def %s has null name", def->name);
-                continue;
-            }
-
-            char *new_name;
-            asprintf(&new_name, "%s.local.%s", def->name, por_src->name);
-            por_src->resolved_name = new_name;
-            LOG_INFO("🔁 POR SourcePlace rewritten (no matching): %s → %s", por_src->name, new_name);
-        }
-        
         LOG_INFO("  🧠 Rewriting PlaceOfResolution invocations...");
 
         rewrite_por_invocations(def);

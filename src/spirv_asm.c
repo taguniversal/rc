@@ -7,13 +7,28 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <stdbool.h>
-
 #include <vulkan/vulkan.h>
 #include <assert.h>
+#include <sys/stat.h>
+#include <string.h>
 
+//[2025-05-28 19:56:28] [ERROR] ❌ Failed to open output spvasm file: /Users/eflores/src/rc/build/out/stage/5/spirv_asm
 
 void emit_spirv_asm_file(const char *sexpr_path, const char *spvasm_path)
 {
+    char full_out_path[1024];
+
+    // Check if spvasm_path is a directory
+    struct stat path_stat;
+    if (stat(spvasm_path, &path_stat) == 0 && S_ISDIR(path_stat.st_mode))
+    {
+        snprintf(full_out_path, sizeof(full_out_path), "%s/main.spvasm", spvasm_path);
+    }
+    else
+    {
+        strncpy(full_out_path, spvasm_path, sizeof(full_out_path));
+    }
+
     FILE *in = fopen(sexpr_path, "r");
     if (!in)
     {
@@ -21,10 +36,10 @@ void emit_spirv_asm_file(const char *sexpr_path, const char *spvasm_path)
         return;
     }
 
-    FILE *out = fopen(spvasm_path, "w");
+    FILE *out = fopen(full_out_path, "w");
     if (!out)
     {
-        LOG_ERROR("❌ Failed to open output spvasm file: %s", spvasm_path);
+        LOG_ERROR("❌ Failed to open output spvasm file: %s", full_out_path);
         fclose(in);
         return;
     }
@@ -32,18 +47,13 @@ void emit_spirv_asm_file(const char *sexpr_path, const char *spvasm_path)
     char line[1024];
     while (fgets(line, sizeof(line), in))
     {
-        // Skip to first '('
         char *start = strchr(line, '(');
-        if (!start)
-            continue;
+        if (!start) continue;
         start++;
 
-        // Trim ending ')'
         char *end = strrchr(start, ')');
-        if (end)
-            *end = '\0';
+        if (end) *end = '\0';
 
-        // Tokenize
         char *tokens[64];
         int count = 0;
         char *tok = strtok(start, " \t\n\r");
@@ -53,12 +63,9 @@ void emit_spirv_asm_file(const char *sexpr_path, const char *spvasm_path)
             tok = strtok(NULL, " \t\n\r");
         }
 
-        if (count == 0)
-            continue;
+        if (count == 0) continue;
 
         const char *op = tokens[0];
-
-        // List of opcodes that yield a result ID as their first operand
         bool has_result_id = false;
         int result_index = -1;
 
@@ -84,7 +91,7 @@ void emit_spirv_asm_file(const char *sexpr_path, const char *spvasm_path)
             for (int i = 1; i < count; ++i)
             {
                 if (i == result_index)
-                    continue; // Already printed as lhs
+                    continue;
                 fprintf(out, " %s", tokens[i]);
             }
             fprintf(out, "\n");
@@ -102,5 +109,5 @@ void emit_spirv_asm_file(const char *sexpr_path, const char *spvasm_path)
 
     fclose(in);
     fclose(out);
-    LOG_INFO("✅ Converted S-expr to SPIR-V assembly: %s → %s", sexpr_path, spvasm_path);
+    LOG_INFO("✅ Converted S-expr to SPIR-V assembly: %s → %s", sexpr_path, full_out_path);
 }

@@ -81,11 +81,7 @@ validate_bin = executable('validate_sexpr',
 # --- Output directories ---
 out_root = join_paths(meson.current_build_dir(), 'out')
 out_dirs = [
-  join_paths(out_root, 'sexpr'),
-  join_paths(out_root, 'spirv_sexpr'),
-  join_paths(out_root, 'spirv_unified'),
-  join_paths(out_root, 'spirv_compiled'),
-  join_paths(out_root, 'state')
+  join_paths(out_root, 'stage')
 ]
 
 # Create out directories at configure time
@@ -106,16 +102,15 @@ compile_output = custom_target('compile-all',
 
 
 # --- SPIR-V binary ---
-spirv_asm_path = join_paths(out_root, 'spirv_unified', 'main.spvasm')
-spirv_bin_path = join_paths(out_root, 'spirv_compiled', 'main.spv')
-spirv_compiled_file = join_paths(out_root, 'spirv_compiled', 'main.spv')
+spirv_stage5_dir = join_paths(meson.current_build_dir(), 'out/stage/5/spirv')
+spirv_input = join_paths(spirv_stage5_dir, 'main.spvasm')
+spirv_output = join_paths(meson.current_build_dir(), 'out/spirv_compiled/main.spv')
 
-spirv_asm_file = join_paths(out_root, 'spirv_asm', 'main.spvasm')
 spirv_bin = custom_target('spirv-bin',
-  input: compile_output,
-  output: 'main.spv',
-  command: ['spirv-as', spirv_asm_file, '-o', spirv_compiled_file],
-  build_by_default: true
+  input : spirv_input,
+  output : 'main.spv',
+  command : ['/usr/local/bin/spirv-as', '@INPUT@', '-o', '@OUTPUT@'],
+  install : false
 )
 
 

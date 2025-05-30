@@ -659,7 +659,7 @@ void globalize_signal_names(Block *blk)
                 dp->resolved_name = prepend_unit_name(unit_name, dp->resolved_name);
             }
         }
-        
+
         for (size_t i = 0; i < unit->definition->place_of_resolution_sources.count; ++i)
         {
             SourcePlace *sp = unit->definition->place_of_resolution_sources.items[i];
@@ -711,19 +711,6 @@ static Unit *create_unit(const char *def_name, int instance_id, Definition *def,
     return unit;
 }
 
-char *prefix_signal_name(const char *unit_prefix, const char *original_name)
-{
-    const char *base = original_name;
-    if (strncmp(original_name, "local.", 6) == 0)
-    {
-        base = original_name + 6;
-    }
-    size_t len = strlen(unit_prefix) + strlen(base) + 2;
-    char *result = malloc(len);
-    snprintf(result, len, "%s.%s", unit_prefix, base);
-    return result;
-}
-
 Invocation *clone_invocation(const Invocation *src, const char *unit_prefix)
 {
     if (!src || !unit_prefix)
@@ -740,6 +727,8 @@ Invocation *clone_invocation(const Invocation *src, const char *unit_prefix)
         return NULL;
     }
 
+    inv->origin_sexpr_path = src->origin_sexpr_path ? strdup(src->origin_sexpr_path) : NULL;
+
     inv->next = NULL;
 
     // --- Clone boundary_sources ---
@@ -755,9 +744,13 @@ Invocation *clone_invocation(const Invocation *src, const char *unit_prefix)
         if (!copy)
             goto fail;
 
-        memcpy(copy, orig, sizeof(SourcePlace));
-        copy->resolved_name = orig->resolved_name ? prefix_signal_name(unit_prefix, orig->name) : NULL;
+        // 🔁 Explicit deep copy
+        copy->name = orig->name ? strdup(orig->name) : NULL;
+        copy->resolved_name = orig->resolved_name ? strdup(orig->resolved_name) : NULL;
         copy->content = orig->content ? strdup(orig->content) : NULL;
+
+        // Copy primitive fields here as needed
+        // copy->index = orig->index;
 
         inv->boundary_sources.items[i] = copy;
     }
@@ -775,9 +768,12 @@ Invocation *clone_invocation(const Invocation *src, const char *unit_prefix)
         if (!copy)
             goto fail;
 
-        memcpy(copy, orig, sizeof(DestinationPlace));
-        copy->resolved_name = orig->resolved_name ? prefix_signal_name(unit_prefix, orig->name) : NULL;
+        // 🔁 Explicit deep copy of all fields
+        copy->name = orig->name ? strdup(orig->name) : NULL;
+        copy->resolved_name = orig->resolved_name ? strdup(orig->resolved_name) : NULL;
         copy->content = orig->content ? strdup(orig->content) : NULL;
+
+        // Copy primitive fields here, if any (e.g. copy->index = orig->index)
 
         inv->boundary_destinations.items[i] = copy;
     }
@@ -819,6 +815,8 @@ Definition *clone_definition(const Definition *src, const char *unit_prefix)
         return NULL;
     }
 
+    def->origin_sexpr_path = src->origin_sexpr_path ? strdup(src->origin_sexpr_path) : NULL;
+
     def->next = NULL;
 
     // --- Clone boundary_sources ---
@@ -831,12 +829,10 @@ Definition *clone_definition(const Definition *src, const char *unit_prefix)
     {
         SourcePlace *orig = src->boundary_sources.items[i];
         SourcePlace *copy = calloc(1, sizeof(SourcePlace));
-        if (!copy)
-            goto fail;
-
-        memcpy(copy, orig, sizeof(SourcePlace));
-        copy->resolved_name = orig->resolved_name ? prefix_signal_name(unit_prefix, orig->name) : NULL;
+        copy->name = orig->name ? strdup(orig->name) : NULL;
+        copy->resolved_name = orig->resolved_name ? strdup(orig->resolved_name) : NULL;
         copy->content = orig->content ? strdup(orig->content) : NULL;
+        // Copy other primitive fields here if needed (e.g. int index, enum flags, etc.)
 
         def->boundary_sources.items[i] = copy;
     }
@@ -844,6 +840,7 @@ Definition *clone_definition(const Definition *src, const char *unit_prefix)
     // --- Clone boundary_destinations ---
     def->boundary_destinations.count = src->boundary_destinations.count;
     def->boundary_destinations.items = calloc(def->boundary_destinations.count, sizeof(DestinationPlace *));
+
     if (!def->boundary_destinations.items && def->boundary_destinations.count > 0)
         goto fail;
 
@@ -854,9 +851,13 @@ Definition *clone_definition(const Definition *src, const char *unit_prefix)
         if (!copy)
             goto fail;
 
-        memcpy(copy, orig, sizeof(DestinationPlace));
-        copy->resolved_name = orig->resolved_name ? prefix_signal_name(unit_prefix, orig->name) : NULL;
+        // 🔁 Deep copy all fields explicitly
+        copy->name = orig->name ? strdup(orig->name) : NULL;
+        copy->resolved_name = orig->resolved_name ? strdup(orig->resolved_name) : NULL;
         copy->content = orig->content ? strdup(orig->content) : NULL;
+
+        // If you have any other primitive fields (e.g. flags, enum type, etc.), copy them directly here:
+        // copy->some_flag = orig->some_flag;
 
         def->boundary_destinations.items[i] = copy;
     }
@@ -874,9 +875,13 @@ Definition *clone_definition(const Definition *src, const char *unit_prefix)
         if (!copy)
             goto fail;
 
-        memcpy(copy, orig, sizeof(SourcePlace));
-        copy->resolved_name = orig->resolved_name ? prefix_signal_name(unit_prefix, orig->name) : NULL;
+        // 🔁 Deep copy all relevant fields explicitly
+        copy->name = orig->name ? strdup(orig->name) : NULL;
+        copy->resolved_name = orig->resolved_name ? strdup(orig->resolved_name) : NULL;
         copy->content = orig->content ? strdup(orig->content) : NULL;
+
+        // Copy any other non-pointer fields here if present:
+        // copy->role = orig->role;  // example
 
         def->place_of_resolution_sources.items[i] = copy;
     }
