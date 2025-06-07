@@ -1,27 +1,13 @@
 (Invocation
-  (Name Rule30Cell)
+  (Target Rule30Cell)
 
-  (DestinationList
-    (DestinationPlace
-      (Signal
-        (Content 1)
-      )
-    )
-    (DestinationPlace
-      (Signal
-        (Content 0)
-      )
-    )
-    (DestinationPlace
-      (Signal
-        (Content 1)
-      )
-    )
-  )
+  (X 1)
+  (Y 1)
+  (Z 0)
+  
+  (Inputs X Y Z)
 
-  (SourceList
-    (SourcePlace
-      (Name Rule30CellOut)
-    )
+  (Outputs
+    Rule30CellOut
   )
 )

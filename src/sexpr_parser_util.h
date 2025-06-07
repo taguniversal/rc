@@ -2,7 +2,7 @@
 #include <stdbool.h>
 int parse_signal(SExpr *sig_expr, char **out_content);
 bool parse_definition_name(Definition *def, SExpr *expr);
-void parse_definition_sources(Definition *def, SExpr *expr);
+void parse_definition_inputs(Definition *def, const SExpr *expr);
 void parse_definition_destinations(Definition *def, SExpr *expr);
 
 void parse_place_of_resolution(Definition *def, SExpr *expr, char **pending_output);

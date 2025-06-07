@@ -99,7 +99,8 @@ void emit_source_list(FILE *out, SourcePlaceList list, int indent, const char *r
         else
         {
             emit_indent(out, indent + 4);
-            fputs(";; ⚠️ Unwired SourcePlace\n", out);
+            fputs(";; (No content yet — to be resolved by evaluation)\n", out);
+
         }
 
         emit_indent(out, indent + 2);
@@ -200,7 +201,7 @@ void emit_place_of_resolution(FILE *out, Definition *def, int indent)
 
 void emit_invocation(FILE *out, Invocation *inv, int indent)
 {
-    fprintf(out, ";; Invocation parsed from from %s\n", inv->origin_sexpr_path);
+    fprintf(out, ";; Invocation parsed from %s\n", inv->origin_sexpr_path);
     emit_indent(out, indent);
     fputs("(Invocation\n", out);
 

@@ -1,47 +1,46 @@
 
 #include "eval.h"
+#include "block.h"
 #include <stdio.h>
 #include <string.h>
 
-Definition *find_definition_by_name(Block *blk, const char *name)
-{
-    if (!blk || !name)
-        return NULL;
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <arpa/inet.h>  // for in6_addr
 
-    for (Definition *def = blk->definitions; def; def = def->next)
-    {
-        if (def->name && strcmp(def->name, name) == 0)
-        {
-            return def;
+bool parse_psi128(const char *input, psi128_t *out)
+{
+    if (!input || !out) return false;
+
+    // Validate format: starts with "[<:" and ends with ":>]"
+    size_t len = strlen(input);
+    if (len < 7 || strncmp(input, "[<:", 3) != 0 || strncmp(input + len - 3, ":>]", 3) != 0) {
+        return false;
+    }
+
+    // Extract hex part
+    char hex[33] = {0};  // 32 hex chars + null terminator
+    strncpy(hex, input + 3, 32);
+
+    // Parse hex into 16 bytes
+    for (int i = 0; i < 16; ++i) {
+        char byte_str[3] = { hex[i*2], hex[i*2 + 1], 0 };
+        unsigned int byte;
+        if (sscanf(byte_str, "%02x", &byte) != 1) {
+            return false;
         }
+        out->s6_addr[i] = (uint8_t)byte;
     }
 
-    return NULL; // Not found
+    return true;
 }
 
-
-SourcePlace *find_source(Block *blk, const char *global_name)
-{
-    for (size_t i = 0; i < blk->sources.count; ++i) {
-        SourcePlace *src = blk->sources.items[i];
-        if (!src || !src->resolved_name)
-            continue;
-
-        if (strcmp(src->resolved_name, global_name) == 0)
-            return src;
+void print_psi(const psi128_t *psi) {
+    printf("[<:");
+    for (int i = 0; i < 16; i++) {
+        printf("%02X", psi->s6_addr[i]);
     }
-    return NULL;
-}
-
-DestinationPlace *find_destination(Block *blk, const char *global_name)
-{
-    for (size_t i = 0; i < blk->destinations.count; ++i) {
-        DestinationPlace *dst = blk->destinations.items[i];
-        if (!dst || !dst->resolved_name)
-            continue;
-
-        if (strcmp(dst->resolved_name, global_name) == 0)
-            return dst;
-    }
-    return NULL;
+    printf(":>]");
 }

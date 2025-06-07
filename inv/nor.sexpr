@@ -1,35 +1,26 @@
 (Definition
-  (Name NOR)
+  (Target NOR)
 
-  (SourceList
-    (SourcePlace (Name A))
-    (SourcePlace (Name B))
+  (Inputs
+    A
+    B
   )
 
-  (DestinationList
-    (DestinationPlace (Name NOR_Out))
+  (Outputs
+    NOR_Out
   )
 
-  (PlaceOfResolution
+  (Body
     (Invocation
-      (Name OR)
-      (DestinationList
-       (DestinationPlace (Name A))
-        (DestinationPlace (Name B))   
-      )
-      (SourceList 
-       (SourcePlace (Name OrOut))
-      )
+      (Target OR)
+      (Inputs  A B)
+      (Outputs OrOut)
     )
 
     (Invocation
-      (Name NOT)
-      (DestinationList
-        (DestinationPlace (Name OrOut))
-      )
-      (SourceList 
-        (SourcePlace (Name NOR_Out))
-      )
+      (Target NOT)
+      (Inputs  OrOut)
+      (Outputs NOR_Out)
     )
   )
 )

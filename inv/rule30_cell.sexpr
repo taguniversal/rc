@@ -1,32 +1,28 @@
 (Definition
-  (Name Rule30Cell)
+  (Target Rule30Cell)
 
-  (SourceList
-    (SourcePlace (Name L))
-    (SourcePlace (Name C))
-    (SourcePlace (Name R))
+  (Inputs
+    L
+    C
+    R
   )
 
-  (DestinationList
-    (DestinationPlace (Name Rule30CellOut))
+  (Outputs
+    Rule30CellOut
   )
 
-  (PlaceOfResolution
-    (SourcePlace
-      (Name Rule30CellOut)
-      (ContentFrom ConditionalInvocationResult)
+  (Body
+    (ConditionalInvocation
+      (Output Rule30CellOut)
+      (Template L C R)
+      (Case 111 0)
+      (Case 110 0)
+      (Case 101 0)
+      (Case 100 1)
+      (Case 011 1)
+      (Case 010 1)
+      (Case 001 1)
+      (Case 000 0)
     )
-  )
-
-  (ConditionalInvocation
-    (Template L C R  )
-    (Case 111 0)
-    (Case 110 0)
-    (Case 101 0)
-    (Case 100 1)
-    (Case 011 1)
-    (Case 010 1)
-    (Case 001 1)
-    (Case 000 0)
   )
 )

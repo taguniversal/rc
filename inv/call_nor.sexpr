@@ -1,22 +1,11 @@
 (Invocation
-  (Name NOR)
+  (Target NOR)
 
-  (DestinationList
-    (DestinationPlace
-      (Signal
-        (Content 1)
-      )
-    )
-    (DestinationPlace
-      (Signal
-        (Content 0)
-      )
-    )
-  )
+  (X 1)
+  (Y 1)
+  (Inputs X Y
 
-  (SourceList
-    (SourcePlace
-      (Name Nor_Out)
-    )
+  (Outputs
+    Nor_Out
   )
 )

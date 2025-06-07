@@ -38,13 +38,13 @@
 #include "mkrand.h"
 #include <math.h>
 #include <inttypes.h>
-
 #include <stdio.h>
 #include <time.h>
 #include <stdarg.h>
 #include <unistd.h>
 #include "log.h"
-
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 /* Flag set by ‘--verbose’. */
 int verbose_flag = 0;
@@ -1702,13 +1702,12 @@ int next_block(const char *seed, char *next_block, size_t buf_size) {
     }
     return -1;  // Failure
 }
-
-void mkrand_generate_ipv6(const uint8_t* hash_seed, uint8_t out[16]) {
-    LOG_INFO("🔹 MKRAND new block generation...");
+/*
+void mkrand_generate_ipv6(uint8_t out[16]) {
+    LOG_INFO("🔹 MKRAND IPV6 generation...");
 
     // ✅ Ensure `cp` is initialized
     if (!cp) {
-        LOG_WARN("⚠️ Warning: cp is NULL. Initializing with cp_init()...");
         cp_init();
     }
 
@@ -1719,7 +1718,7 @@ void mkrand_generate_ipv6(const uint8_t* hash_seed, uint8_t out[16]) {
     }
     LOG_INFO("✅ Allocated memory for seed vector: %p", (void *) seed_vec);
 
-    seed_vec = hash_seed_to_vec(hash_seed);
+    seed_vec = time_seed_to_vec(time_seed());
     if (!seed_vec) {
         LOG_ERROR("❌ Error: time_seed_to_vec() returned NULL!");
         free(seed_vec);
@@ -1740,6 +1739,39 @@ void mkrand_generate_ipv6(const uint8_t* hash_seed, uint8_t out[16]) {
     // ✅ Copy from SDR30 to `out` 
     vecbe_pack(out, cp->SDR30);
     LOG_INFO("✅ Successfully generated IPv6 block!");
+}
+*/
+
+
+struct in6_addr mkrand_generate_ipv6() {
+    struct in6_addr addr = IN6ADDR_ANY_INIT;
+    LOG_INFO("🔹 MKRAND IPV6 generation...");
+
+    if (!cp) {
+        cp_init();
+    }
+
+    vec128bec_t* seed_vec = vec_alloc();
+    if (!seed_vec) {
+        LOG_ERROR("❌ vec_alloc() returned NULL!");
+        return addr;
+    }
+
+    seed_vec = time_seed_to_vec(time_seed());
+    if (!seed_vec) {
+        LOG_ERROR("❌ time_seed_to_vec() returned NULL!");
+        free(seed_vec);
+        return addr;
+    }
+
+    LOG_INFO("✅ Time-seeded vector generated: %p", (void *) seed_vec);
+    vmov(seed_vec, cp->SDR30);
+    mi5_time_quantum(cp);
+
+    vecbe_pack(addr.s6_addr, cp->SDR30);
+    LOG_INFO("✅ Successfully generated IPv6 block!");
+
+    return addr;
 }
 
 

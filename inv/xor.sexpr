@@ -1,27 +1,23 @@
 (Definition
-  (Name XOR)
+  (Target XOR)
 
-  (SourceList
-    (SourcePlace (Name A))
-    (SourcePlace (Name B))
+  (Inputs
+    A
+    B
   )
 
-  (DestinationList
-    (DestinationPlace (Name Out0))
+  (Outputs
+    Out0
   )
 
-  (PlaceOfResolution
-    (SourcePlace
-      (Name Out0)
-      (ContentFrom ConditionalInvocationResult)
+  (Body
+    (ConditionalInvocation
+      (Output Out0)
+      (Template A B)
+      (Case 00 0)
+      (Case 01 1)
+      (Case 10 1)
+      (Case 11 0)
     )
-  )
-
-  (ConditionalInvocation
-    (Template A B)
-    (Case 00 0)
-    (Case 01 1)
-    (Case 10 1)
-    (Case 11 0)
   )
 )

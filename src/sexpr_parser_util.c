@@ -1,40 +1,9 @@
 #include "eval.h"
 #include "sexpr_parser.h"
+#include "invocation.h"
 #include "log.h"
 #include "eval_util.h"
 #include <stdbool.h>
-
-int parse_signal(SExpr *sig_expr, char **out_content)
-{
-    if (!sig_expr || !out_content)
-        return 0;
-
-    if (sig_expr->count > 0 &&
-        sig_expr->list[0]->type == S_EXPR_ATOM &&
-        strcmp(sig_expr->list[0]->atom, "Signal") == 0)
-    {
-        for (size_t i = 1; i < sig_expr->count; ++i)
-        {
-            SExpr *child = sig_expr->list[i];
-            if (child->type != S_EXPR_LIST || child->count < 2)
-                continue;
-
-            if (child->list[0]->type == S_EXPR_ATOM &&
-                strcmp(child->list[0]->atom, "Content") == 0 &&
-                child->list[1]->type == S_EXPR_ATOM)
-            {
-                *out_content = strdup(child->list[1]->atom);
-                LOG_INFO("💡 parse_signal: Parsed signal content [%s]", *out_content);
-                return 1;
-            }
-        }
-
-        LOG_WARN("⚠️ parse_signal: Signal block found, but no valid Content");
-        return 0;
-    }
-
-    return 0;
-}
 
 bool parse_definition_name(Definition *def, SExpr *expr)
 {
@@ -54,266 +23,73 @@ bool parse_definition_name(Definition *def, SExpr *expr)
     return true;
 }
 
-void parse_definition_sources(Definition *def, SExpr *expr)
+void parse_definition_inputs(Definition *def, const SExpr *expr)
 {
-    SExpr *src_list = get_child_by_tag(expr, "SourceList");
-    if (!src_list)
-    {
-        LOG_ERROR("❌ [Definition:%s] Missing SourceList", def->name);
+    const SExpr *inputs_expr = get_child_by_tag(expr, "Inputs");
+    if (!inputs_expr) {
+        LOG_ERROR("❌ [Definition:%s] Missing Inputs field", def->name);
         return;
     }
 
-    for (size_t i = 1; i < src_list->count; ++i)
-    {
-        SExpr *place = src_list->list[i];
-        if (place->type != S_EXPR_LIST)
-            continue;
+    size_t input_count = inputs_expr->count - 1;  // exclude the "Inputs" atom
+    if (input_count == 0) {
+        LOG_WARN("⚠️  [Definition:%s] Inputs field is empty", def->name);
+        return;
+    }
 
-        SourcePlace *sp = calloc(1, sizeof(SourcePlace));
+    destroy_string_list(def->input_signals);  // clear any existing
+    def->input_signals = create_string_list();
 
-        for (size_t j = 1; j < place->count; ++j)
-        {
-            SExpr *field = place->list[j];
-            if (field->type != S_EXPR_LIST || field->count == 0)
-                continue;
+    for (size_t i = 1; i < inputs_expr->count; ++i) {
+        const SExpr *input = inputs_expr->list[i];
+        if (input->type != S_EXPR_ATOM) continue;
 
-            const char *tag = get_atom_value(field, 0);
-            if (!tag)
-                continue;
-
-            if (strcmp(tag, "Signal") == 0)
-            {
-                for (size_t k = 1; k < field->count; ++k)
-                {
-                    if (field->list[k]->type == S_EXPR_LIST)
-                    {
-                        LOG_INFO("🧪 About to call parse_signal with:");
-                        print_sexpr(field, 8);
-                        parse_signal(field, &sp->content);
-                    }
-                }
-            }
-            else if (field->count >= 2)
-            {
-                const char *val = get_atom_value(field, 1);
-                if (!val)
-                    continue;
-
-                if (strcmp(tag, "Name") == 0)
-                    sp->name = strdup(val);
-            }
-        }
-
-        // Append to array-style list
-        size_t new_count = def->boundary_sources.count + 1;
-        def->boundary_sources.items = realloc(def->boundary_sources.items, new_count * sizeof(SourcePlace *));
-        def->boundary_sources.items[def->boundary_sources.count] = sp;
-        def->boundary_sources.count = new_count;
-
-        LOG_INFO("🧩 Parsed SourcePlace in def %s: name=%s content=%s",
-                 def->name,
-                 sp->name ? sp->name : "null",
-                 sp->content ? sp->content : "null");
+        string_list_add(def->input_signals, input->atom);
+        LOG_INFO("🔌 Added input signal to %s: %s", def->name, input->atom);
     }
 }
 
-void parse_definition_destinations(Definition *def, SExpr *expr)
+void parse_definition_outputs(Definition *def, const SExpr *expr)
 {
-    SExpr *dst_list = get_child_by_tag(expr, "DestinationList");
-    if (!dst_list)
+    const SExpr *outputs_expr = get_child_by_tag(expr, "Outputs");
+    if (!outputs_expr)
     {
-        LOG_ERROR("❌ [Definition:%s] Missing DestinationList", def->name);
+        LOG_ERROR("❌ [Definition:%s] Missing Outputs field", def->name);
         return;
     }
 
-    for (size_t i = 1; i < dst_list->count; ++i)
+    size_t count = outputs_expr->count - 1;
+    if (count == 0)
     {
-        SExpr *place = dst_list->list[i];
-        if (place->type != S_EXPR_LIST)
+        LOG_WARN("⚠️  [Definition:%s] Outputs field is empty", def->name);
+        return;
+    }
+
+    // Free previous outputs if already present
+    if (def->output_signals) {
+        for (size_t i = 0; def->output_signals[i]; ++i)
+            destroy_string_list(def->output_signals[i]);
+        free(def->output_signals);
+    }
+
+    def->output_signals = calloc(count + 1, sizeof(StringList *));  // +1 for NULL terminator
+
+    for (size_t i = 1; i < outputs_expr->count; ++i)
+    {
+        const SExpr *output = outputs_expr->list[i];
+        if (output->type != S_EXPR_ATOM)
             continue;
 
-        DestinationPlace *dp = calloc(1, sizeof(DestinationPlace));
+        StringList *out_list = create_string_list();
+        string_list_add(out_list, output->atom);
+        def->output_signals[i - 1] = out_list;
 
-        for (size_t j = 1; j < place->count; ++j)
-        {
-            SExpr *field = place->list[j];
-            if (field->type != S_EXPR_LIST || field->count == 0)
-                continue;
-
-            const char *tag = get_atom_value(field, 0);
-            if (!tag)
-                continue;
-
-            if (strcmp(tag, "Signal") == 0)
-            {
-                for (size_t k = 1; k < field->count; ++k)
-                {
-                    if (field->list[k]->type == S_EXPR_LIST)
-                    {
-                        LOG_INFO("🧪 About to call parse_signal with:");
-                        print_sexpr(field, 8);
-                        parse_signal(field, &dp->content);
-                    }
-                }
-            }
-            else if (field->count >= 2)
-            {
-                const char *val = get_atom_value(field, 1);
-                if (!val)
-                    continue;
-
-                if (strcmp(tag, "Name") == 0)
-                    dp->name = strdup(val);
-            }
-        }
-
-        append_destination(&def->boundary_destinations, dp);
-
-        LOG_INFO("🧩 Parsed DestinationPlace in def %s: name=%s content=%s",
-                 def->name,
-                 dp->name ? dp->name : "null",
-                 dp->content ? dp->content : "null");
+        LOG_INFO("📤 Parsed Output for %s: %s", def->name, output->atom);
     }
 }
 
-void parse_place_of_resolution(Definition *def, SExpr *expr, char **pending_output)
-{
-    SExpr *por_expr = get_child_by_tag(expr, "PlaceOfResolution");
-    if (!por_expr)
-        return;
 
-    for (size_t i = 1; i < por_expr->count; ++i)
-    {
-        SExpr *place = por_expr->list[i];
-        if (!place || place->type != S_EXPR_LIST || place->count < 1)
-            continue;
 
-        const char *tag = get_atom_value(place, 0);
-        if (!tag)
-            continue;
-
-        if (strcmp(tag, "SourcePlace") == 0)
-        {
-            SourcePlace *sp = calloc(1, sizeof(SourcePlace));
-            const char *content_from = NULL;
-
-            for (size_t j = 1; j < place->count; ++j)
-            {
-                SExpr *field = place->list[j];
-                if (!field || field->type != S_EXPR_LIST || field->count < 2)
-                    continue;
-
-                const char *key = get_atom_value(field, 0);
-                const char *val = get_atom_value(field, 1);
-                if (!key || !val)
-                    continue;
-
-                if (strcmp(key, "Name") == 0)
-                    sp->name = strdup(val);
-                else if (strcmp(key, "ContentFrom") == 0 &&
-                         strcmp(val, "ConditionalInvocationResult") == 0)
-                    content_from = val;
-            }
-
-            if (content_from)
-            {
-                if (sp->name && pending_output)
-                {
-                    *pending_output = strdup(sp->name);
-                    LOG_INFO("📌 Marked output '%s' as ConditionalInvocation result target", *pending_output);
-                    append_source(&def->place_of_resolution_sources, sp);
-                    LOG_INFO("🔁 PlaceOfResolution: added SourcePlace '%s' from ConditionalInvocationResult", sp->name);
-                }
-                else
-                {
-                    LOG_WARN("⚠️ Skipping unnamed SourcePlace from ConditionalInvocationResult");
-                    free(sp);
-                }
-            }
-        }
-        else if (strcmp(tag, "Invocation") == 0)
-        {
-            Invocation *inv = parse_invocation(place);
-            if (!inv)
-                continue;
-
-            inv->next = def->place_of_resolution_invocations;
-            def->place_of_resolution_invocations = inv;
-
-            LOG_INFO("🔁 PlaceOfResolution: added Invocation '%s'", inv->name);
-        }
-    }
-}
-
-void parse_conditional_invocation_block(Definition *def, SExpr *expr, char **pending_output)
-{
-    SExpr *ci_expr = get_child_by_tag(expr, "ConditionalInvocation");
-    if (!ci_expr)
-        return;
-
-    def->conditional_invocation = parse_conditional_invocation(ci_expr);
-    if (!def->conditional_invocation)
-        return;
-
-    LOG_INFO("🧩 ConditionalInvocation parsed for %s", def->name);
-    for (ConditionalInvocationCase *c = def->conditional_invocation->cases; c; c = c->next)
-    {
-        LOG_INFO("    Case %s → %s", c->pattern, c->result);
-    }
-
-    // Use explicitly passed pending_output if set
-    if (*pending_output && !def->conditional_invocation->output)
-    {
-        def->conditional_invocation->output = strdup(*pending_output);
-        LOG_INFO("📌 Inferred ConditionalInvocation output from pending pointer: %s", *pending_output);
-        *pending_output = NULL;
-        return;
-    }
-
-    // ✅ Fallback: Try to infer from PlaceOfResolution unwired outputs
-    if (!def->conditional_invocation->output && def->place_of_resolution_sources.count > 0)
-    {
-        for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
-        {
-            SourcePlace *sp = def->place_of_resolution_sources.items[i];
-            if (sp && !sp->content)
-            {
-                def->conditional_invocation->output = strdup(sp->name);
-                LOG_INFO("📌 Fallback inferred ConditionalInvocation output: %s", sp->name);
-                break;
-            }
-        }
-    }
-}
-
-void parse_por_invocations(Definition *def, SExpr *expr)
-{
-    for (size_t i = 1; i < expr->count; ++i)
-    {
-        SExpr *item = expr->list[i];
-        if (!item || item->type != S_EXPR_LIST || item->count < 1)
-            continue;
-
-        SExpr *head = item->list[0];
-        if (!head || head->type != S_EXPR_ATOM)
-            continue;
-
-        if (strcmp(head->atom, "Invocation") != 0)
-            continue;
-
-        Invocation *inv = parse_invocation(item);
-        if (!inv)
-        {
-            LOG_ERROR("❌ Failed to parse inline Invocation inside %s", def->name);
-            continue;
-        }
-
-        inv->next = def->place_of_resolution_invocations;
-        def->place_of_resolution_invocations = inv;
-
-        LOG_INFO("🔹 Parsed POR Invocation: %s in %s", inv->name, def->name);
-    }
-}
 
 // INVOCATIION
 bool parse_invocation_name(Invocation *inv, SExpr *expr)
@@ -326,123 +102,92 @@ bool parse_invocation_name(Invocation *inv, SExpr *expr)
         return false;
     }
 
-    inv->name = strdup(name);
+    inv->target_name = strdup(name);
     return true;
 }
 
-void parse_invocation_destinations(Invocation *inv, SExpr *expr)
+void parse_invocation_outputs(Invocation *inv, SExpr *expr)
 {
-    SExpr *dst_list = get_child_by_tag(expr, "DestinationList");
-    if (!dst_list)
+    SExpr *outputs = get_child_by_tag(expr, "Outputs");
+    if (!outputs)
     {
-        LOG_ERROR("❌ [Invocation:%s] Missing DestinationList", inv->name);
+        LOG_ERROR("❌ [Invocation:%s] Missing Outputs field", inv->target_name);
         return;
     }
 
-    for (size_t i = 1; i < dst_list->count; ++i)
+    inv->output_signals = create_string_list();
+
+    for (size_t i = 1; i < outputs->count; ++i)
     {
-        SExpr *place = dst_list->list[i];
-        if (place->type != S_EXPR_LIST)
-            continue;
-
-        DestinationPlace *dp = calloc(1, sizeof(DestinationPlace));
-        bool has_name = false;
-
-        for (size_t j = 1; j < place->count; ++j)
+        const char *signal = get_atom_value(outputs->list[i], 0);
+        if (signal)
         {
-            SExpr *field = place->list[j];
-            if (field->type != S_EXPR_LIST || field->count < 2)
-                continue;
-
-            const char *tag = get_atom_value(field, 0);
-            if (!tag)
-                continue;
-
-            if (strcmp(tag, "Name") == 0)
-            {
-                const char *val = get_atom_value(field, 1);
-                if (val)
-                {
-                    dp->name = strdup(val);
-                    has_name = true;
-                }
-            }
-            else if (strcmp(tag, "Signal") == 0)
-            {
-                for (size_t k = 1; k < field->count; ++k)
-                {
-                    if (field->list[k]->type == S_EXPR_LIST)
-                    {
-                        LOG_INFO("🧪 About to call parse_signal with:");
-                        print_sexpr(field, 8);
-                        parse_signal(field, &dp->content);
-                    }
-                }
-            }
+            string_list_add(inv->output_signals, signal);
+            LOG_INFO("📤 Parsed output signal: %s", signal);
         }
-
-        if (!has_name)
-        {
-            char synth[64];
-            snprintf(synth, sizeof(synth), "%s.0.in%zu", inv->name, i - 1);
-            dp->name = strdup(synth);
-            LOG_INFO("🧠 Synthesized destination name: %s", dp->name);
-        }
-
-        append_destination(&inv->boundary_destinations, dp);
     }
 }
 
-void parse_invocation_sources(Invocation *inv, SExpr *expr)
+
+void parse_invocation_inputs(Invocation *inv, SExpr *expr)
 {
-    SExpr *src_list = get_child_by_tag(expr, "SourceList");
-    if (!src_list)
-    {
-        LOG_ERROR("❌ [Invocation:%s] Missing SourceList", inv->name);
-        return;
-    }
+    inv->input_signals = create_string_list();
+    inv->output_signals = create_string_list();
+    inv->literal_bindings = calloc(1, sizeof(LiteralBindingList));
 
-    for (size_t i = 1; i < src_list->count; ++i)
+    for (size_t i = 1; i < expr->count; ++i)
     {
-        SExpr *place = src_list->list[i];
-        if (place->type != S_EXPR_LIST)
+        SExpr *child = expr->list[i];
+        if (!child || child->type != S_EXPR_LIST || child->count == 0)
             continue;
 
-        SourcePlace *sp = calloc(1, sizeof(SourcePlace));
+        const char *tag = get_atom_value(child, 0);
+        if (!tag)
+            continue;
 
-        for (size_t j = 1; j < place->count; ++j)
+        // Handle (Inputs ...)
+        if (strcmp(tag, "Inputs") == 0)
         {
-            SExpr *field = place->list[j];
-            if (field->type != S_EXPR_LIST || field->count < 2)
-                continue;
-
-            const char *tag = get_atom_value(field, 0);
-            const char *val = get_atom_value(field, 1);
-            if (!tag || !val)
-                continue;
-
-            if (strcmp(tag, "Name") == 0)
+            for (size_t j = 1; j < child->count; ++j)
             {
-                sp->name = strdup(val);
-            }
-            else if (strcmp(tag, "Signal") == 0)
-            {
-                for (size_t k = 1; k < field->count; ++k)
+                const char *signal = get_atom_value(child->list[j], 0);
+                if (signal)
                 {
-                    if (field->list[k]->type == S_EXPR_LIST)
-                    {
-                        LOG_INFO("🧪 About to call parse_signal with:");
-                        print_sexpr(field, 8);
-                        parse_signal(field, &sp->content);
-                    }
+                    string_list_add(inv->input_signals, signal);
+                    LOG_INFO("🔌 Input signal added: %s", signal);
                 }
             }
         }
+        // Handle (Outputs ...)
+        else if (strcmp(tag, "Outputs") == 0)
+        {
+            for (size_t j = 1; j < child->count; ++j)
+            {
+                const char *signal = get_atom_value(child->list[j], 0);
+                if (signal)
+                {
+                    string_list_add(inv->output_signals, signal);
+                    LOG_INFO("⚡ Output signal added: %s", signal);
+                }
+            }
+        }
+        // Handle (X 1), (Y 0), etc — assumed to be literal bindings
+        else if (child->count == 2)
+        {
+            const char *key = get_atom_value(child, 0);
+            const char *val = get_atom_value(child, 1);
 
-        append_source(&inv->boundary_sources, sp);
+            if (key && val)
+            {
+                size_t count = inv->literal_bindings->count;
+                inv->literal_bindings->items = realloc(inv->literal_bindings->items, (count + 1) * sizeof(LiteralBinding));
+                inv->literal_bindings->items[count].name = strdup(key);
+                inv->literal_bindings->items[count].value = strdup(val);
+                inv->literal_bindings->count++;
 
-        LOG_INFO("🧩 Parsed SourcePlace: name=%s, content=%s",
-                 sp->name ? sp->name : "null",
-                 sp->content ? sp->content : "null");
+                LOG_INFO("📌 Literal bound: %s = %s", key, val);
+            }
+        }
     }
 }
+

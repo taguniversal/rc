@@ -16,9 +16,10 @@ deps = [sqlite3_dep, crypto_dep, dl_dep, vulkan_dep]
 # --- Sources ---
 rcnode_sources = files(
   'src/main.c',
+  'src/block.c',
   'src/eval_util.c',
   'src/rewrite_util.c',
-  'src/string_set.c',
+  'src/string_list.c',
   'src/eval.c',
   'src/emit_spirv.c',
   'src/emit_sexpr.c',
@@ -51,32 +52,6 @@ rcnode_bin = executable('rcnode',
   install: true
 )
 
-# --- Validator ---
-validate_sources = files(
-  'src/validate_sexpr.c',
-  'src/compiler.c',
-  'src/sexpr_parser_util.c',
-  'src/sexpr_parser.c',
-  'src/emit_spirv.c',
-  'src/emit_sexpr.c',
-  'src/emit_util.c',
-  'src/string_set.c',
-  'src/eval.c',
-  'src/eval_util.c',
-  'src/rewrite_util.c',
-  'src/block_util.c',
-  'src/log.c',
-  'src/spirv_asm.c',
-  'src/spirv_passes.c',
-  'src/wiring.c'
-)
-
-validate_bin = executable('validate_sexpr',
-  validate_sources,
-  include_directories: include_directories('src', 'external'),
-  dependencies: deps,
-  build_by_default: false
-)
 
 # --- Output directories ---
 out_root = join_paths(meson.current_build_dir(), 'out')

@@ -3,7 +3,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <stdbool.h>
-#include "eval.h"
 #include "log.h"
 #include <vulkan/vulkan.h>
 #include <assert.h>
@@ -38,28 +37,6 @@ typedef struct UsageEntry
 
 UsageEntry *usage_head = NULL;
 
-ExternalSignal *external_signal_table = NULL;
-
-void register_external_signal(const char *external_name, const char *internal_id)
-{
-  ExternalSignal *entry = calloc(1, sizeof(ExternalSignal));
-  entry->external_name = strdup(external_name);
-  entry->internal_id = strdup(internal_id);
-  entry->next = external_signal_table;
-  external_signal_table = entry;
-}
-
-const char *lookup_internal_id(const char *external_name)
-{
-  for (ExternalSignal *e = external_signal_table; e; e = e->next)
-  {
-    if (strcmp(e->external_name, external_name) == 0)
-    {
-      return e->internal_id;
-    }
-  }
-  return NULL;
-}
 
 SPIRVModule *spirv_module_new(void)
 {
@@ -322,28 +299,6 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
     emit_op(mod, "OpFunctionEnd", NULL, 0);
 }
 
-void free_external_signal_table(void)
-{
-  ExternalSignal *e = external_signal_table;
-  while (e)
-  {
-    ExternalSignal *next = e->next;
-    free(e->external_name);
-    free(e->internal_id);
-    free(e);
-    e = next;
-  }
-  external_signal_table = NULL;
-}
-
-void print_external_signals(void)
-{
-  LOG_INFO("🔌 External signal table:");
-  for (ExternalSignal *e = external_signal_table; e; e = e->next)
-  {
-    LOG_INFO("   %s => %s", e->external_name, e->internal_id);
-  }
-}
 
 void spirv_parse_block(Block *blk, const char *spirv_out_dir)
 {
@@ -365,17 +320,6 @@ void spirv_parse_block(Block *blk, const char *spirv_out_dir)
     SPIRVModule mod = {0};
     mod.current_definition = def;
     emit_spirv_header(&mod);
-
-    if (def->conditional_invocation)
-    {
-      int inv_count = 0;
-      for (Invocation *inv = def->place_of_resolution_invocations; inv != NULL; inv = inv->next)
-      {
-        inv_count++;
-      }
-      LOG_INFO("🧩 %s has %d invocations", def->name, inv_count);
-
-    }
 
     dedupe_prelude_ops(&mod);
     write_spirv_module(f, mod.head);

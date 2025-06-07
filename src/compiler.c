@@ -67,7 +67,6 @@ void compile_block(Block *blk,
     emit_all_definitions(blk, sexpr_stage1_dir); // Emit initial logic blocks
     emit_all_invocations(blk, sexpr_stage1_dir); // Emit initial invocations
 
-    qualify_local_signals(blk);                  // Stage 2: Qualify signals within each definition (e.g., AND.A)
     spirv_parse_block(blk, spirv_stage2_dir);    // Emit SPIR-V for each definition
     emit_all_definitions(blk, sexpr_stage2_dir); // Emit S-expressions for each definition
     emit_all_invocations(blk, sexpr_stage2_dir); // Emit S-expressions for each invocation
@@ -75,10 +74,8 @@ void compile_block(Block *blk,
 
     // Stage 3: Unit construction — flatten all logic into self-contained Invocation|Definition units
     unify_invocations(blk);            // Instantiate definition+invocation pairs as Units
-    globalize_signal_names(blk); // Rewrite signal names to be globally unique per Unit (e.g., INV.AND.0.A)
-    prepare_boundary_ports(blk); // Normalize boundary lists for each definition
     emit_all_units(blk, sexpr_stage3_dir);
-
+    eval(blk); // Evaluate the system (simulation or codegen)
     emit_all_units(blk, sexpr_stage4_dir);
                  // Emit final S-expr per Unit
   //  emit_all_units_to_spirv(blk, spirv_stage4_dir);     // Emit SPIR-V per Unit
@@ -87,14 +84,8 @@ void compile_block(Block *blk,
     // === Remaining analysis/evaluation ===
   //  propagate_intrablock_signals(blk); // Signal tracing (may be simplified now)
   //  print_signal_places(blk);          // Log resolved signals
-
-    eval(blk); // Evaluate the system (simulation or codegen)
-
- 
- 
   //  emit_spirv_units(blk, sexpr_stage4_dir, spirv_stage4_dir);
     emit_spirv_asm_file(spirv_stage4_dir, spirv_asm_stage5_dir);
 
     dump_wiring(blk);
-    dump_signals(blk);
 }

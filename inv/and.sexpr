@@ -1,33 +1,17 @@
 (Definition
   (Name AND)
 
-  (SourceList
-    (SourcePlace
-      (Name A)
-    )
-    (SourcePlace
-      (Name B)
-    )
-  )
+  (Inputs A B)
+  (Outputs out)
 
-  (DestinationList
-    (DestinationPlace
-      (Name out)
-    )
-  )
-
-  (PlaceOfResolution
-    (SourcePlace
-      (Name out)
-      (ContentFrom ConditionalInvocationResult)
-    )
-  )
-
+ (Body
   (ConditionalInvocation
     (Template A B)
+    (Output out)
     (Case 00 0)
     (Case 01 0)
     (Case 10 0)
     (Case 11 1)
   )
+ )
 )

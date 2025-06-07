@@ -1,17 +1,10 @@
 (Invocation
-  (Name NOT)
+  (Target NOT)
 
-  (DestinationList
-    (DestinationPlace
-      (Signal
-        (Content 1)
-      )
-    )
-  )
+  (X 1)
+  (Inputs X)
 
-  (SourceList
-    (SourcePlace
-      (Name Out0)
-    )
+  (Outputs
+    Out0
   )
 )

@@ -1,4 +1,5 @@
 #include "sexpr_parser.h"
+#include "string_list.h"
 #include "sexpr_parser_util.h"
 #include "eval.h"
 #include "log.h"
@@ -105,251 +106,197 @@ const char *get_atom_value(SExpr *list, size_t index)
   return (item->type == S_EXPR_ATOM) ? item->atom : NULL;
 }
 
-ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
+ConditionalInvocation *parse_conditional_invocation(const SExpr *ci_expr)
 {
-  ConditionalInvocation *ci = calloc(1, sizeof(ConditionalInvocation));
+    if (!ci_expr || ci_expr->type != S_EXPR_LIST || ci_expr->count < 1)
+        return NULL;
 
-  // 2. Parse Template
-  SExpr *template_expr = get_child_by_tag(ci_expr, "Template");
-  if (!template_expr || template_expr->count < 2)
-  {
-    LOG_ERROR("❌ ConditionalInvocation Missing Template");
-    free(ci);
-    return NULL;
-  }
+    if (ci_expr->list[0]->type != S_EXPR_ATOM || strcmp(ci_expr->list[0]->atom, "ConditionalInvocation") != 0)
+        return NULL;
 
-  ci->arg_count = template_expr->count - 1;
-  ci->template_args = calloc(ci->arg_count, sizeof(char *));
-  ci->resolved_template_args = calloc(ci->arg_count, sizeof(char *));
+    ConditionalInvocation *ci = calloc(1, sizeof(ConditionalInvocation));
+    ci->pattern = NULL;
+    ci->output = NULL;
+    ci->cases = NULL;
+    ci->case_count = 0;
 
-  size_t joined_len = 0;
-
-  for (size_t i = 1; i < template_expr->count; ++i)
-  {
-    if (template_expr->list[i]->type != S_EXPR_ATOM)
+    for (size_t i = 1; i < ci_expr->count; ++i)
     {
-      LOG_WARN("⚠️ Template element %zu is not an atom — skipping", i);
-      continue;
+        const SExpr *item = ci_expr->list[i];
+        if (!item || item->type != S_EXPR_LIST || item->count < 1)
+            continue;
+
+        const char *tag = item->list[0]->atom;
+
+        // Parse Template
+        if (strcmp(tag, "Template") == 0)
+        {
+            size_t total_len = 0;
+            for (size_t j = 1; j < item->count; ++j)
+                total_len += strlen(item->list[j]->atom);
+
+            char *pattern = calloc(total_len + 1, 1);
+            for (size_t j = 1; j < item->count; ++j)
+                strcat(pattern, item->list[j]->atom);
+
+            ci->pattern = pattern;
+            LOG_INFO("🧩 Pattern: %s", pattern);
+        }
+
+        // Parse Output
+        else if (strcmp(tag, "Output") == 0 && item->count == 2)
+        {
+            if (item->list[1]->type == S_EXPR_ATOM)
+            {
+                ci->output = strdup(item->list[1]->atom);
+                LOG_INFO("🔸 Output: %s", ci->output);
+            }
+        }
+
+        // Parse Case
+        else if (strcmp(tag, "Case") == 0 && item->count == 3)
+        {
+            const SExpr *key = item->list[1];
+            const SExpr *val = item->list[2];
+            if (key->type == S_EXPR_ATOM && val->type == S_EXPR_ATOM)
+            {
+                ci->cases = realloc(ci->cases, sizeof(ConditionalCase) * (ci->case_count + 1));
+                ci->cases[ci->case_count].pattern = strdup(key->atom);
+                ci->cases[ci->case_count].result = strdup(val->atom);
+                ci->case_count++;
+                LOG_INFO("📘 Case added: %s → %s", key->atom, val->atom);
+            }
+        }
     }
 
-    const char *arg = template_expr->list[i]->atom;
-    ci->template_args[i - 1] = strdup(arg);
-    ci->resolved_template_args[i - 1] = strdup(arg);
-
-    LOG_INFO("🔣 Parsed template arg[%zu] = %s", i - 1, arg);
-
-    joined_len += strlen(arg);
-  }
-
-  char *joined = calloc(joined_len + 1 + ci->arg_count, 1);
-  for (size_t i = 0; i < ci->arg_count; ++i)
-  {
-    if (!ci->template_args[i])
-    {
-      LOG_ERROR("❌ Template arg[%zu] is NULL — skipping pattern creation", i);
-      free(joined);
-      return ci; // Let the failure show later
-    }
-    strcat(joined, "$");
-    strcat(joined, ci->template_args[i]);
-  }
-  ci->invocation_template = joined;
-
-  LOG_INFO("🧩 Template pattern joined: %s", joined);
-
-  // 3. Parse Cases
-  for (size_t i = 1; i < ci_expr->count; ++i)
-  {
-    SExpr *item = ci_expr->list[i];
-    if (item->type != S_EXPR_LIST || item->count < 3)
-      continue;
-
-    SExpr *tag = item->list[0];
-    if (tag->type != S_EXPR_ATOM || strcmp(tag->atom, "Case") != 0)
-      continue;
-
-    SExpr *val_attr = item->list[1];
-    SExpr *result_atom = item->list[2];
-    if (val_attr->type != S_EXPR_ATOM || result_atom->type != S_EXPR_ATOM)
-    {
-      LOG_ERROR("❌ ConditionalInvocation Malformed Case — expected atom pattern and result");
-      exit(1);
-    }
-
-    ConditionalInvocationCase *cc = calloc(1, sizeof(ConditionalInvocationCase));
-    cc->pattern = strdup(val_attr->atom);
-    cc->result = strdup(result_atom->atom);
-    cc->next = ci->cases;
-    ci->cases = cc;
-
-    LOG_INFO("📘 Added case: %s → %s", cc->pattern, cc->result);
-  }
-
-  return ci;
+    return ci;
 }
 
 
-Definition *parse_definition(SExpr *expr)
+Definition *parse_definition(const SExpr *expr)
 {
-  Definition *def = calloc(1, sizeof(Definition));
+    if (!expr || expr->type != S_EXPR_LIST || expr->count < 1)
+        return NULL;
 
-  if (!parse_definition_name(def, expr))
-    return NULL;
+    if (expr->list[0]->type != S_EXPR_ATOM || strcmp(expr->list[0]->atom, "Definition") != 0)
+        return NULL;
 
-  parse_definition_sources(def, expr);
-  parse_definition_destinations(def, expr);
-  char *pending_output = NULL; // 🔁 shared buffer for CI output inference
-  parse_place_of_resolution(def, expr, &pending_output);
-  parse_conditional_invocation_block(def, expr, &pending_output);
-  parse_por_invocations(def, expr);
+    Definition *def = calloc(1, sizeof(Definition));
+    def->input_signals = create_string_list();
+    def->output_signals = create_string_list();
 
-  return def;
+    for (size_t i = 1; i < expr->count; ++i) {
+        const SExpr *item = expr->list[i];
+        if (!item || item->type != S_EXPR_LIST || item->count < 1)
+            continue;
+
+        const char *tag = item->list[0]->atom;
+
+        if (strcmp(tag, "Name") == 0 && item->count == 2) {
+            def->name = strdup(item->list[1]->atom);
+        }
+
+        else if (strcmp(tag, "Inputs") == 0) {
+            for (size_t j = 1; j < item->count; ++j) {
+                const SExpr *signal = item->list[j];
+                if (signal->type == S_EXPR_ATOM)
+                    string_list_add(def->input_signals, signal->atom);
+            }
+        }
+
+        else if (strcmp(tag, "Outputs") == 0) {
+            for (size_t j = 1; j < item->count; ++j) {
+                const SExpr *signal = item->list[j];
+                if (signal->type == S_EXPR_ATOM)
+                    string_list_add(def->output_signals, signal->atom);
+            }
+        }
+
+        else if (strcmp(tag, "ConditionalInvocation") == 0) {
+            def->sexpr_logic = sexpr_to_string(item);
+            def->conditional_invocation = parse_conditional_invocation(item);
+        }
+
+        else if (strcmp(tag, "Body") == 0) {
+            for (size_t j = 1; j < item->count; ++j) {
+                const SExpr *sub = item->list[j];
+                if (sub->type == S_EXPR_LIST && sub->count > 0 &&
+                    sub->list[0]->type == S_EXPR_ATOM &&
+                    strcmp(sub->list[0]->atom, "ConditionalInvocation") == 0)
+                {
+                    def->sexpr_logic = sexpr_to_string(sub);
+                    def->conditional_invocation = parse_conditional_invocation(sub);
+                    break;  // support only one ConditionalInvocation per Body
+                }
+            }
+        }
+    }
+
+    if (!def->name) {
+        LOG_ERROR("⚠️  Definition missing a Name");
+        destroy_string_list(def->input_signals);
+        destroy_string_list(def->output_signals);
+        free(def);
+        return NULL;
+    }
+
+    return def;
 }
 
+Invocation *parse_invocation(SExpr *expr) {
+  if (!expr || expr->type != S_EXPR_LIST || expr->count == 0)
+      return NULL;
 
-Invocation *parse_invocation(SExpr *expr)
-{
+  if (expr->list[0]->type != S_EXPR_ATOM || strcmp(expr->list[0]->atom, "Invocation") != 0)
+      return NULL;
+
   Invocation *inv = calloc(1, sizeof(Invocation));
+  inv->input_signals = create_string_list();
+  inv->output_signals = create_string_list();
 
-  if (!parse_invocation_name(inv, expr))
-  {
-    free(inv);
-    return NULL;
+  for (size_t i = 1; i < expr->count; ++i) {
+      SExpr *form = expr->list[i];
+      if (!form || form->type != S_EXPR_LIST || form->count == 0)
+          continue;
+
+      const char *tag = form->list[0]->atom;
+
+      if (strcmp(tag, "Target") == 0 && form->count >= 2) {
+          inv->target_name = strdup(form->list[1]->atom);
+      }
+
+      else if (strcmp(tag, "Inputs") == 0) {
+          for (size_t j = 1; j < form->count; ++j) {
+              SExpr *arg = form->list[j];
+              if (arg->type == S_EXPR_LIST && arg->count >= 2 && strcmp(arg->list[0]->atom, "Literal") == 0) {
+                  string_list_add(inv->input_signals, arg->list[1]->atom);
+              } else if (arg->type == S_EXPR_ATOM) {
+                  string_list_add(inv->input_signals, arg->atom);
+              }
+          }
+      }
+
+      else if (strcmp(tag, "Outputs") == 0) {
+          for (size_t j = 1; j < form->count; ++j) {
+              SExpr *arg = form->list[j];
+              if (arg->type == S_EXPR_ATOM)
+                  string_list_add(inv->output_signals, arg->atom);
+          }
+      }
   }
 
-  parse_invocation_destinations(inv, expr);
-  parse_invocation_sources(inv, expr);
+  if (!inv->target_name) {
+      LOG_ERROR("Invocation is missing a Target");
+      destroy_string_list(inv->input_signals);
+      destroy_string_list(inv->output_signals);
+      free(inv);
+      return NULL;
+  }
 
   return inv;
 }
 
-void wire_por_sources_from_def_outputs(Definition *def)
-{
-  for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
-  {
-    SourcePlace *por_src = def->place_of_resolution_sources.items[i];
-    if (!por_src || !por_src->resolved_name)
-      continue;
 
-    for (size_t j = 0; j < def->boundary_destinations.count; ++j)
-    {
-      DestinationPlace *def_dst = def->boundary_destinations.items[j];
-      if (!def_dst || !def_dst->resolved_name)
-        continue;
-
-      if (strcmp(por_src->resolved_name, def_dst->resolved_name) == 0)
-      {
-        if (def_dst->content)
-        {
-          if (por_src->content)
-            free(por_src->content);
-          por_src->content = strdup(def_dst->content);
-          LOG_INFO("🔁 Wired POR Source '%s' ← Definition output [%s]",
-                   por_src->resolved_name, def_dst->content);
-        }
-      }
-    }
-  }
-}
-
-
-int parse_block_from_sexpr(Block *blk, const char *inv_dir)
-{
-  DIR *dir = opendir(inv_dir);
-  if (!dir)
-  {
-    LOG_ERROR("❌ Unable to open invocation directory: %s", inv_dir);
-    exit(1);
-  }
-
-  LOG_INFO(
-      "🔍 parse_block_from_sexpr Parsing block contents from directory: %s",
-      inv_dir);
-
-  struct dirent *entry;
-  while ((entry = readdir(dir)) != NULL)
-  {
-    if (!strstr(entry->d_name, ".sexpr"))
-      continue;
-
-    char path[256];
-    snprintf(path, sizeof(path), "%s/%s", inv_dir, entry->d_name);
-
-    LOG_INFO("📄 Loading S-expression: %s", path);
-    char *contents = load_file(path);
-    if (!contents)
-    {
-      LOG_ERROR("❌ Failed to read file: %s", path);
-      exit(1);
-    }
-
-    SExpr *expr = parse_sexpr(contents);
-    free(contents);
-
-    if (!expr || expr->type != S_EXPR_LIST || expr->count == 0)
-    {
-      LOG_ERROR("❌ Invalid or empty S-expression in file: %s", path);
-      if (expr)
-        free_sexpr(expr);
-      exit(1);
-    }
-
-    SExpr *head = expr->list[0];
-    if (head->type != S_EXPR_ATOM)
-    {
-      LOG_ERROR("❌ Malformed S-expression (non-atom head) in file: %s", path);
-      free_sexpr(expr);
-      exit(1);
-    }
-
-    const char *top_tag = head->atom;
-    const char *file_basename = entry->d_name;
-
-    if (strcmp(top_tag, "Definition") == 0)
-    {
-      Definition *def = parse_definition(expr);
-      if (!def)
-      {
-        LOG_ERROR("❌ Failed to parse Definition from: %s", path);
-        free_sexpr(expr);
-        exit(1);
-      }
-      def->origin_sexpr_path = strdup(path);
-      def->next = blk->definitions;
-      blk->definitions = def;
-      LOG_INFO("📦 Added Definition: %s", def->name);
-    }
-    else if (strcmp(top_tag, "Invocation") == 0)
-    {
-      Invocation *inv = parse_invocation(expr);
-      if (!inv)
-      {
-        LOG_ERROR("❌ Failed to parse Invocation from: %s", path);
-        free_sexpr(expr);
-        exit(1);
-      }
-      inv->origin_sexpr_path = strdup(path);
-      inv->next = blk->invocations;
-      blk->invocations = inv;
-      LOG_INFO("📦 Added Invocation: %s", inv->name);
-    }
-    else
-    {
-      LOG_ERROR("❌ Unknown top-level tag: (%s) in file %s", top_tag,
-                file_basename);
-      free_sexpr(expr);
-      exit(1);
-    }
-
-    free_sexpr(expr);
-  }
-
-  closedir(dir);
-
-  LOG_INFO("✅ Block population from S-expression completed.");
-
-  return 0;
-}
 
 static struct SExpr *parse_list(const char **input)
 {

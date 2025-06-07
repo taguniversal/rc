@@ -1,22 +1,10 @@
 (Invocation
-  (Name AND)
+  (Target AND)
+  (X 1)
+  (Y 1)
+  (Inputs X Y)
 
-  (DestinationList
-    (DestinationPlace
-      (Signal
-        (Content 1)
-      )
-    )
-    (DestinationPlace
-      (Signal
-        (Content 0)
-      )
-    )
-  )
-
-  (SourceList
-    (SourcePlace
-      (Name AndOut)
-    )
+  (Outputs
+    AndOut
   )
 )

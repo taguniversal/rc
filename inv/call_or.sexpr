@@ -1,22 +1,11 @@
 (Invocation
-  (Name OR)
+  (Target OR)
 
-  (DestinationList
-    (DestinationPlace
-      (Signal
-        (Content 1)
-      )
-    )
-    (DestinationPlace
-      (Signal
-        (Content 0)
-      )
-    )
-  )
+  (X 1)
+  (Y 0)
+  (Inputs X Y)
 
-  (SourceList
-    (SourcePlace
-      (Name Or_Out)
-    )
+  (Outputs
+    Or_Out
   )
 )

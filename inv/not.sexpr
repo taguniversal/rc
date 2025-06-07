@@ -1,24 +1,20 @@
 (Definition
-  (Name NOT)
+  (Target NOT)
 
-  (SourceList
-    (SourcePlace (Name A))
+  (Inputs
+    A
   )
 
-  (DestinationList
-    (DestinationPlace (Name Out0))
+  (Outputs
+    Out0
   )
 
-  (PlaceOfResolution
-    (SourcePlace
-      (Name Out0)
-      (ContentFrom ConditionalInvocationResult)
+  (Body
+    (ConditionalInvocation
+      (Output Out0)
+      (Template A)
+      (Case 0 1)
+      (Case 1 0)
     )
-  )
-
-  (ConditionalInvocation
-    (Template A)
-    (Case 0 1)
-    (Case 1 0)
   )
 )
