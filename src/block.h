@@ -2,6 +2,7 @@
 #define BLOCK_H
 #include "string_list.h"
 #include "invocation.h"
+#include "instance.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <netinet/in.h>
@@ -15,7 +16,9 @@
 
 typedef struct Block {
     psi128_t psi;
-    Instance *instances;
+    Invocation *invocations;
+    Definition *definitions;
+    InstanceList *instances;
 } Block;
 
 

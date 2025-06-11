@@ -26,8 +26,8 @@ Invocation *create_invocation(const char *target_name, psi128_t psi, psi128_t to
     inv->psi = psi;
     inv->to = to;
 
-    inv->inputs = create_string_set();
-    inv->outputs = create_string_set();
+    inv->input_signals = create_string_set();
+    inv->output_signals = create_string_set();
 
     return inv;
 }
@@ -51,8 +51,8 @@ void destroy_invocation(Invocation *inv) {
 
     free(inv->target_name);
 
-    destroy_string_set(inv->inputs);
-    destroy_string_set(inv->outputs);
+    destroy_string_set(inv->input_signals);
+    destroy_string_set(inv->output_signals);
 
     free(inv);
 }

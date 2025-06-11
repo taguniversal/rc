@@ -18,6 +18,18 @@ void init_pubsub(void) {
     }
 }
 
+void cleanup_pubsub(void) {
+    if (publisher) {
+        zsock_destroy(&publisher);
+        publisher = NULL;
+    }
+    if (subscriber) {
+        zsock_destroy(&subscriber);
+        subscriber = NULL;
+    }
+    printf("🧹 PubSub cleaned up.\n");
+}
+
 void publish_packet(const GAPPacket *packet) {
     if (!publisher) return;
     zframe_t *frame = zframe_new(packet, sizeof(GAPPacket) + packet->payload_len);

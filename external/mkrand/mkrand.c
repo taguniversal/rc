@@ -1743,7 +1743,7 @@ void mkrand_generate_ipv6(uint8_t out[16]) {
 */
 
 
-struct in6_addr mkrand_generate_ipv6() {
+struct in6_addr mkrand_generate_ipv6(void) {
     struct in6_addr addr = IN6ADDR_ANY_INIT;
     LOG_INFO("🔹 MKRAND IPV6 generation...");
 

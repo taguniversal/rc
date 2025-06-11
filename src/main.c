@@ -1,6 +1,7 @@
 
-
+#include "gap.h"
 #include "block.h"
+#include "block_util.h"
 #include "mkrand.h"
 #include "pubsub.h"
 #include <stdio.h>
@@ -21,7 +22,7 @@ int main() {
     pkt->version = 1;
     pkt->type = GAP_INVOKE;
     pkt->reserved = 0;
-    pkt->psi = new_block();  // Assume this generates a unique psi128_t
+    pkt->psi = mkrand_generate_ipv6();  // Assume this generates a unique psi128_t
     pkt->from = in6addr_loopback;
     pkt->to = in6addr_loopback;
     pkt->payload_len = payload_len;

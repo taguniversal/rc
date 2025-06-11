@@ -10,8 +10,9 @@ sqlite3_dep   = dependency('sqlite3')
 crypto_dep    = cc.find_library('crypto', required: true)
 dl_dep        = cc.find_library('dl', required: true)
 vulkan_dep    = dependency('vulkan', required: true)
+zeromq_dep   = dependency('libzmq', required: true)
 
-deps = [sqlite3_dep, crypto_dep, dl_dep, vulkan_dep]
+deps = [sqlite3_dep, crypto_dep, dl_dep, vulkan_dep, zeromq_dep]
 
 # --- Sources ---
 rcnode_sources = files(
@@ -24,6 +25,7 @@ rcnode_sources = files(
   'src/emit_spirv.c',
   'src/emit_sexpr.c',
   'src/emit_util.c',
+  'src/instance.c',
   'src/sexpr_parser_util.c',
   'src/sexpr_parser.c',
   'src/spirv_asm.c',
@@ -31,7 +33,6 @@ rcnode_sources = files(
   'src/util.c',
   'src/compiler.c',
   'src/log.c',
-  'src/graph.c',
   'src/vulkan_driver.c',
   'src/wiring.c',
   'src/udp_send.c',

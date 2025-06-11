@@ -27,6 +27,28 @@ bool opcode_has_result_id(const char *opcode)
          strcmp(opcode, "OpSelectionMerge") != 0;
 }
 
+
+static SignalIDEntry *signal_registry = NULL;
+
+void register_external_signal(const char *signal, const char *id) {
+  SignalIDEntry *entry = calloc(1, sizeof(SignalIDEntry));
+  entry->signal = strdup(signal);
+  entry->id = strdup(id);
+  entry->next = signal_registry;
+  signal_registry = entry;
+}
+
+const char *lookup_internal_id(const char *signal) {
+  for (SignalIDEntry *entry = signal_registry; entry != NULL; entry = entry->next) {
+      if (strcmp(entry->signal, signal) == 0) {
+          return entry->id;
+      }
+  }
+  LOG_WARN("⚠️ lookup_internal_id: Signal not found: %s", signal);
+  return NULL;
+}
+
+
 // For deduplicating SPIR-V ops
 typedef struct UsageEntry
 {
@@ -36,7 +58,6 @@ typedef struct UsageEntry
 } UsageEntry;
 
 UsageEntry *usage_head = NULL;
-
 
 SPIRVModule *spirv_module_new(void)
 {
@@ -179,135 +200,149 @@ void emit_spirv_header(SPIRVModule *mod)
 
 void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
 {
-    if (!mod || !ci || !ci->arg_count || !ci->template_args || !ci->cases) {
-        LOG_ERROR("❌ Invalid ConditionalInvocation input");
-        return;
+  if (!mod || !ci || !ci->arg_count || !ci->pattern_args || !ci->cases) {
+    LOG_ERROR("❌ Invalid ConditionalInvocation input");
+    return;
+  }
+
+  Invocation *inv = mod->current_invocation;
+  if (!inv) {
+    LOG_ERROR("❌ No current invocation set on module");
+    return;
+  }
+
+  LOG_INFO("📊 Emitting SPIR-V for invocation: %s", inv->target_name);
+
+  // ─── 1. Function Setup ───────────────────────────────────────────────
+  emit_op(mod, "OpFunction", (const char *[]){"%void", "None", "%void_fn"}, 3);
+  emit_op(mod, "OpLabel", (const char *[]){"%entry"}, 1);
+
+  emit_op(mod, "OpConstant", (const char *[]){"%bool", "%true", "1"}, 3);
+  emit_op(mod, "OpConstant", (const char *[]){"%bool", "%false", "0"}, 3);
+
+  // ─── 2. Input Variables and Loads ────────────────────────────────────
+  for (size_t i = 0; i < ci->arg_count; ++i) {
+    const char *arg_name = ci->pattern_args[i];
+
+    for (size_t j = 0; j < string_list_count(inv->input_signals); ++j) {
+      const char *resolved = string_list_get_by_index(inv->input_signals, j);
+      if (resolved && strstr(resolved, arg_name)) {
+        char tmp[128];
+        snprintf(tmp, sizeof(tmp), "%%%s", resolved);
+        const char *id = lookup_internal_id(resolved);
+        emit_op(mod, "OpLoad", (const char *[]){tmp, "%bool", id}, 3);
+        break;
+      }
     }
+  }
 
-    Invocation *inv = mod->current_invocation;
-    if (!inv) {
-        LOG_ERROR("❌ No current invocation set on module");
-        return;
+  // ─── 3. Output Variable ──────────────────────────────────────────────
+  emit_op(mod, "OpVariable", (const char *[]){"%out_var", "%bool", "Output"}, 3);
+
+  for (size_t i = 0; i < string_list_count(inv->output_signals); ++i) {
+    const char *sig = string_list_get_by_index(inv->output_signals, i);
+    if (sig) {
+      LOG_INFO("🔁 Registering output signal: %s => %%out_var", sig);
+      register_external_signal(sig, "%out_var");
     }
+  }
 
-    LOG_INFO("📊 Emitting SPIR-V for invocation: %s", inv->name);
+  // ─── 4. Emit Each Case ───────────────────────────────────────────────
+  char acc_result[128] = "%false";
+  bool has_result = false;
 
-    // ─── 1. Function Setup ───────────────────────────────────────────────
-    emit_op(mod, "OpFunction", (const char *[]){"%void", "None", "%void_fn"}, 3);
-    emit_op(mod, "OpLabel", (const char *[]){"%entry"}, 1);
+  for (size_t case_idx = 0; case_idx < ci->case_count; ++case_idx) {
+    ConditionalCase *c = &ci->cases[case_idx];
+    if (!c->pattern || !c->result)
+      continue;
 
-    emit_op(mod, "OpConstant", (const char *[]){"%bool", "%true", "1"}, 3);
-    emit_op(mod, "OpConstant", (const char *[]){"%bool", "%false", "0"}, 3);
+    char *and_result = NULL;
 
-    // ─── 2. Input Variables and Loads ────────────────────────────────────
     for (size_t i = 0; i < ci->arg_count; ++i) {
-        const char *arg_name = ci->template_args[i];
+      const char *bit = (c->pattern[i] == '1') ? "%true" : "%false";
 
-        for (size_t j = 0; j < inv->boundary_sources.count; ++j) {
-            SourcePlace *sp = inv->boundary_sources.items[j];
-            if (!sp || !sp->resolved_name)
-                continue;
+      char input_var[128];
+      snprintf(input_var, sizeof(input_var), "%%fallback");
 
-            if (strcmp(sp->name, arg_name) == 0) {
-                const char *resolved_id = lookup_internal_id(sp->resolved_name);
-                if (!resolved_id) {
-                    LOG_ERROR("❌ Could not resolve signal '%s'", sp->resolved_name);
-                    continue;
-                }
-
-                char tmp[128];
-                snprintf(tmp, sizeof(tmp), "%%%s", sp->resolved_name);
-                emit_op(mod, "OpLoad", (const char *[]){tmp, "%bool", resolved_id}, 3);
-                break;
-            }
+      for (size_t j = 0; j < string_list_count(inv->input_signals); ++j) {
+        const char *candidate = string_list_get_by_index(inv->input_signals, j);
+        if (candidate && strstr(candidate, ci->pattern_args[i])) {
+          snprintf(input_var, sizeof(input_var), "%%%s", candidate);
+          break;
         }
-    }
+      }
 
-    // ─── 3. Output Variable ──────────────────────────────────────────────
-    emit_op(mod, "OpVariable", (const char *[]){"%out_var", "%bool", "Output"}, 3);
+      char cmp_var[128];
+      snprintf(cmp_var, sizeof(cmp_var), "%%cmp_%zu_%zu", case_idx, i);
+      emit_op(mod, "OpIEqual", (const char *[]){cmp_var, "%bool", input_var, bit}, 4);
 
-    for (size_t i = 0; i < inv->boundary_destinations.count; ++i) {
-        DestinationPlace *dp = inv->boundary_destinations.items[i];
-        if (dp && dp->resolved_name) {
-            LOG_INFO("🔁 Registering external signal: %s => %%out_var", dp->resolved_name);
-            register_external_signal(dp->resolved_name, "%out_var");
-        }
-    }
-
-    // ─── 4. Emit Each Case ───────────────────────────────────────────────
-    char acc_result[128] = "%false";
-    bool has_result = false;
-
-    int case_idx = 0;
-    for (ConditionalInvocationCase *c = ci->cases; c; c = c->next, ++case_idx) {
-        if (!c->pattern || !c->result) continue;
-
-        char *and_result = NULL;
-        size_t n = strlen(c->pattern);
-
-        for (size_t i = 0; i < n; ++i) {
-            const char *bit = (c->pattern[i] == '1') ? "%true" : "%false";
-
-            char input_var[128];
-            snprintf(input_var, sizeof(input_var), "%%fallback");
-
-            for (size_t j = 0; j < inv->boundary_sources.count; ++j) {
-                SourcePlace *sp = inv->boundary_sources.items[j];
-                if (!sp) continue;
-
-                if (strcmp(sp->name, ci->template_args[i]) == 0 && sp->resolved_name) {
-                    snprintf(input_var, sizeof(input_var), "%%%s", sp->resolved_name);
-                    break;
-                }
-            }
-
-            char cmp_var[128];
-            snprintf(cmp_var, sizeof(cmp_var), "%%cmp_%d_%zu", case_idx, i);
-            emit_op(mod, "OpIEqual", (const char *[]){cmp_var, "%bool", input_var, bit}, 4);
-
-            if (!and_result) {
-                and_result = strdup(cmp_var);
-            } else {
-                char next_and[128];
-                snprintf(next_and, sizeof(next_and), "%%and_%d_%zu", case_idx, i);
-                emit_op(mod, "OpLogicalAnd", (const char *[]){next_and, and_result, cmp_var}, 3);
-                free(and_result);
-                and_result = strdup(next_and);
-            }
-        }
-
-        char sel_result[128];
-        snprintf(sel_result, sizeof(sel_result), "%%case_%d_result", case_idx);
-        const char *value = (strcmp(c->result, "1") == 0) ? "%true" : "%false";
-        emit_op(mod, "OpSelect", (const char *[]){sel_result, "%bool", and_result, value, "%false"}, 5);
+      if (!and_result) {
+        and_result = strdup(cmp_var);
+      } else {
+        char next_and[128];
+        snprintf(next_and, sizeof(next_and), "%%and_%zu_%zu", case_idx, i);
+        emit_op(mod, "OpLogicalAnd", (const char *[]){next_and, and_result, cmp_var}, 3);
         free(and_result);
-
-        if (!has_result) {
-            snprintf(acc_result, sizeof(acc_result), "%s", sel_result);
-            has_result = true;
-        } else {
-            char tmp[128];
-            snprintf(tmp, sizeof(tmp), "%%result_%d", case_idx);
-            emit_op(mod, "OpLogicalOr", (const char *[]){tmp, "%bool", acc_result, sel_result}, 4);
-            snprintf(acc_result, sizeof(acc_result), "%s", tmp);
-        }
+        and_result = strdup(next_and);
+      }
     }
 
-    // ─── 5. Store Result ─────────────────────────────────────────────────
-    emit_op(mod, "OpStore", (const char *[]){"%out_var", acc_result}, 2);
-    emit_op(mod, "OpReturn", NULL, 0);
-    emit_op(mod, "OpFunctionEnd", NULL, 0);
-}
+    char sel_result[128];
+    snprintf(sel_result, sizeof(sel_result), "%%case_%zu_result", case_idx);
+    const char *value = (strcmp(c->result, "1") == 0) ? "%true" : "%false";
+    emit_op(mod, "OpSelect", (const char *[]){sel_result, "%bool", and_result, value, "%false"}, 5);
+    free(and_result);
 
+    if (!has_result) {
+      snprintf(acc_result, sizeof(acc_result), "%s", sel_result);
+      has_result = true;
+    } else {
+      char tmp[128];
+      snprintf(tmp, sizeof(tmp), "%%result_%zu", case_idx);
+      emit_op(mod, "OpLogicalOr", (const char *[]){tmp, "%bool", acc_result, sel_result}, 4);
+      snprintf(acc_result, sizeof(acc_result), "%s", tmp);
+    }
+  }
+
+  // ─── 5. Store Result ─────────────────────────────────────────────────
+  emit_op(mod, "OpStore", (const char *[]){"%out_var", acc_result}, 2);
+  emit_op(mod, "OpReturn", NULL, 0);
+  emit_op(mod, "OpFunctionEnd", NULL, 0);
+}
 
 void spirv_parse_block(Block *blk, const char *spirv_out_dir)
 {
-
   for (Definition *def = blk->definitions; def != NULL; def = def->next)
   {
+    // Register signals from conditional invocation
+    if (def->conditional_invocation)
+    {
+      ConditionalInvocation *ci = def->conditional_invocation;
+
+      // Register each signal mentioned in the pattern args
+      for (size_t i = 0; i < ci->arg_count; ++i)
+      {
+        const char *arg = ci->pattern_args[i];
+        if (!arg) continue;
+
+        char *resolved_signal;
+        asprintf(&resolved_signal, "%s.local.%s", def->name, arg);
+        register_external_signal(resolved_signal, resolved_signal); // maps to itself for now
+      }
+
+      // Register output signal
+      if (ci->output)
+      {
+        char *resolved_output;
+        asprintf(&resolved_output, "%s.local.%s", def->name, ci->output);
+        register_external_signal(resolved_output, resolved_output);
+      }
+    }
+
+    // Output file path
     char path[512];
     snprintf(path, sizeof(path), "%s/%s.spvasm.sexpr", spirv_out_dir, def->name);
-   
+
     FILE *f = fopen(path, "w");
     if (!f)
     {
@@ -319,14 +354,18 @@ void spirv_parse_block(Block *blk, const char *spirv_out_dir)
 
     SPIRVModule mod = {0};
     mod.current_definition = def;
+
     emit_spirv_header(&mod);
+
+    if (def->conditional_invocation)
+    {
+      emit_conditional_invocation(&mod, def->conditional_invocation);
+    }
 
     dedupe_prelude_ops(&mod);
     write_spirv_module(f, mod.head);
     fclose(f);
     free_spirv_module(&mod);
-    print_external_signals();
-    free_external_signal_table();
 
     LOG_INFO("✅ Wrote SPIR-V to %s", path);
   }

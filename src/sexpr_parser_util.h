@@ -4,7 +4,7 @@ int parse_signal(SExpr *sig_expr, char **out_content);
 bool parse_definition_name(Definition *def, SExpr *expr);
 void parse_definition_inputs(Definition *def, const SExpr *expr);
 void parse_definition_destinations(Definition *def, SExpr *expr);
-
+char *sexpr_to_string(const SExpr *expr);
 void parse_place_of_resolution(Definition *def, SExpr *expr, char **pending_output);
 void parse_conditional_invocation_block(Definition *def, SExpr *expr, char **pending_output);
 void parse_por_invocations(Definition *def, SExpr *expr);

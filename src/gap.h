@@ -1,3 +1,6 @@
+#ifndef GAP_H
+#define GAP_H
+
 #include "invocation.h"
 #include <stdlib.h>
 
@@ -24,3 +27,8 @@ typedef struct {
     uint32_t capabilities;
     char *label;
 } GAPNodeDescriptor;
+
+void init_pubsub(void);
+void publish_packet(const GAPPacket *pkt);
+void GAPPacket *receive_packet();
+#endif

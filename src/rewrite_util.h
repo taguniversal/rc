@@ -3,9 +3,8 @@
 
 #include "eval.h" 
 
-void rewrite_top_level_invocations(Block *blk);
+void rewrite_invocations(Block *blk);
 void rewrite_definition_signals(Definition *def);
-void rewrite_por_invocations(Definition *def);
 void rewrite_conditional_invocation(Definition *def);
 int qualify_local_signals(Block *blk);
 void cleanup_name_counters(void);

@@ -106,7 +106,7 @@ const char *get_atom_value(SExpr *list, size_t index)
   return (item->type == S_EXPR_ATOM) ? item->atom : NULL;
 }
 
-ConditionalInvocation *parse_conditional_invocation(const SExpr *ci_expr)
+ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
 {
     if (!ci_expr || ci_expr->type != S_EXPR_LIST || ci_expr->count < 1)
         return NULL;
@@ -115,7 +115,8 @@ ConditionalInvocation *parse_conditional_invocation(const SExpr *ci_expr)
         return NULL;
 
     ConditionalInvocation *ci = calloc(1, sizeof(ConditionalInvocation));
-    ci->pattern = NULL;
+    ci->pattern_args = NULL;
+    ci->arg_count = 0;
     ci->output = NULL;
     ci->cases = NULL;
     ci->case_count = 0;
@@ -131,16 +132,14 @@ ConditionalInvocation *parse_conditional_invocation(const SExpr *ci_expr)
         // Parse Template
         if (strcmp(tag, "Template") == 0)
         {
-            size_t total_len = 0;
+            ci->arg_count = item->count - 1;
+            ci->pattern_args = calloc(ci->arg_count, sizeof(char *));
             for (size_t j = 1; j < item->count; ++j)
-                total_len += strlen(item->list[j]->atom);
-
-            char *pattern = calloc(total_len + 1, 1);
-            for (size_t j = 1; j < item->count; ++j)
-                strcat(pattern, item->list[j]->atom);
-
-            ci->pattern = pattern;
-            LOG_INFO("🧩 Pattern: %s", pattern);
+            {
+                if (item->list[j]->type != S_EXPR_ATOM) continue;
+                ci->pattern_args[j - 1] = strdup(item->list[j]->atom);
+                LOG_INFO("🧩 Pattern arg[%zu]: %s", j - 1, ci->pattern_args[j - 1]);
+            }
         }
 
         // Parse Output
@@ -163,8 +162,8 @@ ConditionalInvocation *parse_conditional_invocation(const SExpr *ci_expr)
                 ci->cases = realloc(ci->cases, sizeof(ConditionalCase) * (ci->case_count + 1));
                 ci->cases[ci->case_count].pattern = strdup(key->atom);
                 ci->cases[ci->case_count].result = strdup(val->atom);
-                ci->case_count++;
                 LOG_INFO("📘 Case added: %s → %s", key->atom, val->atom);
+                ci->case_count++;
             }
         }
     }

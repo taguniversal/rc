@@ -23,6 +23,59 @@ bool parse_definition_name(Definition *def, SExpr *expr)
     return true;
 }
 
+
+bool parse_definition_body(Definition *def, SExpr *expr) {
+    if (!def || !expr || expr->type != S_EXPR_LIST) return false;
+
+    BodyItem *head = NULL;
+    BodyItem **tail = &head;
+
+    for (size_t i = 0; i < expr->count; ++i) {
+        SExpr *cur = expr->list[i];
+        if (!cur || cur->type != S_EXPR_LIST || cur->count < 1)
+            continue;
+
+        if (cur->list[0]->type != S_EXPR_ATOM)
+            continue;
+
+        const char *tag = cur->list[0]->atom;
+
+        if (strcmp(tag, "Invocation") == 0) {
+            Invocation *inv = parse_invocation(cur);  // Full list passed
+            if (!inv) return false;
+
+            BodyItem *item = calloc(1, sizeof(BodyItem));
+            item->type = BODY_INVOCATION;
+            item->invocation = inv;
+            *tail = item;
+            tail = &item->next;
+        }
+
+        else if (strcmp(tag, "Inputs") == 0 || strcmp(tag, "Outputs") == 0) {
+            BodyItemType type = strcmp(tag, "Inputs") == 0 ? BODY_SIGNAL_INPUT : BODY_SIGNAL_OUTPUT;
+
+            for (size_t j = 1; j < cur->count; ++j) {
+                SExpr *s = cur->list[j];
+                if (!s || s->type != S_EXPR_ATOM) continue;
+
+                BodyItem *item = calloc(1, sizeof(BodyItem));
+                item->type = type;
+                item->signal_name = strdup(s->atom);
+                *tail = item;
+                tail = &item->next;
+            }
+        }
+
+        else {
+            LOG_WARN("⚠️ Unknown tag in Definition Body: %s", tag);
+        }
+    }
+
+    def->body = head;
+    return true;
+}
+
+
 void parse_definition_inputs(Definition *def, const SExpr *expr)
 {
     const SExpr *inputs_expr = get_child_by_tag(expr, "Inputs");
@@ -87,8 +140,6 @@ void parse_definition_outputs(Definition *def, const SExpr *expr)
         LOG_INFO("📤 Parsed Output for %s: %s", def->name, output->atom);
     }
 }
-
-
 
 
 // INVOCATIION
@@ -190,4 +241,46 @@ void parse_invocation_inputs(Invocation *inv, SExpr *expr)
         }
     }
 }
+
+
+static void sexpr_to_string_recursive(const SExpr *expr, FILE *out)
+{
+    if (!expr) return;
+
+    switch (expr->type)
+    {
+        case S_EXPR_ATOM:
+            fprintf(out, "%s", expr->atom);
+            break;
+
+        case S_EXPR_LIST:
+            fprintf(out, "(");
+            for (size_t i = 0; i < expr->count; ++i)
+            {
+                sexpr_to_string_recursive(expr->list[i], out);
+                if (i + 1 < expr->count)
+                    fprintf(out, " ");
+            }
+            fprintf(out, ")");
+            break;
+    }
+}
+
+// === 📦 Public API ===
+char *sexpr_to_string(const SExpr *expr)
+{
+    if (!expr) return NULL;
+
+    // Write to a temporary in-memory buffer using open_memstream
+    char *buffer = NULL;
+    size_t size = 0;
+    FILE *mem = open_memstream(&buffer, &size);
+    if (!mem) return NULL;
+
+    sexpr_to_string_recursive(expr, mem);
+    fclose(mem);  // flush and finalize buffer
+
+    return buffer; // caller is responsible for free()
+}
+
 

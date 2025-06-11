@@ -20,7 +20,7 @@ void string_list_add(StringList *set, const char *key);
 const char *string_list_get_by_index(StringList *set, size_t index);
 void string_list_set_by_index(StringList *set, size_t index, const char *new_value);
 int string_list_contains(StringList *set, const char *key);
-size_t string_list_count(StringList *set)
+size_t string_list_count(StringList *set);
 
 
 #endif

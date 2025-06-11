@@ -187,8 +187,7 @@ int seed_str_to_vec(const char* seed_str, vec128bec_t* out_vec);
 
 // API
 char* new_block(void);
-void mkrand_generate_ipv6(const uint8_t* hash_seed, uint8_t out[16]);
-
+struct in6_addr mkrand_generate_ipv6(void) ;
 #endif
 
 

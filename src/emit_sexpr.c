@@ -1,21 +1,22 @@
 #include "emit_util.h"
 #include "emit_sexpr.h"
 #include "emit_util.h"
+#include "instance.h"
 #include "eval.h"
 #include "log.h"
 #include <stdio.h>
 #include <errno.h>
 
-void emit_unit(Unit *unit, const char *out_dir)
+void emit_instance(Instance *instance, const char *out_dir)
 {
-    if (!unit || !unit->name || !unit->invocation || !unit->definition)
+    if (!instance || !instance->name || !instance->invocation || !instance->definition)
     {
-        LOG_WARN("⚠️  Skipping invalid unit during emission.");
+        LOG_WARN("⚠️  Skipping invalid instance during emission.");
         return;
     }
 
     char path[512];
-    snprintf(path, sizeof(path), "%s/%s.sexp", out_dir, unit->name);
+    snprintf(path, sizeof(path), "%s/%s.sexp", out_dir, instance->name);
     FILE *f = fopen(path, "w");
     if (!f)
     {
@@ -23,134 +24,92 @@ void emit_unit(Unit *unit, const char *out_dir)
         return;
     }
 
-    fprintf(f, "(Unit\n");
-    fprintf(f, "  (Name %s)\n", unit->name);
+    fprintf(f, "(Instance\n");
+    fprintf(f, "  (Name %s)\n", instance->name);
 
     // 🔁 Use the shared helper — preserves parsed-from and roles
-    emit_invocation(f, unit->invocation, 2);
+    emit_invocation(f, instance->invocation, 2);
 
     // Emit Definition
-    emit_definition(f, unit->definition, 2);
+    emit_definition(f, instance->definition, 2);
 
     fprintf(f, ")\n");
     fclose(f);
 
-    LOG_INFO("📤 Emitted unit to %s", path);
+    LOG_INFO("📤 Emitted instance to %s", path);
 }
 
-
-void emit_all_units(Block *blk, const char *dir)
+void emit_all_instances(Block *blk, const char *dir)
 {
-    LOG_INFO("🌀 Emitting all Units to s-expr: %s", dir);
-    for (UnitList *cur = blk->units; cur != NULL; cur = cur->next)
+    LOG_INFO("🌀 Emitting all Instances to s-expr: %s", dir);
+
+    for (InstanceList *cur = blk->instances; cur != NULL; cur = cur->next)
     {
-        Unit *unit = cur->unit;
-        if (!unit || !unit->name)
+        Instance *instance = cur->instance;
+        if (!instance || !instance->name)
         {
-            LOG_WARN("⚠️ Skipping null unit or unit with no name");
+            LOG_WARN("⚠️ Skipping null instance or instance with no name");
             continue;
         }
 
-        emit_unit(unit, dir);
+        emit_instance(instance, dir);
     }
 
-    LOG_INFO("✅ Done emitting all Units.");
+    LOG_INFO("✅ Done emitting all Instances.");
 }
 
-void emit_source_list(FILE *out, SourcePlaceList list, int indent, const char *role_hint)
+void emit_input_signals(FILE *out, StringList *inputs, int indent, const char *role_hint)
 {
+    if (!inputs || string_list_count(inputs) == 0)
+        return;
+
     emit_indent(out, indent);
-    fputs("(SourceList\n", out);
+    fputs("(Inputs\n", out);
 
-    for (size_t i = 0; i < list.count; ++i)
+    for (size_t i = 0; i < string_list_count(inputs); ++i)
     {
-        SourcePlace *src = list.items[i];
-        emit_indent(out, indent + 2);
-        fputs("(SourcePlace\n", out);
-
-        const char *signame = src->resolved_name ? src->resolved_name : src->name;
-        if (signame)
-        {
-            emit_indent(out, indent + 4);
-            fputs("(Name ", out);
-            emit_atom(out, signame);
-            fputs(")\n", out);
-
-            emit_indent(out, indent + 4);
-            fprintf(out, ";; role: %s\n", role_hint ? role_hint : "unknown");
-        }
-
-        if (src->content)
-        {
-            LOG_INFO(
-                "✏️ Emitting SourcePlace: name=%s signal=%s",
-                signame,
-                src->content);
-
-            emit_indent(out, indent + 4);
-            fputs("(Signal\n", out);
-            emit_indent(out, indent + 6);
-            fputs("(Content ", out);
-            emit_atom(out, src->content);
-            fputs(")\n", out);
-            emit_indent(out, indent + 4);
-            fputs(")\n", out);
-        }
-        else
-        {
-            emit_indent(out, indent + 4);
-            fputs(";; (No content yet — to be resolved by evaluation)\n", out);
-
-        }
+        const char *signal = string_list_get_by_index(inputs, i);
+        if (!signal)
+            continue;
 
         emit_indent(out, indent + 2);
-        fputs(")\n", out);
+        emit_atom(out, signal);
+        fputs("\n", out);
+
+        if (role_hint)
+        {
+            emit_indent(out, indent + 2);
+            fprintf(out, ";; role: %s\n", role_hint);
+        }
     }
 
     emit_indent(out, indent);
     fputs(")\n", out);
 }
 
-void emit_destination_list(FILE *out, DestinationPlaceList list,
-                           int indent, const char *role_hint)
+void emit_output_signals(FILE *out, StringList *outputs, int indent, const char *role_hint)
 {
+    if (!outputs || string_list_count(outputs) == 0)
+        return;
+
     emit_indent(out, indent);
-    fputs("(DestinationList\n", out);
+    fputs("(Outputs\n", out);
 
-    for (size_t i = 0; i < list.count; ++i)
+    for (size_t i = 0; i < string_list_count(outputs); ++i)
     {
-        DestinationPlace *dst = list.items[i];
+        const char *signal = string_list_get_by_index(outputs, i);
+        if (!signal)
+            continue;
 
         emit_indent(out, indent + 2);
-        fputs("(DestinationPlace\n", out);
+        emit_atom(out, signal);
+        fputs("\n", out);
 
-        const char *signame = dst->resolved_name ? dst->resolved_name : dst->name;
-        if (signame)
+        if (role_hint)
         {
-            emit_indent(out, indent + 4);
-            fputs("(Name ", out);
-            emit_atom(out, signame);
-            fputs(")\n", out);
-
-            // 🔍 Add per-place role annotation
-            emit_indent(out, indent + 4);
-            fprintf(out, ";; role: %s\n", role_hint ? role_hint : "unknown");
+            emit_indent(out, indent + 2);
+            fprintf(out, ";; role: %s\n", role_hint);
         }
-
-        if (dst->content)
-        {
-            emit_indent(out, indent + 4);
-            fputs("(Signal\n", out);
-            emit_indent(out, indent + 6);
-            fputs("(Content ", out);
-            emit_atom(out, dst->content);
-            fputs(")\n", out);
-            emit_indent(out, indent + 4);
-            fputs(")\n", out);
-        }
-
-        emit_indent(out, indent + 2);
-        fputs(")\n", out);
     }
 
     emit_indent(out, indent);
@@ -159,66 +118,105 @@ void emit_destination_list(FILE *out, DestinationPlaceList list,
 
 void emit_place_of_resolution(FILE *out, Definition *def, int indent)
 {
-    if (!def || (!def->place_of_resolution_invocations && def->place_of_resolution_sources.count == 0))
+    if (!def || !def->body)
         return;
 
     emit_indent(out, indent);
     fputs("(PlaceOfResolution\n", out);
 
-    // Emit internal invocations
-    for (Invocation *inv = def->place_of_resolution_invocations; inv; inv = inv->next)
+    for (BodyItem *item = def->body; item != NULL; item = item->next)
     {
-        emit_invocation(out, inv, indent + 2);
-    }
-
-    // Emit resolved output sources from array
-    for (size_t i = 0; i < def->place_of_resolution_sources.count; ++i)
-    {
-        SourcePlace *sp = def->place_of_resolution_sources.items[i];
-        if (!sp)
-            continue;
-
-        emit_indent(out, indent + 2);
-        fputs("(SourcePlace\n", out);
-
-        const char *signame = sp->resolved_name ? sp->resolved_name : sp->name;
-        if (signame)
+        switch (item->type)
         {
-            emit_indent(out, indent + 4);
-            fprintf(out, "(Name %s)\n", signame);
+            case BODY_INVOCATION:
+                if (item->data.invocation)
+                    emit_invocation(out, item->data.invocation, indent + 2);
+                break;
+
+            case BODY_SIGNAL_OUTPUT:
+                emit_indent(out, indent + 2);
+                fputs("(SourcePlace\n", out);
+
+                emit_indent(out, indent + 4);
+                fprintf(out, "(Name %s)\n", item->data.signal_name);
+
+                emit_indent(out, indent + 4);
+                fputs("(ContentFrom ConditionalInvocationResult)\n", out);  // May customize later
+
+                emit_indent(out, indent + 2);
+                fputs(")\n", out);
+                break;
+
+            default:
+                // Ignore BODY_SIGNAL_INPUT for POR
+                break;
         }
-
-        emit_indent(out, indent + 4);
-        fputs("(ContentFrom ConditionalInvocationResult)\n", out); // placeholder
-
-        emit_indent(out, indent + 2);
-        fputs(")\n", out);
     }
 
     emit_indent(out, indent);
     fputs(")\n", out);
 }
 
+
+
 void emit_invocation(FILE *out, Invocation *inv, int indent)
 {
-    fprintf(out, ";; Invocation parsed from %s\n", inv->origin_sexpr_path);
+    if (!inv)
+        return;
+
+    fprintf(out, ";; Invocation parsed from %s\n", inv->origin_sexpr_path ? inv->origin_sexpr_path : "(unknown)");
     emit_indent(out, indent);
     fputs("(Invocation\n", out);
 
+    // ─── Target ─────────────────────────────────────────────────────
     emit_indent(out, indent + 2);
-    fputs("(Name ", out);
-    emit_atom(out, inv->name);
+    fputs("(Target ", out);
+    emit_atom(out, inv->target_name);
     fputs(")\n", out);
 
-    // 🚧 Role Hint: Inputs for invocation
+    // ─── Literal Bindings ───────────────────────────────────────────
+    if (inv->literal_bindings)
+    {
+        for (size_t i = 0; i < inv->literal_bindings->count; ++i)
+        {
+            LiteralBinding *binding = &inv->literal_bindings->items[i];
+            if (!binding->name || !binding->value)
+                continue;
+
+            emit_indent(out, indent + 2);
+            fputc('(', out);
+            emit_atom(out, binding->name);
+            fputc(' ', out);
+            emit_atom(out, binding->value);
+            fputs(")\n", out);
+        }
+    }
+
+    // ─── Inputs ─────────────────────────────────────────────────────
     emit_indent(out, indent + 2);
     fputs(";; Inputs (flow into definition)\n", out);
-    emit_destination_list(out, inv->boundary_destinations, indent + 2, "input");
+    emit_indent(out, indent + 2);
+    fputs("(Inputs", out);
+    for (size_t i = 0; i < string_list_count(inv->input_signals); ++i)
+    {
+        const char *sig = string_list_get_by_index(inv->input_signals, i);
+        fputc(' ', out);
+        emit_atom(out, sig);
+    }
+    fputs(")\n", out);
 
-    // 🚧 Role Hint: Outputs from invocation
+    // ─── Outputs ────────────────────────────────────────────────────
     emit_indent(out, indent + 2);
     fputs(";; Outputs (flow out of definition)\n", out);
-    emit_source_list(out, inv->boundary_sources, indent + 2, "output");
+    emit_indent(out, indent + 2);
+    fputs("(Outputs", out);
+    for (size_t i = 0; i < string_list_count(inv->output_signals); ++i)
+    {
+        const char *sig = string_list_get_by_index(inv->output_signals, i);
+        fputc(' ', out);
+        emit_atom(out, sig);
+    }
+    fputs(")\n", out);
 
     emit_indent(out, indent);
     fputs(")\n", out);
@@ -226,14 +224,25 @@ void emit_invocation(FILE *out, Invocation *inv, int indent)
 
 void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
 {
+    if (!ci)
+        return;
+
     emit_indent(out, indent);
     fputs("(ConditionalInvocation\n", out);
 
-    // Emit Resolved Template  emit_indent(out, indent + 2);
+    // Emit Output
+    if (ci->output)
+    {
+        emit_indent(out, indent + 2);
+        fprintf(out, "(Output %s)\n", ci->output);
+    }
+
+    // Emit Template
+    emit_indent(out, indent + 2);
     fputs("(Template", out);
     for (size_t i = 0; i < ci->arg_count; ++i)
     {
-        const char *arg = ci->resolved_template_args[i];
+        const char *arg = ci->pattern_args[i];
         if (arg)
         {
             fprintf(out, " %s", arg);
@@ -246,8 +255,12 @@ void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
     fputs(")\n", out);
 
     // Emit Cases
-    for (ConditionalInvocationCase *c = ci->cases; c; c = c->next)
+    for (size_t i = 0; i < ci->case_count; ++i)
     {
+        ConditionalCase *c = &ci->cases[i];
+        if (!c->pattern || !c->result)
+            continue;
+
         emit_indent(out, indent + 2);
         fprintf(out, "(Case %s %s)\n", c->pattern, c->result);
     }
@@ -258,8 +271,11 @@ void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
 
 void emit_definition(FILE *out, Definition *def, int indent)
 {
+    if (!def || !def->name)
+        return;
+
     LOG_INFO("🧪 Emitting definition: %s", def->name);
-    fprintf(out, ";; Definition parsed from %s\n", def->origin_sexpr_path);
+    fprintf(out, ";; Definition parsed from %s\n", def->origin_sexpr_path ? def->origin_sexpr_path : "(unknown)");
 
     emit_indent(out, indent);
     fputs("(Definition\n", out);
@@ -270,57 +286,50 @@ void emit_definition(FILE *out, Definition *def, int indent)
     emit_atom(out, def->name);
     fputs(")\n", out);
 
-    // 🚧 Role Hint: Inputs to the definition
+    // Inputs
     emit_indent(out, indent + 2);
     fputs(";; Inputs (from invocation → used inside definition)\n", out);
-    emit_source_list(out, def->boundary_sources, indent + 2, "input");
+    emit_input_signals(out, def->input_signals, indent + 2, "input");
 
-    // 🚧 Role Hint: Outputs from the definition
+    // Outputs
     emit_indent(out, indent + 2);
-    fputs(";; Outputs (from definition → back to invocation))\n", out);
-    emit_destination_list(out, def->boundary_destinations, indent + 2, "output");
+    fputs(";; Outputs (from definition → back to invocation)\n", out);
+    emit_output_signals(out, def->output_signals, indent + 2, "output");
 
-    // Emit PlaceOfResolution if present
-    LOG_INFO("🧪 Emitting POR for def: %s", def->name);
-    if (!def->place_of_resolution_invocations && def->place_of_resolution_sources.count == 0)
+    // Body
+    emit_indent(out, indent + 2);
+    fputs("(Body\n", out);
+
+    for (BodyItem *item = def->body; item; item = item->next)
     {
-        LOG_WARN("⚠️ No POR data found in def: %s", def->name);
+        switch (item->type)
+        {
+        case BODY_INVOCATION:
+            emit_invocation(out, item->data.invocation, indent + 4);
+            break;
+
+        case BODY_SIGNAL_INPUT:
+            emit_indent(out, indent + 4);
+            fprintf(out, "(InputSignal %s)\n", item->data.signal_name);
+            break;
+
+        case BODY_SIGNAL_OUTPUT:
+            emit_indent(out, indent + 4);
+            fprintf(out, "(OutputSignal %s)\n", item->data.signal_name);
+            break;
+
+        default:
+            emit_indent(out, indent + 4);
+            fprintf(out, ";; ⚠️ Unknown BodyItemType: %d\n", item->type);
+            break;
+        }
     }
-    else
-    {
-        LOG_INFO("✅ POR present for def: %s", def->name);
-    }
-
-    emit_place_of_resolution(out, def, indent + 2);
-
-    // Emit ConditionalInvocation if present
-    if (def->conditional_invocation)
-    {
-        emit_conditional(out, def->conditional_invocation, indent + 2);
-    }
-
-    emit_indent(out, indent);
-    fputs(")\n", out);
-}
-
-void emit_flattened_definition(FILE *out, Definition *def, int indent)
-{
-    emit_indent(out, indent);
-    fputs("(Definition\n", out);
 
     emit_indent(out, indent + 2);
-    fputs("(Name ", out);
-    emit_atom(out, def->name);
-    fputs(")\n", out);
-
-    emit_source_list(out, def->boundary_sources, indent + 2, "input");
-    emit_destination_list(out, def->boundary_destinations, indent + 2, "output");
-
-    if (def->conditional_invocation)
-        emit_conditional(out, def->conditional_invocation, indent + 2);
+    fputs(")\n", out); // End Body
 
     emit_indent(out, indent);
-    fputs(")\n", out);
+    fputs(")\n", out); // End Definition
 }
 
 void emit_all_definitions(Block *blk, const char *dirpath)
@@ -334,28 +343,30 @@ void emit_all_definitions(Block *blk, const char *dirpath)
 
     for (Definition *def = blk->definitions; def; def = def->next)
     {
+        if (!def->name) {
+            LOG_WARN("⚠️ Skipping unnamed definition");
+            continue;
+        }
+
         char path[256];
         snprintf(path, sizeof(path), "%s/%s.def.sexpr", dirpath, def->name);
+
         FILE *out = fopen(path, "w");
         if (!out)
         {
             LOG_ERROR("❌ Failed to open file for writing: %s", path);
             continue;
         }
-        // TODO DEBUG
-        for (Definition *def = blk->definitions; def; def = def->next)
-        {
-            LOG_INFO("👀 Definition in blk: %s", def->name);
-            if (def->place_of_resolution_invocations)
-            {
-                LOG_INFO("🔍 Has POR invocations");
-            }
-        }
+
+        LOG_INFO("📦 Emitting definition: %s", def->name);
         emit_definition(out, def, 0);
         fclose(out);
+
         LOG_INFO("✅ Wrote definition '%s' to %s", def->name, path);
     }
 }
+
+
 
 void emit_all_invocations(Block *blk, const char *dirpath)
 {
@@ -369,7 +380,7 @@ void emit_all_invocations(Block *blk, const char *dirpath)
     for (Invocation *inv = blk->invocations; inv; inv = inv->next)
     {
         char path[256];
-        snprintf(path, sizeof(path), "%s/%s.inv.sexpr", dirpath, inv->name);
+        snprintf(path, sizeof(path), "%s/%s.inv.sexpr", dirpath, inv->target_name);
         FILE *out = fopen(path, "w");
         if (!out)
         {
@@ -380,6 +391,6 @@ void emit_all_invocations(Block *blk, const char *dirpath)
         // Emit the invocation
         emit_invocation(out, inv, 0);
         fclose(out);
-        LOG_INFO("✅ Wrote invocation '%s' to %s", inv->name, path);
+        LOG_INFO("✅ Wrote invocation '%s' to %s", inv->target_name, path);
     }
 }

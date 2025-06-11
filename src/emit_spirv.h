@@ -28,6 +28,14 @@ typedef struct SPIRVModule
     Invocation *current_invocation; // Needed for resolving inputs
 } SPIRVModule;
 
+
+// Map of signal_name => spirv_id
+typedef struct SignalIDEntry {
+    char *signal;
+    char *id;
+    struct SignalIDEntry *next;
+  } SignalIDEntry;
+  
 SPIRVModule *spirv_module_new(void);
 void emit_op(SPIRVModule *mod, const char *opcode, const char **operands, size_t count);
 void write_spirv_module(FILE *out, SPIRVOp *head);
