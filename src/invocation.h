@@ -69,7 +69,7 @@ typedef struct Definition
     char *origin_sexpr_path;     // Path to original S-expression source
     char *sexpr_logic;           // The actual logic (e.g., (COND ...))
     StringList *input_signals;   // Ordered signal names used as inputs
-    StringList **output_signals; // Ordered set of output signal names
+    StringList *output_signals; // Ordered set of output signal names
     BodyItem *body;
     ConditionalInvocation *conditional_invocation;
     struct Definition *next;

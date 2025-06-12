@@ -39,7 +39,7 @@ void append_instance(Block *blk, Instance *instance)
 void print_block(const Block *blk)
 {
     LOG_INFO("Block psi: ");
-    print_psi(blk->psi);
+    print_psi(&blk->psi);
     LOG_INFO("\n");
 
     for (InstanceList *instance_list = blk->instances; instance_list; instance_list = instance_list->next)

@@ -45,21 +45,6 @@ char *enrich(const char *osc_path) {
   return content;
 }
 
-void generate_ipv6_address(const uint8_t *pubkey, char *ipv6_str) {
-  uint8_t hash[SHA256_DIGEST_LENGTH];
-  SHA256(pubkey, 32, hash);
-
-  struct in6_addr addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.s6_addr[0] = 0xFC;
-  memcpy(&addr.s6_addr[1], hash, 6);
-
-  uint8_t full_rand[16];
-  mkrand_generate_ipv6(pubkey, full_rand);
-  memcpy(&addr.s6_addr[8], &full_rand[8], 8);
-
-  inet_ntop(AF_INET6, &addr, ipv6_str, INET6_ADDRSTRLEN);
-}
 
 void send_osc_response(const char *address, float value) {
   int sockfd;
@@ -172,10 +157,9 @@ int process_osc_message(Block* blk, const char *buffer, int len) {
     }
 
     if (strcmp(osc.buffer, "/generate_ipv6") == 0) {
-      char ipv6_str[INET6_ADDRSTRLEN];
-      uint8_t pubkey[32] = {0x01, 0x02, 0x03};
-      generate_ipv6_address(pubkey, ipv6_str);
-      LOG_INFO("✅ Generated IPv6: %s\n", ipv6_str);
+      struct in6_addr address_ipv6 = mkrand_generate_ipv6();
+      
+   //   LOG_INFO("✅ Generated IPv6: %s\n", ipv6_str);
       return 0; // No RDF write
     }
 

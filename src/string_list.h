@@ -1,5 +1,5 @@
-#ifndef STRING_SET_H
-#define STRING_SET_H
+#ifndef STRING_LIST_H
+#define STRING_LIST_H
 
 #include <stddef.h>
 

@@ -1,61 +1,92 @@
 #include "wiring.h"
 #include "log.h"
 #include "eval.h"
+#include "instance.h"
+#include "eval.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "eval.h"
-#include "log.h"  
+
 void dump_wiring(Block *blk)
 {
-    LOG_INFO("🧪 Dumping wiring for all units in block PSI: %s", blk->psi);
+    LOG_INFO("🧪 Dumping wiring for all instances in block PSI: %s", blk->psi);
 
-    for (UnitList *ul = blk->units; ul; ul = ul->next)
+    for (InstanceList *ul = blk->instances; ul; ul = ul->next)
     {
-        Unit *unit = ul->unit;
-        if (!unit) continue;
+        Instance *instance = ul->instance;
+        if (!instance) continue;
 
-        LOG_INFO("  🔽 Unit: %s", unit->name);
+        LOG_INFO("  🔽 Instance: %s", instance->name);
 
-        // Dump Invocation Sources (input to the unit)
-        if (unit->invocation)
+        // Invocation details
+        if (instance->invocation)
         {
-            for (size_t i = 0; i < unit->invocation->boundary_sources.count; ++i)
+            LOG_INFO("    ▶ Invocation Target: %s", instance->invocation->target_name);
+
+            LOG_INFO("    ▶ Input Signals:");
+            for (size_t i = 0; i < string_list_count(instance->invocation->input_signals); ++i)
             {
-                SourcePlace *src = unit->invocation->boundary_sources.items[i];
-                const char *val = (src && src->content) ? src->content : "(null)";
-                LOG_INFO("    ➤ [Invocation] Source: %-20s → Content: %s", 
-                         (src && src->resolved_name) ? src->resolved_name : "(unnamed)", val);
+                LOG_INFO("       - %s", string_list_get_by_index(instance->invocation->input_signals, i));
             }
 
-            for (size_t j = 0; j < unit->invocation->boundary_destinations.count; ++j)
+            LOG_INFO("    ▶ Output Signals:");
+            for (size_t i = 0; i < string_list_count(instance->invocation->output_signals); ++i)
             {
-                DestinationPlace *dst = unit->invocation->boundary_destinations.items[j];
-                const char *val = (dst && dst->content) ? dst->content : "(null)";
-                LOG_INFO("    ➤ [Invocation] Dest:   %-20s → Content: %s", 
-                         (dst && dst->resolved_name) ? dst->resolved_name : "(unnamed)", val);
+                LOG_INFO("       - %s", string_list_get_by_index(instance->invocation->output_signals, i));
+            }
+
+            if (instance->invocation->literal_bindings && instance->invocation->literal_bindings->count > 0)
+            {
+                LOG_INFO("    ▶ Literal Bindings:");
+                for (size_t i = 0; i < instance->invocation->literal_bindings->count; ++i)
+                {
+                    LiteralBinding *binding = &instance->invocation->literal_bindings->items[i];
+                    LOG_INFO("       - %s = %s", binding->name, binding->value);
+                }
             }
         }
 
-        // Dump Definition Internal Signals (inside the unit's logic)
-        if (unit->definition)
+        // Definition details
+        if (instance->definition)
         {
-            for (size_t i = 0; i < unit->definition->boundary_sources.count; ++i)
+            LOG_INFO("    ▶ Definition: %s", instance->definition->name);
+
+            LOG_INFO("    ▶ Definition Inputs:");
+            for (size_t i = 0; i < string_list_count(instance->definition->input_signals); ++i)
             {
-                SourcePlace *src = unit->definition->boundary_sources.items[i];
-                const char *val = (src && src->content) ? src->content : "(null)";
-                LOG_INFO("    ➤ [Definition] Source: %-20s → Content: %s", 
-                         (src && src->resolved_name) ? src->resolved_name : "(unnamed)", val);
+                LOG_INFO("       - %s", string_list_get_by_index(instance->definition->input_signals, i));
             }
 
-            for (size_t j = 0; j < unit->definition->boundary_destinations.count; ++j)
+            LOG_INFO("    ▶ Definition Outputs:");
+            if (instance->definition->output_signals)
             {
-                DestinationPlace *dst = unit->definition->boundary_destinations.items[j];
-                const char *val = (dst && dst->content) ? dst->content : "(null)";
-                LOG_INFO("    ➤ [Definition] Dest:   %-20s → Content: %s", 
-                         (dst && dst->resolved_name) ? dst->resolved_name : "(unnamed)", val);
+                for (StringList **sl = instance->definition->output_signals; *sl; ++sl)
+                {
+                    for (size_t i = 0; i < string_list_count(*sl); ++i)
+                    {
+                        LOG_INFO("       - %s", string_list_get_by_index(*sl, i));
+                    }
+                }
+            }
+
+            if (instance->definition->conditional_invocation)
+            {
+                LOG_INFO("    ▶ Conditional Logic:");
+                ConditionalInvocation *ci = instance->definition->conditional_invocation;
+
+                LOG_INFO("       Pattern Args:");
+                for (size_t i = 0; i < ci->arg_count; ++i)
+                {
+                    LOG_INFO("         - %s", ci->pattern_args[i]);
+                }
+
+                LOG_INFO("       Output: %s", ci->output);
+
+                for (size_t i = 0; i < ci->case_count; ++i)
+                {
+                    LOG_INFO("       Case: %s → %s", ci->cases[i].pattern, ci->cases[i].result);
+                }
             }
         }
     }
 }
-

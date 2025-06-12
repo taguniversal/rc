@@ -19,7 +19,7 @@ typedef struct {
     struct in6_addr to;
     uint32_t payload_len;
     uint8_t payload[];         // Encoded S-expression or binary
-} __attribute__((packed)) GAPPacket;
+} __attribute__((aligned)) GAPPacket;
 
 typedef struct {
     struct in6_addr addr;
@@ -28,7 +28,5 @@ typedef struct {
     char *label;
 } GAPNodeDescriptor;
 
-void init_pubsub(void);
-void publish_packet(const GAPPacket *pkt);
-void GAPPacket *receive_packet();
+
 #endif

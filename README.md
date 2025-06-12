@@ -39,10 +39,20 @@ This project challenges traditional assumptions about how software, computation,
 ## 🛠 Build Instructions (Meson)
 
 We use [Meson](https://mesonbuild.com/) as the primary build system and [Ninja](https://ninja-build.org/) as the backend.
-
 ## ✅ Prerequisites
 
 Make sure you have the following installed:
+
+## For macOS (Homebrew)
+brew install zeromq czmq
+
+⚠️ Note for macOS users:
+If czmq fails to build or Meson cannot find it, ensure your PKG_CONFIG_PATH includes czmq's .pc files:
+
+## For Ubuntu/Debian
+sudo apt install libzmq3-dev libczmq-dev
+
+### 🔧 Build Tools
 
 ```bash
 # For macOS (Homebrew)
@@ -51,11 +61,5 @@ brew install meson ninja
 # For Ubuntu/Debian
 sudo apt install meson ninja-build
 
-# 1. Set up the build directory
-meson setup build
-
-## 2. Compile the project
-meson compile -C build
-```
 
 This builds rc and then runs it against the inv/ directory to generate the rewritten s-expressions with fully qualified signal names, which are the source of truth for the entire built module which is the base for emitting to SPIRV and VHDL targets.

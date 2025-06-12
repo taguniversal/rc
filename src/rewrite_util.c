@@ -113,22 +113,19 @@ void rewrite_definition_signals(Definition *def)
     // 🔁 Rewrite output signal names
     if (def->output_signals)
     {
-        for (size_t group = 0; def->output_signals[group] != NULL; ++group)
+        for (size_t j = 0; j < string_list_count(def->output_signals); ++j)
         {
-            StringList *group_list = def->output_signals[group];
-            for (size_t j = 0; j < string_list_count(group_list); ++j)
-            {
-                const char *name = string_list_get_by_index(group_list, j);
-                if (!name)
-                    continue;
+            const char *name = string_list_get_by_index(def->output_signals, j);
+            if (!name)
+                continue;
 
-                char *new_name;
-                asprintf(&new_name, "%s.local.%s", def->name, name);
-                string_list_set_by_index(group_list, j, new_name);
-                LOG_INFO("🔁 Output signal rewritten: %s → %s", name, new_name);
-            }
+            char *new_name;
+            asprintf(&new_name, "%s.local.%s", def->name, name);
+            string_list_set_by_index(def->output_signals, j, new_name);
+            LOG_INFO("🔁 Output signal rewritten: %s → %s", name, new_name);
         }
     }
+
     // 🔁 Rewrite signal names in BodyItem entries
     for (BodyItem *item = def->body; item != NULL; item = item->next)
     {

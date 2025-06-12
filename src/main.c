@@ -9,7 +9,7 @@
 #include <string.h>
 #include <unistd.h>
 
-int main() {
+int main(void) {
     init_pubsub();
 
     // Create GAP packet

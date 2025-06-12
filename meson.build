@@ -11,16 +11,19 @@ crypto_dep    = cc.find_library('crypto', required: true)
 dl_dep        = cc.find_library('dl', required: true)
 vulkan_dep    = dependency('vulkan', required: true)
 zeromq_dep   = dependency('libzmq', required: true)
-
-deps = [sqlite3_dep, crypto_dep, dl_dep, vulkan_dep, zeromq_dep]
+czmq_dep = dependency('libczmq', required: true)
+deps = [sqlite3_dep, crypto_dep, dl_dep, vulkan_dep, zeromq_dep, czmq_dep]
 
 # --- Sources ---
 rcnode_sources = files(
   'src/main.c',
   'src/block.c',
+  'src/block_util.c',
   'src/eval_util.c',
   'src/rewrite_util.c',
   'src/string_list.c',
+  'src/pubsub.c',
+  'src/gap.c',
   'src/eval.c',
   'src/emit_spirv.c',
   'src/emit_sexpr.c',

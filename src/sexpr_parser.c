@@ -60,7 +60,7 @@ static char *parse_atom(const char **input)
   return atom;
 }
 
-SExpr *get_child_by_tag(SExpr *parent, const char *tag)
+SExpr *get_child_by_tag(const SExpr *parent, const char *tag)
 {
   for (size_t i = 1; i < parent->count; ++i)
   {
@@ -106,7 +106,102 @@ const char *get_atom_value(SExpr *list, size_t index)
   return (item->type == S_EXPR_ATOM) ? item->atom : NULL;
 }
 
-ConditionalInvocation *parse_conditional_invocation(SExpr *ci_expr)
+
+int parse_block_from_sexpr(Block *blk, const char *inv_dir)
+{
+  DIR *dir = opendir(inv_dir);
+  if (!dir)
+  {
+    LOG_ERROR("❌ Unable to open invocation directory: %s", inv_dir);
+    exit(1);
+  }
+
+  LOG_INFO("🔍 parse_block_from_sexpr Parsing block contents from directory: %s", inv_dir);
+
+  struct dirent *entry;
+  while ((entry = readdir(dir)) != NULL)
+  {
+    if (!strstr(entry->d_name, ".sexpr"))
+      continue;
+
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s", inv_dir, entry->d_name);
+
+    LOG_INFO("📄 Loading S-expression: %s", path);
+    char *contents = load_file(path);
+    if (!contents)
+    {
+      LOG_ERROR("❌ Failed to read file: %s", path);
+      exit(1);
+    }
+
+    SExpr *expr = parse_sexpr(contents);
+    free(contents);
+
+    if (!expr || expr->type != S_EXPR_LIST || expr->count == 0)
+    {
+      LOG_ERROR("❌ Invalid or empty S-expression in file: %s", path);
+      if (expr)
+        free_sexpr(expr);
+      exit(1);
+    }
+
+    SExpr *head = expr->list[0];
+    if (head->type != S_EXPR_ATOM)
+    {
+      LOG_ERROR("❌ Malformed S-expression (non-atom head) in file: %s", path);
+      free_sexpr(expr);
+      exit(1);
+    }
+
+    const char *top_tag = head->atom;
+    const char *file_basename = entry->d_name;
+
+    if (strcmp(top_tag, "Definition") == 0)
+    {
+      Definition *def = parse_definition(expr);
+      if (!def)
+      {
+        LOG_ERROR("❌ Failed to parse Definition from: %s", path);
+        free_sexpr(expr);
+        exit(1);
+      }
+      def->origin_sexpr_path = strdup(path);
+      def->next = blk->definitions;
+      blk->definitions = def;
+      LOG_INFO("📦 Added Definition: %s", def->name);
+    }
+    else if (strcmp(top_tag, "Invocation") == 0)
+    {
+      Invocation *inv = parse_invocation(expr);
+      if (!inv)
+      {
+        LOG_ERROR("❌ Failed to parse Invocation from: %s", path);
+        free_sexpr(expr);
+        exit(1);
+      }
+      inv->origin_sexpr_path = strdup(path);
+      inv->next = blk->invocations;
+      blk->invocations = inv;
+      LOG_INFO("📦 Added Invocation targeting: %s", inv->target_name);
+    }
+    else
+    {
+      LOG_ERROR("❌ Unknown top-level tag: (%s) in file %s", top_tag, file_basename);
+      free_sexpr(expr);
+      exit(1);
+    }
+
+    free_sexpr(expr);
+  }
+
+  closedir(dir);
+  LOG_INFO("✅ Block population from S-expression completed.");
+
+  return 0;
+}
+
+ConditionalInvocation *parse_conditional_invocation(const SExpr *ci_expr)
 {
     if (!ci_expr || ci_expr->type != S_EXPR_LIST || ci_expr->count < 1)
         return NULL;

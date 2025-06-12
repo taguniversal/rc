@@ -3,7 +3,7 @@
 #include "eval.h"
 #include "stdio.h"
 void emit_instance(Instance *instance, const char *out_dir);
-void emit_all_units(Block *blk, const char *dir);
+void emit_all_instances(Block *blk, const char *dir);
 void emit_invocation(FILE *out, Invocation *inv, int indent);
 void emit_definition(FILE *out, Definition *def, int indent);
 void emit_output_signals(FILE *out, StringList *outputs, int indent, const char *role_hint);

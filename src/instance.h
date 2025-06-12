@@ -1,6 +1,6 @@
 #ifndef INSTANCE_H
 #define INSTANCE_H
-
+#include "invocation.h"
 
 typedef struct Instance {
    char *name;

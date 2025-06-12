@@ -74,9 +74,9 @@ void compile_block(Block *blk,
 
     // Stage 3: Unit construction — flatten all logic into self-contained Invocation|Definition units
     unify_invocations(blk);            // Instantiate definition+invocation pairs as Units
-    emit_all_units(blk, sexpr_stage3_dir);
+    emit_all_instances(blk, sexpr_stage3_dir);
     eval(blk); // Evaluate the system (simulation or codegen)
-    emit_all_units(blk, sexpr_stage4_dir);
+    emit_all_instances(blk, sexpr_stage4_dir);
                  // Emit final S-expr per Unit
   //  emit_all_units_to_spirv(blk, spirv_stage4_dir);     // Emit SPIR-V per Unit
   //  emit_all_units_to_verilog(blk, verilog_stage4_dir); // Emit Verilog per Unit

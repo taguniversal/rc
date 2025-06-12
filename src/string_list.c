@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-StringList *create_string_set(void) {
+StringList *create_string_list(void) {
     StringList *set = malloc(sizeof(StringList));
     set->head = NULL;
     set->tail = NULL;
@@ -10,7 +10,7 @@ StringList *create_string_set(void) {
     return set;
 }
 
-void destroy_string_set(StringList *set) {
+void destroy_string_list(StringList *set) {
     StringListEntry *cur = set->head;
     while (cur) {
         StringListEntry *next = cur->next;
@@ -21,7 +21,7 @@ void destroy_string_set(StringList *set) {
     free(set);
 }
 
-size_t string_set_count(StringList *set) {
+size_t string_list_count(StringList *set) {
     return set ? set->size : 0;
 }
 
@@ -33,7 +33,7 @@ int string_set_contains(StringList *set, const char *key) {
     return 0;
 }
 
-void string_set_add(StringList *set, const char *key) {
+void string_list_add(StringList *set, const char *key) {
     if (string_set_contains(set, key)) return;
 
     StringListEntry *entry = malloc(sizeof(StringListEntry));
@@ -65,10 +65,11 @@ void string_list_set_by_index(StringList *list, size_t index, const char *new_va
     size_t i = 0;
     for (StringListEntry *cur = list->head; cur; cur = cur->next) {
         if (i++ == index) {
-            free(cur->key);  // Free the old value
-            cur->key = strdup(new_value);  // Replace with new value
+            free(cur->key);  // Free the old string
+            cur->key = strdup(new_value);  // Assign new string
             return;
         }
     }
 }
+
 

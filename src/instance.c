@@ -2,6 +2,7 @@
 #include "invocation.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 
 Instance *create_instance(const char *def_name, int instance_id, Definition *def, Invocation *inv)

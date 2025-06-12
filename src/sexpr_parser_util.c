@@ -46,7 +46,7 @@ bool parse_definition_body(Definition *def, SExpr *expr) {
 
             BodyItem *item = calloc(1, sizeof(BodyItem));
             item->type = BODY_INVOCATION;
-            item->invocation = inv;
+            item->data.invocation = inv;
             *tail = item;
             tail = &item->next;
         }
@@ -60,7 +60,7 @@ bool parse_definition_body(Definition *def, SExpr *expr) {
 
                 BodyItem *item = calloc(1, sizeof(BodyItem));
                 item->type = type;
-                item->signal_name = strdup(s->atom);
+                item->data.signal_name = strdup(s->atom);
                 *tail = item;
                 tail = &item->next;
             }
@@ -119,13 +119,10 @@ void parse_definition_outputs(Definition *def, const SExpr *expr)
     }
 
     // Free previous outputs if already present
-    if (def->output_signals) {
-        for (size_t i = 0; def->output_signals[i]; ++i)
-            destroy_string_list(def->output_signals[i]);
-        free(def->output_signals);
-    }
+    if (def->output_signals)
+        destroy_string_list(def->output_signals);
 
-    def->output_signals = calloc(count + 1, sizeof(StringList *));  // +1 for NULL terminator
+    def->output_signals = create_string_list();
 
     for (size_t i = 1; i < outputs_expr->count; ++i)
     {
@@ -133,10 +130,7 @@ void parse_definition_outputs(Definition *def, const SExpr *expr)
         if (output->type != S_EXPR_ATOM)
             continue;
 
-        StringList *out_list = create_string_list();
-        string_list_add(out_list, output->atom);
-        def->output_signals[i - 1] = out_list;
-
+        string_list_add(def->output_signals, output->atom);
         LOG_INFO("📤 Parsed Output for %s: %s", def->name, output->atom);
     }
 }

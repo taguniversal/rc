@@ -6,6 +6,6 @@
 Definition *find_definition_by_name(Block *blk, const char *name);
 
 
-void print_psi(psi128_t *psi);
+void print_psi(const psi128_t *psi);
 int parse_psi(const char *hex, psi128_t *out);
 #endif
