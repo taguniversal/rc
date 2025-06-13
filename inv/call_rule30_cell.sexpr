@@ -1,9 +1,9 @@
 (Invocation
   (Target Rule30Cell)
 
-  (X 1)
-  (Y 1)
-  (Z 0)
+  (bind (X 1))
+  (bind (Y 1))
+  (bind (Z 0))
   
   (Inputs X Y Z)
 

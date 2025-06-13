@@ -128,36 +128,34 @@ void emit_place_of_resolution(FILE *out, Definition *def, int indent)
     {
         switch (item->type)
         {
-            case BODY_INVOCATION:
-                if (item->data.invocation)
-                    emit_invocation(out, item->data.invocation, indent + 2);
-                break;
+        case BODY_INVOCATION:
+            if (item->data.invocation)
+                emit_invocation(out, item->data.invocation, indent + 2);
+            break;
 
-            case BODY_SIGNAL_OUTPUT:
-                emit_indent(out, indent + 2);
-                fputs("(SourcePlace\n", out);
+        case BODY_SIGNAL_OUTPUT:
+            emit_indent(out, indent + 2);
+            fputs("(SourcePlace\n", out);
 
-                emit_indent(out, indent + 4);
-                fprintf(out, "(Name %s)\n", item->data.signal_name);
+            emit_indent(out, indent + 4);
+            fprintf(out, "(Name %s)\n", item->data.signal_name);
 
-                emit_indent(out, indent + 4);
-                fputs("(ContentFrom ConditionalInvocationResult)\n", out);  // May customize later
+            emit_indent(out, indent + 4);
+            fputs("(ContentFrom ConditionalInvocationResult)\n", out); // May customize later
 
-                emit_indent(out, indent + 2);
-                fputs(")\n", out);
-                break;
+            emit_indent(out, indent + 2);
+            fputs(")\n", out);
+            break;
 
-            default:
-                // Ignore BODY_SIGNAL_INPUT for POR
-                break;
+        default:
+            // Ignore BODY_SIGNAL_INPUT for POR
+            break;
         }
     }
 
     emit_indent(out, indent);
     fputs(")\n", out);
 }
-
-
 
 void emit_invocation(FILE *out, Invocation *inv, int indent)
 {
@@ -184,11 +182,11 @@ void emit_invocation(FILE *out, Invocation *inv, int indent)
                 continue;
 
             emit_indent(out, indent + 2);
-            fputc('(', out);
+            fputs("(bind (", out);
             emit_atom(out, binding->name);
             fputc(' ', out);
             emit_atom(out, binding->value);
-            fputs(")\n", out);
+            fputs("))\n", out);
         }
     }
 
@@ -221,6 +219,7 @@ void emit_invocation(FILE *out, Invocation *inv, int indent)
     emit_indent(out, indent);
     fputs(")\n", out);
 }
+
 
 void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
 {
@@ -266,7 +265,7 @@ void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
     }
 
     emit_indent(out, indent);
-    fputs(")\n", out);
+    fputs(") ;; conditional invocation\n", out);
 }
 
 void emit_definition(FILE *out, Definition *def, int indent)
@@ -326,10 +325,10 @@ void emit_definition(FILE *out, Definition *def, int indent)
     }
 
     emit_indent(out, indent + 2);
-    fputs(")\n", out); // End Body
-
+    emit_conditional(out, def->conditional_invocation, indent);
+    fputs(") ;; body\n", out); // End Body
     emit_indent(out, indent);
-    fputs(")\n", out); // End Definition
+    fputs(") ;; definition\n", out); // End Definition
 }
 
 void emit_all_definitions(Block *blk, const char *dirpath)
@@ -343,7 +342,8 @@ void emit_all_definitions(Block *blk, const char *dirpath)
 
     for (Definition *def = blk->definitions; def; def = def->next)
     {
-        if (!def->name) {
+        if (!def->name)
+        {
             LOG_WARN("⚠️ Skipping unnamed definition");
             continue;
         }
@@ -365,8 +365,6 @@ void emit_all_definitions(Block *blk, const char *dirpath)
         LOG_INFO("✅ Wrote definition '%s' to %s", def->name, path);
     }
 }
-
-
 
 void emit_all_invocations(Block *blk, const char *dirpath)
 {

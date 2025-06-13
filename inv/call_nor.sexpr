@@ -1,8 +1,8 @@
 (Invocation
   (Target NOR)
 
-  (X 1)
-  (Y 1)
+  (bind (X 1))
+  (bind (Y 1))
   (Inputs X Y
 
   (Outputs

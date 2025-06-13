@@ -1,8 +1,8 @@
 (Invocation
   (Target OR)
 
-  (X 1)
-  (Y 0)
+  (bind (X 1))
+  (bind (Y 0))
   (Inputs X Y)
 
   (Outputs

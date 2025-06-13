@@ -68,6 +68,7 @@ void compile_block(Block *blk,
     emit_all_invocations(blk, sexpr_stage1_dir); // Emit initial invocations
 
     spirv_parse_block(blk, spirv_stage2_dir);    // Emit SPIR-V for each definition
+    qualify_local_signals(blk);
     emit_all_definitions(blk, sexpr_stage2_dir); // Emit S-expressions for each definition
     emit_all_invocations(blk, sexpr_stage2_dir); // Emit S-expressions for each invocation
 

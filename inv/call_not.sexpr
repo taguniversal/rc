@@ -1,7 +1,7 @@
 (Invocation
   (Target NOT)
 
-  (X 1)
+  (bind (X 1))
   (Inputs X)
 
   (Outputs
