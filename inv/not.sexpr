@@ -1,5 +1,5 @@
 (Definition
-  (Target NOT)
+  (Name NOT)
 
   (Inputs
     A

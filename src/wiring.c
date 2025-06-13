@@ -14,7 +14,8 @@ void dump_wiring(Block *blk)
     for (InstanceList *ul = blk->instances; ul; ul = ul->next)
     {
         Instance *instance = ul->instance;
-        if (!instance) continue;
+        if (!instance)
+            continue;
 
         LOG_INFO("  🔽 Instance: %s", instance->name);
 
@@ -60,12 +61,10 @@ void dump_wiring(Block *blk)
             LOG_INFO("    ▶ Definition Outputs:");
             if (instance->definition->output_signals)
             {
-                for (StringList **sl = instance->definition->output_signals; *sl; ++sl)
+                StringList *sl = instance->definition->output_signals;
+                for (size_t i = 0; i < string_list_count(sl); ++i)
                 {
-                    for (size_t i = 0; i < string_list_count(*sl); ++i)
-                    {
-                        LOG_INFO("       - %s", string_list_get_by_index(*sl, i));
-                    }
+                    LOG_INFO("       - %s", string_list_get_by_index(sl, i));
                 }
             }
 

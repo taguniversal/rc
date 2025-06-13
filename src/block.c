@@ -55,12 +55,11 @@ void print_block(const Block *blk)
 
         LOG_INFO("\n    Outputs: ");
         if (instance->definition->output_signals) {
-            for (StringList **sl = instance->definition->output_signals; *sl; sl++) {
-                for (size_t i = 0; i < string_list_count(*sl); i++) {
-                    LOG_INFO("%s ", string_list_get_by_index(*sl, i));
-                }
+            for (size_t i = 0; i < string_list_count(instance->definition->output_signals); i++) {
+                LOG_INFO("%s ", string_list_get_by_index(instance->definition->output_signals, i));
             }
         }
+        
         LOG_INFO("\n");
 
         LOG_INFO("    Invocation Target: %s\n", instance->invocation->target_name);

@@ -1,5 +1,5 @@
 (Definition
-  (Target OR)
+  (Name OR)
 
   (Inputs
     A

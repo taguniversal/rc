@@ -1,5 +1,5 @@
 (Definition
-  (Target Rule30Cell)
+  (Name Rule30Cell)
 
   (Inputs
     L
