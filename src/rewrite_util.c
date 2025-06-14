@@ -11,6 +11,7 @@
 #include <string.h>
 
 NameCounter *counters = NULL;
+void rewrite_literal_bindings(Block *blk);
 
 int get_next_instance_id(const char *name)
 {
@@ -166,11 +167,11 @@ void rewrite_conditional_invocation(Definition *def)
         if (!arg)
             continue;
 
-        char *original = strdup(arg);  // 🛡️ snapshot before mutation
+        char *original = strdup(arg); // 🛡️ snapshot before mutation
         char *rewritten;
         asprintf(&rewritten, "%s.local.%s", def->name, original);
 
-        string_list_set_by_index(ci->pattern_args, i, rewritten);  // 🚀 in-place safe rewrite
+        string_list_set_by_index(ci->pattern_args, i, rewritten); // 🚀 in-place safe rewrite
 
         LOG_INFO("🔁 CI pattern arg[%zu] rewritten: %s → %s", i, original, rewritten);
         free(original);
@@ -178,7 +179,6 @@ void rewrite_conditional_invocation(Definition *def)
 
     LOG_INFO("✅ CI pattern args rewritten successfully for definition: %s", def->name);
 }
-
 
 void cleanup_name_counters(void)
 {
@@ -191,12 +191,58 @@ void cleanup_name_counters(void)
     }
 }
 
+void rewrite_literal_bindings(Block *blk)
+{
+    LOG_INFO("🔁 Rewriting literal bindings with qualified names...");
+
+    for (InstanceList *cur = blk->instances; cur != NULL; cur = cur->next)
+    {
+        Instance *instance = cur->instance;
+        if (!instance || !instance->invocation || !instance->name) {
+            LOG_WARN("⚠️  Skipping instance due to missing name or invocation.");
+            continue;
+        }        
+
+        Invocation *inv = instance->invocation;
+        if (!inv->literal_bindings || inv->literal_bindings->count == 0)
+        {
+            LOG_INFO("No literal bindings found for %s.%d", inv->target_name, inv->instance_id);
+            continue;
+        }
+
+        char prefix[256];
+        snprintf(prefix, sizeof(prefix), "%s.", instance->name); // e.g., "AND.0."
+
+        for (size_t i = 0; i < inv->literal_bindings->count; ++i)
+        {
+            LiteralBinding *b = &inv->literal_bindings->items[i];
+            if (!b || !b->name)
+                continue;
+
+            LOG_INFO("  🔎 Before rewrite: bind(%s = %s)", b->name, b->value);
+
+            char *qualified = NULL;
+            asprintf(&qualified, "%s%s", prefix, b->name); // AND.0.X
+
+            free(b->name);
+            b->name = qualified;
+
+            LOG_INFO("  🔁 After rewrite:  bind(%s = %s)", b->name, b->value);
+        }
+    }
+
+    LOG_INFO("✅ Literal binding signals qualified.");
+}
+
 int qualify_local_signals(Block *blk)
 {
     LOG_INFO("🧪 Starting qualify_local_signals pass...");
 
     LOG_INFO("🔁 Rewriting invocations...");
     rewrite_invocations(blk);
+
+    LOG_INFO("🔁 Rewriting literal bindings...");
+    rewrite_literal_bindings(blk);
 
     for (Definition *def = blk->definitions; def != NULL; def = def->next)
     {

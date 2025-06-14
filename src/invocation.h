@@ -75,4 +75,10 @@ typedef struct Definition
     struct Definition *next;
 } Definition;
 
+Definition *clone_definition(const Definition *src) ;
+Definition *create_definition(const char *name, const char *sexpr_path, const char *logic) ;
+void destroy_definition(Definition *def) ;
+Invocation *create_invocation(const char *target_name, psi128_t psi, psi128_t to) ;
+Invocation *clone_invocation(const Invocation *src) ;
+void destroy_invocation(Invocation *inv);
 #endif

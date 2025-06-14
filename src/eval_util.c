@@ -93,8 +93,6 @@ void globalize_signal_names(Block *blk)
     LOG_INFO("🌍 Signal globalization complete.");
 }
 
-
-
 void unify_invocations(Block *blk)
 {
     LOG_INFO("🔗 Building Instances...");
@@ -105,6 +103,7 @@ void unify_invocations(Block *blk)
 
     for (Invocation *inv = blk->invocations; inv; inv = inv->next)
     {
+        // Find matching definition
         Definition *def = blk->definitions;
         while (def && strcmp(def->name, inv->target_name) != 0)
             def = def->next;
@@ -115,18 +114,25 @@ void unify_invocations(Block *blk)
             continue;
         }
 
-        // Construct unit name
-        char unit_name[256];
-        snprintf(unit_name, sizeof(unit_name), "INV.%s.%d", inv->target_name, inv->instance_id);
+        Instance *instance = create_instance(inv->target_name, inv->instance_id, def, inv);
+        if (!instance)
+        {
+            LOG_ERROR("❌ Failed to create instance for %s.%d", inv->target_name, inv->instance_id);
+            continue;
+        }
 
-        // Create and populate Unit
-        Instance *instance = malloc(sizeof(Instance));
-        instance->name = strdup(unit_name);
-        memcpy(&instance->definition, def, sizeof(Definition)); // shallow copy
-        memcpy(&instance->invocation, inv, sizeof(Invocation)); // shallow copy
-
-        // Create UnitList node
+        // Create and link instance list node
         InstanceList *node = malloc(sizeof(InstanceList));
+        if (!node)
+        {
+            LOG_ERROR("❌ Failed to allocate InstanceList node");
+            destroy_invocation(instance->invocation);
+            destroy_definition(instance->definition);
+            free(instance->name);
+            free(instance);
+            continue;
+        }
+
         node->instance = instance;
         node->next = NULL;
 
@@ -138,3 +144,5 @@ void unify_invocations(Block *blk)
     blk->instances = head;
     LOG_INFO("✅ Built %zu instance(s)", count);
 }
+
+

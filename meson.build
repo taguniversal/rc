@@ -29,6 +29,7 @@ rcnode_sources = files(
   'src/emit_sexpr.c',
   'src/emit_util.c',
   'src/instance.c',
+  'src/invocation.c',
   'src/sexpr_parser_util.c',
   'src/sexpr_parser.c',
   'src/spirv_asm.c',

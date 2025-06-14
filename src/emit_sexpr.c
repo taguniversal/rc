@@ -181,6 +181,8 @@ void emit_invocation(FILE *out, Invocation *inv, int indent)
             if (!binding->name || !binding->value)
                 continue;
 
+            LOG_INFO("🖨️  Emitting bind(%s = %s)", binding->name, binding->value);
+
             emit_indent(out, indent + 2);
             fputs("(bind (", out);
             emit_atom(out, binding->name);
@@ -219,7 +221,6 @@ void emit_invocation(FILE *out, Invocation *inv, int indent)
     emit_indent(out, indent);
     fputs(")\n", out);
 }
-
 
 void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
 {
@@ -262,14 +263,13 @@ void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
         if (!c->pattern || !c->result)
             continue;
 
-        emit_indent(out, indent + 2);
+        emit_indent(out, indent + 4);
         fprintf(out, "(Case %s %s)\n", c->pattern, c->result);
     }
 
-    emit_indent(out, indent);
+    emit_indent(out, indent + 2);
     fputs(") ;; conditional invocation\n", out);
 }
-
 
 void emit_definition(FILE *out, Definition *def, int indent)
 {
@@ -299,7 +299,7 @@ void emit_definition(FILE *out, Definition *def, int indent)
     emit_output_signals(out, def->output_signals, indent + 2, "output");
 
     // Body
-    emit_indent(out, indent + 2);
+    emit_indent(out, indent);
     fputs("(Body\n", out);
 
     for (BodyItem *item = def->body; item; item = item->next)

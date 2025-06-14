@@ -24,6 +24,22 @@ void destroy_string_list(StringList *set)
     free(set);
 }
 
+StringList *string_list_clone(const StringList *src)
+{
+    if (!src) return NULL;
+
+    StringList *clone = create_string_list();
+    if (!clone) return NULL;
+
+    for (StringListEntry *cur = src->head; cur; cur = cur->next)
+    {
+        string_list_add(clone, cur->key);
+    }
+
+    return clone;
+}
+
+
 size_t string_list_count(StringList *set)
 {
     return set ? set->size : 0;

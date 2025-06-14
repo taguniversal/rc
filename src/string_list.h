@@ -15,6 +15,7 @@ typedef struct {
 } StringList;
 
 StringList *create_string_list(void);
+StringList *string_list_clone(const StringList *src);
 void destroy_string_list(StringList *set);
 void string_list_add(StringList *set, const char *key);
 char *string_list_get_by_index(StringList *string_list, size_t index);

@@ -14,8 +14,10 @@ Instance *create_instance(const char *def_name, int instance_id, Definition *def
     char buf[256];
     snprintf(buf, sizeof(buf), "INV.%s.%d", def_name, instance_id);
     instance->name = strdup(buf);
-    instance->definition = def;
-    instance->invocation = inv;
+
+    // Clone definition and invocation for isolated rewrites
+    instance->definition = clone_definition(def);
+    instance->invocation = clone_invocation(inv);
 
     return instance;
 }
