@@ -57,16 +57,16 @@ void string_list_add(StringList *string_list, const char *key)
     string_list->size += 1;
 }
 
-const char *string_list_get_by_index(StringList *string_list, size_t index)
+char *string_list_get_by_index(StringList *string_list, size_t index)
 {
-    if (index >= string_list->size)
+    if (!string_list || index >= string_list->size)
         return NULL;
 
     size_t i = 0;
     for (StringListEntry *cur = string_list->head; cur; cur = cur->next)
     {
         if (i++ == index)
-            return cur->key;
+            return strdup(cur->key);  // 🔐 Safe copy for caller
     }
     return NULL;
 }
@@ -81,8 +81,12 @@ void string_list_set_by_index(StringList *list, size_t index, const char *new_va
     {
         if (i++ == index)
         {
-            free(cur->key);               // Free the old string
-            cur->key = strdup(new_value); // Assign new string
+            // Copy new_value *before* freeing old one
+            char *copy = strdup(new_value);
+            if (!copy) return;
+
+            free(cur->key);  // free after safe copy
+            cur->key = copy;
             return;
         }
     }

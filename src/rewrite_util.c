@@ -162,21 +162,23 @@ void rewrite_conditional_invocation(Definition *def)
 
     for (size_t i = 0; i < ci->arg_count; ++i)
     {
-        const char *arg = ci->pattern_args[i];
+        const char *arg = string_list_get_by_index(ci->pattern_args, i);
         if (!arg)
             continue;
 
+        char *original = strdup(arg);  // 🛡️ snapshot before mutation
         char *rewritten;
-        asprintf(&rewritten, "%s.local.%s", def->name, arg);
+        asprintf(&rewritten, "%s.local.%s", def->name, original);
 
-        free(ci->pattern_args[i]); // Free original string
-        ci->pattern_args[i] = rewritten;
+        string_list_set_by_index(ci->pattern_args, i, rewritten);  // 🚀 in-place safe rewrite
 
-        LOG_INFO("🔁 CI pattern arg[%zu] rewritten: %s → %s", i, arg, rewritten);
+        LOG_INFO("🔁 CI pattern arg[%zu] rewritten: %s → %s", i, original, rewritten);
+        free(original);
     }
 
     LOG_INFO("✅ CI pattern args rewritten successfully for definition: %s", def->name);
 }
+
 
 void cleanup_name_counters(void)
 {

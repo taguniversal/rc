@@ -4,7 +4,6 @@
 #include <string.h>
 #include <stdio.h>
 
-
 Instance *create_instance(const char *def_name, int instance_id, Definition *def, Invocation *inv)
 {
     Instance *instance = malloc(sizeof(Instance));
@@ -20,7 +19,6 @@ Instance *create_instance(const char *def_name, int instance_id, Definition *def
 
     return instance;
 }
-
 
 void free_instance_list(InstanceList *list)
 {
@@ -57,11 +55,10 @@ void free_instance_list(InstanceList *list)
                 if (inst->definition->conditional_invocation)
                 {
                     ConditionalInvocation *ci = inst->definition->conditional_invocation;
-                    for (size_t i = 0; i < ci->arg_count; ++i)
-                        free(ci->pattern_args[i]);
-                    free(ci->pattern_args);
-                    free(ci->output);
-                    free(ci->cases); // assuming it's malloc'ed
+
+                    destroy_string_list(ci->pattern_args); // ← clean all pattern args properly
+                    free(ci->output);                      // if allocated with strdup
+                    free(ci->cases);                       // if malloc'ed as array of ConditionalCase
                     free(ci);
                 }
 

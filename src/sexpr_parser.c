@@ -202,69 +202,71 @@ int parse_block_from_sexpr(Block *blk, const char *inv_dir)
 
 ConditionalInvocation *parse_conditional_invocation(const SExpr *ci_expr)
 {
-  if (!ci_expr || ci_expr->type != S_EXPR_LIST || ci_expr->count < 1)
-    return NULL;
+    if (!ci_expr || ci_expr->type != S_EXPR_LIST || ci_expr->count < 1)
+        return NULL;
 
-  if (ci_expr->list[0]->type != S_EXPR_ATOM || strcmp(ci_expr->list[0]->atom, "ConditionalInvocation") != 0)
-    return NULL;
+    if (ci_expr->list[0]->type != S_EXPR_ATOM || strcmp(ci_expr->list[0]->atom, "ConditionalInvocation") != 0)
+        return NULL;
 
-  ConditionalInvocation *ci = calloc(1, sizeof(ConditionalInvocation));
-  ci->pattern_args = NULL;
-  ci->arg_count = 0;
-  ci->output = NULL;
-  ci->cases = NULL;
-  ci->case_count = 0;
+    ConditionalInvocation *ci = calloc(1, sizeof(ConditionalInvocation));
+    ci->pattern_args = create_string_list();  // ✅ initialize flat StringList
+    ci->arg_count = 0;
+    ci->output = NULL;
+    ci->cases = NULL;
+    ci->case_count = 0;
 
-  for (size_t i = 1; i < ci_expr->count; ++i)
-  {
-    const SExpr *item = ci_expr->list[i];
-    if (!item || item->type != S_EXPR_LIST || item->count < 1)
-      continue;
-
-    const char *tag = item->list[0]->atom;
-
-    // Parse Template
-    if (strcmp(tag, "Template") == 0)
+    for (size_t i = 1; i < ci_expr->count; ++i)
     {
-      ci->arg_count = item->count - 1;
-      ci->pattern_args = calloc(ci->arg_count, sizeof(char *));
-      for (size_t j = 1; j < item->count; ++j)
-      {
-        if (item->list[j]->type != S_EXPR_ATOM)
-          continue;
-        ci->pattern_args[j - 1] = strdup(item->list[j]->atom);
-        LOG_INFO("🧩 Pattern arg[%zu]: %s", j - 1, ci->pattern_args[j - 1]);
-      }
+        const SExpr *item = ci_expr->list[i];
+        if (!item || item->type != S_EXPR_LIST || item->count < 1)
+            continue;
+
+        const char *tag = item->list[0]->atom;
+
+        // Parse Template
+        if (strcmp(tag, "Template") == 0)
+        {
+            ci->arg_count = item->count - 1;
+
+            for (size_t j = 1; j < item->count; ++j)
+            {
+                if (item->list[j]->type != S_EXPR_ATOM)
+                    continue;
+
+                string_list_add(ci->pattern_args, item->list[j]->atom);
+                LOG_INFO("🧩 Pattern arg[%zu]: %s", j - 1, item->list[j]->atom);
+            }
+        }
+
+        // Parse Output
+        else if (strcmp(tag, "Output") == 0 && item->count == 2)
+        {
+            if (item->list[1]->type == S_EXPR_ATOM)
+            {
+                ci->output = strdup(item->list[1]->atom);
+                LOG_INFO("🔸 Output: %s", ci->output);
+            }
+        }
+
+        // Parse Case
+        else if (strcmp(tag, "Case") == 0 && item->count == 3)
+        {
+            const SExpr *key = item->list[1];
+            const SExpr *val = item->list[2];
+            if (key->type == S_EXPR_ATOM && val->type == S_EXPR_ATOM)
+            {
+                ci->cases = realloc(ci->cases, sizeof(ConditionalCase) * (ci->case_count + 1));
+                ci->cases[ci->case_count].pattern = strdup(key->atom);
+                ci->cases[ci->case_count].result = strdup(val->atom);
+                LOG_INFO("📘 Case added: %s → %s", key->atom, val->atom);
+                ci->case_count++;
+            }
+        }
     }
 
-    // Parse Output
-    else if (strcmp(tag, "Output") == 0 && item->count == 2)
-    {
-      if (item->list[1]->type == S_EXPR_ATOM)
-      {
-        ci->output = strdup(item->list[1]->atom);
-        LOG_INFO("🔸 Output: %s", ci->output);
-      }
-    }
-
-    // Parse Case
-    else if (strcmp(tag, "Case") == 0 && item->count == 3)
-    {
-      const SExpr *key = item->list[1];
-      const SExpr *val = item->list[2];
-      if (key->type == S_EXPR_ATOM && val->type == S_EXPR_ATOM)
-      {
-        ci->cases = realloc(ci->cases, sizeof(ConditionalCase) * (ci->case_count + 1));
-        ci->cases[ci->case_count].pattern = strdup(key->atom);
-        ci->cases[ci->case_count].result = strdup(val->atom);
-        LOG_INFO("📘 Case added: %s → %s", key->atom, val->atom);
-        ci->case_count++;
-      }
-    }
-  }
-
-  return ci;
+    return ci;
 }
+
 
 Definition *parse_definition(const SExpr *expr)
 {

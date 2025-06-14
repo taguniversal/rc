@@ -40,7 +40,7 @@ typedef struct
 
 typedef struct ConditionalInvocation
 {
-    char **pattern_args;         // Array of input names like ["A", "B"]
+    StringList *pattern_args;         // Array of input names like ["A", "B"]
     size_t arg_count;            // Number of pattern arguments
     char *output;                // Output signal name
     ConditionalCase *cases;      // Case list for pattern → result

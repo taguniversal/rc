@@ -27,10 +27,10 @@ bool opcode_has_result_id(const char *opcode)
          strcmp(opcode, "OpSelectionMerge") != 0;
 }
 
-
 static SignalIDEntry *signal_registry = NULL;
 
-void register_external_signal(const char *signal, const char *id) {
+void register_external_signal(const char *signal, const char *id)
+{
   SignalIDEntry *entry = calloc(1, sizeof(SignalIDEntry));
   entry->signal = strdup(signal);
   entry->id = strdup(id);
@@ -38,16 +38,18 @@ void register_external_signal(const char *signal, const char *id) {
   signal_registry = entry;
 }
 
-const char *lookup_internal_id(const char *signal) {
-  for (SignalIDEntry *entry = signal_registry; entry != NULL; entry = entry->next) {
-      if (strcmp(entry->signal, signal) == 0) {
-          return entry->id;
-      }
+const char *lookup_internal_id(const char *signal)
+{
+  for (SignalIDEntry *entry = signal_registry; entry != NULL; entry = entry->next)
+  {
+    if (strcmp(entry->signal, signal) == 0)
+    {
+      return entry->id;
+    }
   }
   LOG_WARN("⚠️ lookup_internal_id: Signal not found: %s", signal);
   return NULL;
 }
-
 
 // For deduplicating SPIR-V ops
 typedef struct UsageEntry
@@ -200,13 +202,15 @@ void emit_spirv_header(SPIRVModule *mod)
 
 void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
 {
-  if (!mod || !ci || !ci->arg_count || !ci->pattern_args || !ci->cases) {
+  if (!mod || !ci || !ci->arg_count || !ci->pattern_args || !ci->cases)
+  {
     LOG_ERROR("❌ Invalid ConditionalInvocation input");
     return;
   }
 
   Invocation *inv = mod->current_invocation;
-  if (!inv) {
+  if (!inv)
+  {
     LOG_ERROR("❌ No current invocation set on module");
     return;
   }
@@ -221,12 +225,20 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
   emit_op(mod, "OpConstant", (const char *[]){"%bool", "%false", "0"}, 3);
 
   // ─── 2. Input Variables and Loads ────────────────────────────────────
-  for (size_t i = 0; i < ci->arg_count; ++i) {
-    const char *arg_name = ci->pattern_args[i];
+  for (size_t i = 0; i < ci->arg_count; ++i)
+  {
+    const char *arg_name = string_list_get_by_index(ci->pattern_args, i);
+    if (!arg_name)
+    {
+      LOG_WARN("⚠️ Missing pattern arg[%zu] during input loading", i);
+      continue;
+    }
 
-    for (size_t j = 0; j < string_list_count(inv->input_signals); ++j) {
+    for (size_t j = 0; j < string_list_count(inv->input_signals); ++j)
+    {
       const char *resolved = string_list_get_by_index(inv->input_signals, j);
-      if (resolved && strstr(resolved, arg_name)) {
+      if (resolved && strstr(resolved, arg_name))
+      {
         char tmp[128];
         snprintf(tmp, sizeof(tmp), "%%%s", resolved);
         const char *id = lookup_internal_id(resolved);
@@ -239,9 +251,11 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
   // ─── 3. Output Variable ──────────────────────────────────────────────
   emit_op(mod, "OpVariable", (const char *[]){"%out_var", "%bool", "Output"}, 3);
 
-  for (size_t i = 0; i < string_list_count(inv->output_signals); ++i) {
+  for (size_t i = 0; i < string_list_count(inv->output_signals); ++i)
+  {
     const char *sig = string_list_get_by_index(inv->output_signals, i);
-    if (sig) {
+    if (sig)
+    {
       LOG_INFO("🔁 Registering output signal: %s => %%out_var", sig);
       register_external_signal(sig, "%out_var");
     }
@@ -251,22 +265,30 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
   char acc_result[128] = "%false";
   bool has_result = false;
 
-  for (size_t case_idx = 0; case_idx < ci->case_count; ++case_idx) {
+  for (size_t case_idx = 0; case_idx < ci->case_count; ++case_idx)
+  {
     ConditionalCase *c = &ci->cases[case_idx];
     if (!c->pattern || !c->result)
       continue;
 
     char *and_result = NULL;
 
-    for (size_t i = 0; i < ci->arg_count; ++i) {
+    for (size_t i = 0; i < ci->arg_count; ++i)
+    {
       const char *bit = (c->pattern[i] == '1') ? "%true" : "%false";
 
       char input_var[128];
       snprintf(input_var, sizeof(input_var), "%%fallback");
 
-      for (size_t j = 0; j < string_list_count(inv->input_signals); ++j) {
+      const char *arg_name = string_list_get_by_index(ci->pattern_args, i);
+      if (!arg_name)
+        continue;
+
+      for (size_t j = 0; j < string_list_count(inv->input_signals); ++j)
+      {
         const char *candidate = string_list_get_by_index(inv->input_signals, j);
-        if (candidate && strstr(candidate, ci->pattern_args[i])) {
+        if (candidate && strstr(candidate, arg_name))
+        {
           snprintf(input_var, sizeof(input_var), "%%%s", candidate);
           break;
         }
@@ -276,9 +298,12 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
       snprintf(cmp_var, sizeof(cmp_var), "%%cmp_%zu_%zu", case_idx, i);
       emit_op(mod, "OpIEqual", (const char *[]){cmp_var, "%bool", input_var, bit}, 4);
 
-      if (!and_result) {
+      if (!and_result)
+      {
         and_result = strdup(cmp_var);
-      } else {
+      }
+      else
+      {
         char next_and[128];
         snprintf(next_and, sizeof(next_and), "%%and_%zu_%zu", case_idx, i);
         emit_op(mod, "OpLogicalAnd", (const char *[]){next_and, and_result, cmp_var}, 3);
@@ -293,10 +318,13 @@ void emit_conditional_invocation(SPIRVModule *mod, ConditionalInvocation *ci)
     emit_op(mod, "OpSelect", (const char *[]){sel_result, "%bool", and_result, value, "%false"}, 5);
     free(and_result);
 
-    if (!has_result) {
+    if (!has_result)
+    {
       snprintf(acc_result, sizeof(acc_result), "%s", sel_result);
       has_result = true;
-    } else {
+    }
+    else
+    {
       char tmp[128];
       snprintf(tmp, sizeof(tmp), "%%result_%zu", case_idx);
       emit_op(mod, "OpLogicalOr", (const char *[]){tmp, "%bool", acc_result, sel_result}, 4);
@@ -322,8 +350,10 @@ void spirv_parse_block(Block *blk, const char *spirv_out_dir)
       // Register each signal mentioned in the pattern args
       for (size_t i = 0; i < ci->arg_count; ++i)
       {
-        const char *arg = ci->pattern_args[i];
-        if (!arg) continue;
+        const char *arg = string_list_get_by_index(ci->pattern_args, i); // ✅
+
+        if (!arg)
+          continue;
 
         char *resolved_signal;
         asprintf(&resolved_signal, "%s.local.%s", def->name, arg);

@@ -71,13 +71,13 @@ void globalize_signal_names(Block *blk)
         {
             ConditionalInvocation *ci = inst->definition->conditional_invocation;
 
-            for (size_t i = 0; i < ci->arg_count; i++)
+            for (size_t i = 0; i < string_list_count(ci->pattern_args); i++)
             {
-                if (ci->pattern_args[i])
+                const char *name = string_list_get_by_index(ci->pattern_args, i);
+                if (name)
                 {
-                    char *updated = prepend_instance_name(prefix, ci->pattern_args[i]);
-                    free(ci->pattern_args[i]);
-                    ci->pattern_args[i] = updated;
+                    char *updated = prepend_instance_name(prefix, name);
+                    string_list_set_by_index(ci->pattern_args, i, updated);
                 }
             }
 
@@ -92,6 +92,7 @@ void globalize_signal_names(Block *blk)
 
     LOG_INFO("🌍 Signal globalization complete.");
 }
+
 
 
 void unify_invocations(Block *blk)

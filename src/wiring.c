@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 void dump_wiring(Block *blk)
 {
     LOG_INFO("🧪 Dumping wiring for all instances in block PSI: %s", blk->psi);
@@ -74,9 +73,9 @@ void dump_wiring(Block *blk)
                 ConditionalInvocation *ci = instance->definition->conditional_invocation;
 
                 LOG_INFO("       Pattern Args:");
-                for (size_t i = 0; i < ci->arg_count; ++i)
+                for (size_t i = 0; i < string_list_count(ci->pattern_args); ++i)
                 {
-                    LOG_INFO("         - %s", ci->pattern_args[i]);
+                    LOG_INFO("         - %s", string_list_get_by_index(ci->pattern_args, i));
                 }
 
                 LOG_INFO("       Output: %s", ci->output);

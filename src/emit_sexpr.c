@@ -239,18 +239,20 @@ void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
     // Emit Template
     emit_indent(out, indent + 2);
     fputs("(Template", out);
+
     for (size_t i = 0; i < ci->arg_count; ++i)
     {
-        const char *arg = ci->pattern_args[i];
+        const char *arg = string_list_get_by_index(ci->pattern_args, i);
         if (arg)
         {
             fprintf(out, " %s", arg);
         }
         else
         {
-            fprintf(out, " ???"); // fallback for debugging
+            fprintf(out, " ⚠️UNBOUND");
         }
     }
+
     fputs(")\n", out);
 
     // Emit Cases
@@ -267,6 +269,7 @@ void emit_conditional(FILE *out, ConditionalInvocation *ci, int indent)
     emit_indent(out, indent);
     fputs(") ;; conditional invocation\n", out);
 }
+
 
 void emit_definition(FILE *out, Definition *def, int indent)
 {
