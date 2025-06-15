@@ -44,3 +44,19 @@ void print_psi(const psi128_t *psi) {
     }
     printf(":>]");
 }
+
+char *psi_to_string(const psi128_t *psi)
+{
+    if (!psi) return strdup("(null)");
+
+    char *buf = malloc(40); // 32 hex digits + 6 for brackets/colon/terminator
+    if (!buf) return strdup("(oom)");
+
+    char *ptr = buf;
+    ptr += sprintf(ptr, "[<:");
+    for (int i = 0; i < 16; i++)
+        ptr += sprintf(ptr, "%02X", psi->s6_addr[i]);
+    sprintf(ptr, ":>]");
+
+    return buf;
+}

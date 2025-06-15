@@ -75,6 +75,7 @@ int main(int argc, char *argv[]) {
     // If --compile mode, run compiler
     if (compile_mode) {
         Block blk = {0};
+        blk.psi = mkrand_generate_ipv6();
         compile_block(&blk, inv_dir, out_dir);
     }
 

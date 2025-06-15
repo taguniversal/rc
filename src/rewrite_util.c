@@ -29,105 +29,103 @@ int get_next_instance_id(const char *name)
     counters = nc;
     return 0;
 }
-
-void rewrite_invocations(Block *blk)
+/*
+void rewrite_invocation(Invocation *inv)
 {
-    // 🔁 Rewrite top-level block invocations
-    for (Invocation *inv = blk->invocations; inv != NULL; inv = inv->next)
+    if (!inv || !inv->target_name) return;
+
+    int id = get_next_instance_id(inv->target_name);
+    inv->instance_id = id;
+
+    for (size_t i = 0; i < string_list_count(inv->input_signals); ++i)
     {
+        const char *name = string_list_get_by_index(inv->input_signals, i);
+        if (!name) continue;
 
-        int id = get_next_instance_id(inv->target_name);
-        inv->instance_id = id;
-        for (size_t i = 0; i < string_list_count(inv->input_signals); ++i)
-        {
-            const char *name = string_list_get_by_index(inv->input_signals, i);
-            if (!name)
-                continue;
-            char *new_name;
-            asprintf(&new_name, "%s.%d.%s", inv->target_name, id, name);
-            string_list_set_by_index(inv->input_signals, i, new_name);
-            LOG_INFO("🔁 Top-level input signal rewritten: %s → %s", name, new_name);
-        }
-
-        for (size_t i = 0; i < string_list_count(inv->output_signals); ++i)
-        {
-            const char *name = string_list_get_by_index(inv->output_signals, i);
-            if (!name)
-                continue;
-            char *new_name;
-            asprintf(&new_name, "%s.%d.%s", inv->target_name, id, name);
-            string_list_set_by_index(inv->output_signals, i, new_name);
-            LOG_INFO("🔁 Top-level output signal rewritten: %s → %s", name, new_name);
-        }
+        char *new_name;
+        asprintf(&new_name, "%s.%d.%s", inv->target_name, id, name);
+        string_list_set_by_index(inv->input_signals, i, new_name);
+        LOG_INFO("🔁 Invocation input rewritten: %s → %s", name, new_name);
     }
-    for (Definition *def = blk->definitions; def != NULL; def = def->next)
+
+    for (size_t i = 0; i < string_list_count(inv->output_signals); ++i)
     {
-        for (BodyItem *item = def->body; item != NULL; item = item->next)
-        {
-            if (item->type != BODY_INVOCATION || !item->data.invocation)
-                continue;
+        const char *name = string_list_get_by_index(inv->output_signals, i);
+        if (!name) continue;
 
-            Invocation *inv = item->data.invocation;
-            int id = get_next_instance_id(inv->target_name);
-            inv->instance_id = id;
+        char *new_name;
+        asprintf(&new_name, "%s.%d.%s", inv->target_name, id, name);
+        string_list_set_by_index(inv->output_signals, i, new_name);
+        LOG_INFO("🔁 Invocation output rewritten: %s → %s", name, new_name);
+    }
+}
+*/
+void rewrite_invocation_for_instance(Instance *inst)
+{
+    if (!inst || !inst->invocation || !inst->name)
+        return;
 
-            for (size_t i = 0; i < string_list_count(inv->input_signals); ++i)
-            {
-                const char *name = string_list_get_by_index(inv->input_signals, i);
-                if (!name)
-                    continue;
-                char *new_name;
-                asprintf(&new_name, "%s.%d.%s", inv->target_name, id, name);
-                string_list_set_by_index(inv->input_signals, i, new_name);
-                LOG_INFO("🔁 Body input signal rewritten: %s → %s", name, new_name);
-            }
+    Invocation *inv = inst->invocation;
 
-            for (size_t i = 0; i < string_list_count(inv->output_signals); ++i)
-            {
-                const char *name = string_list_get_by_index(inv->output_signals, i);
-                if (!name)
-                    continue;
-                char *new_name;
-                asprintf(&new_name, "%s.%d.%s", inv->target_name, id, name);
-                string_list_set_by_index(inv->output_signals, i, new_name);
-                LOG_INFO("🔁 Body output signal rewritten: %s → %s", name, new_name);
-            }
-        }
+    for (size_t i = 0; i < string_list_count(inv->input_signals); ++i)
+    {
+        const char *name = string_list_get_by_index(inv->input_signals, i);
+        if (!name) continue;
+
+        char *new_name;
+        asprintf(&new_name, "%s.%s", inst->name, name);  // INV.XOR.0.X
+        string_list_set_by_index(inv->input_signals, i, new_name);
+
+        LOG_INFO("🔁 Input signal rewritten: %s → %s", name, new_name);
+    }
+
+    for (size_t i = 0; i < string_list_count(inv->output_signals); ++i)
+    {
+        const char *name = string_list_get_by_index(inv->output_signals, i);
+        if (!name) continue;
+
+        char *new_name;
+        asprintf(&new_name, "%s.%s", inst->name, name);  // INV.XOR.0.OUT
+        string_list_set_by_index(inv->output_signals, i, new_name);
+
+        LOG_INFO("🔁 Output signal rewritten: %s → %s", name, new_name);
     }
 }
 
-void rewrite_definition_signals(Definition *def)
+void rewrite_definition_signals_for_instance(Instance *inst)
 {
+    if (!inst || !inst->definition || !inst->name)
+        return;
+
+    Definition *def = inst->definition;
+
     // 🔁 Rewrite input signal names
     for (size_t i = 0; i < string_list_count(def->input_signals); ++i)
     {
         const char *name = string_list_get_by_index(def->input_signals, i);
-        if (!name)
-            continue;
+        if (!name) continue;
 
         char *new_name;
-        asprintf(&new_name, "%s.local.%s", def->name, name);
+        asprintf(&new_name, "%s.local.%s", inst->name, name);
         string_list_set_by_index(def->input_signals, i, new_name);
+
         LOG_INFO("🔁 Input signal rewritten: %s → %s", name, new_name);
     }
 
     // 🔁 Rewrite output signal names
-    if (def->output_signals)
+    for (size_t i = 0; i < string_list_count(def->output_signals); ++i)
     {
-        for (size_t j = 0; j < string_list_count(def->output_signals); ++j)
-        {
-            const char *name = string_list_get_by_index(def->output_signals, j);
-            if (!name)
-                continue;
+        const char *name = string_list_get_by_index(def->output_signals, i);
+        if (!name) continue;
 
-            char *new_name;
-            asprintf(&new_name, "%s.local.%s", def->name, name);
-            string_list_set_by_index(def->output_signals, j, new_name);
-            LOG_INFO("🔁 Output signal rewritten: %s → %s", name, new_name);
-        }
+        char *new_name;
+        asprintf(&new_name, "%s.local.%s", inst->name, name);
+        string_list_set_by_index(def->output_signals, i, new_name);
+
+        LOG_INFO("🔁 Output signal rewritten: %s → %s", name, new_name);
     }
 
-    // 🔁 Rewrite signal names in BodyItem entries
+    // 🔁 Rewrite signal names in BodyItem declarations
     for (BodyItem *item = def->body; item != NULL; item = item->next)
     {
         if (item->type == BODY_SIGNAL_INPUT || item->type == BODY_SIGNAL_OUTPUT)
@@ -135,7 +133,7 @@ void rewrite_definition_signals(Definition *def)
             if (item->data.signal_name)
             {
                 char *new_name;
-                asprintf(&new_name, "%s.local.%s", def->name, item->data.signal_name);
+                asprintf(&new_name, "%s.local.%s", inst->name, item->data.signal_name);
                 LOG_INFO("🔁 Body signal (%s) rewritten: %s → %s",
                          item->type == BODY_SIGNAL_INPUT ? "input" : "output",
                          item->data.signal_name, new_name);
@@ -144,40 +142,40 @@ void rewrite_definition_signals(Definition *def)
         }
     }
 
-    // 🔁 Rewrite ConditionalInvocation output (if present)
+    // 🔁 Rewrite ConditionalInvocation output
     if (def->conditional_invocation && def->conditional_invocation->output)
     {
         char *new_output;
-        asprintf(&new_output, "%s.local.%s", def->name, def->conditional_invocation->output);
+        asprintf(&new_output, "%s.local.%s", inst->name, def->conditional_invocation->output);
         def->conditional_invocation->output = new_output;
-        LOG_INFO("🔁 ConditionalInvocation output rewritten → %s", new_output);
+
+        LOG_INFO("🔁 CI output rewritten → %s", new_output);
     }
 }
 
-void rewrite_conditional_invocation(Definition *def)
+void rewrite_conditional_invocation_for_instance(Instance *inst)
 {
-    if (!def || !def->conditional_invocation || def->conditional_invocation->arg_count == 0)
+    if (!inst || !inst->definition || !inst->definition->conditional_invocation)
         return;
 
-    ConditionalInvocation *ci = def->conditional_invocation;
+    ConditionalInvocation *ci = inst->definition->conditional_invocation;
 
     for (size_t i = 0; i < ci->arg_count; ++i)
     {
         const char *arg = string_list_get_by_index(ci->pattern_args, i);
-        if (!arg)
-            continue;
+        if (!arg) continue;
 
-        char *original = strdup(arg); // 🛡️ snapshot before mutation
+        char *original = strdup(arg);
         char *rewritten;
-        asprintf(&rewritten, "%s.local.%s", def->name, original);
+        asprintf(&rewritten, "%s.local.%s", inst->name, original);
 
-        string_list_set_by_index(ci->pattern_args, i, rewritten); // 🚀 in-place safe rewrite
+        string_list_set_by_index(ci->pattern_args, i, rewritten);
 
         LOG_INFO("🔁 CI pattern arg[%zu] rewritten: %s → %s", i, original, rewritten);
         free(original);
     }
 
-    LOG_INFO("✅ CI pattern args rewritten successfully for definition: %s", def->name);
+    LOG_INFO("✅ CI pattern args rewritten for: %s", inst->name);
 }
 
 void cleanup_name_counters(void)
@@ -191,74 +189,63 @@ void cleanup_name_counters(void)
     }
 }
 
-void rewrite_literal_bindings(Block *blk)
+void rewrite_literal_bindings_for_invocation(Invocation *inv, const char *instance_name)
 {
-    LOG_INFO("🔁 Rewriting literal bindings with qualified names...");
-
-    for (InstanceList *cur = blk->instances; cur != NULL; cur = cur->next)
+    if (!inv || !instance_name || !inv->literal_bindings || inv->literal_bindings->count == 0)
     {
-        Instance *instance = cur->instance;
-        if (!instance || !instance->invocation || !instance->name) {
-            LOG_WARN("⚠️  Skipping instance due to missing name or invocation.");
-            continue;
-        }        
-
-        Invocation *inv = instance->invocation;
-        if (!inv->literal_bindings || inv->literal_bindings->count == 0)
-        {
-            LOG_INFO("No literal bindings found for %s.%d", inv->target_name, inv->instance_id);
-            continue;
-        }
-
-        char prefix[256];
-        snprintf(prefix, sizeof(prefix), "%s.", instance->name); // e.g., "AND.0."
-
-        for (size_t i = 0; i < inv->literal_bindings->count; ++i)
-        {
-            LiteralBinding *b = &inv->literal_bindings->items[i];
-            if (!b || !b->name)
-                continue;
-
-            LOG_INFO("  🔎 Before rewrite: bind(%s = %s)", b->name, b->value);
-
-            char *qualified = NULL;
-            asprintf(&qualified, "%s%s", prefix, b->name); // AND.0.X
-
-            free(b->name);
-            b->name = qualified;
-
-            LOG_INFO("  🔁 After rewrite:  bind(%s = %s)", b->name, b->value);
-        }
+        LOG_INFO("ℹ️  No literal bindings to rewrite for instance '%s'", instance_name ? instance_name : "(null)");
+        return;
     }
 
-    LOG_INFO("✅ Literal binding signals qualified.");
+    char prefix[256];
+    snprintf(prefix, sizeof(prefix), "%s.", instance_name);  // e.g., INV.AND.0.
+
+    for (size_t i = 0; i < inv->literal_bindings->count; ++i)
+    {
+        LiteralBinding *b = &inv->literal_bindings->items[i];
+        if (!b || !b->name)
+            continue;
+
+        LOG_INFO("  🔎 Before rewrite: bind(%s = %s)", b->name, b->value);
+
+        char *qualified = NULL;
+        asprintf(&qualified, "%s%s", prefix, b->name);
+
+        free(b->name);
+        b->name = qualified;
+
+        LOG_INFO("  🔁 After rewrite:  bind(%s = %s)", b->name, b->value);
+    }
 }
+
 
 int qualify_local_signals(Block *blk)
 {
     LOG_INFO("🧪 Starting qualify_local_signals pass...");
 
-    LOG_INFO("🔁 Rewriting invocations...");
-    rewrite_invocations(blk);
-
-    LOG_INFO("🔁 Rewriting literal bindings...");
-    rewrite_literal_bindings(blk);
-
-    for (Definition *def = blk->definitions; def != NULL; def = def->next)
+    for (InstanceList *node = blk->instances; node; node = node->next)
     {
-        LOG_INFO("📘 Processing Definition: %s", def->name);
+        Instance *inst = node->instance;
+        if (!inst)
+            continue;
 
-        LOG_INFO("  🔤 Rewriting definition-level signal names...");
-        rewrite_definition_signals(def);
+        LOG_INFO("📦 Processing Instance: %s", inst->name);
 
-        LOG_INFO("🔧 Patch resolved_template_args for CI to use fully qualified signal names");
-        rewrite_conditional_invocation(def);
+        LOG_INFO("  🔁 Rewriting invocation signal names...");
+        rewrite_invocation_for_instance(inst);
 
-        LOG_INFO("  🔌 Wiring outputs → POR sources...");
-        //  wire_por_outputs_to_sources(def);
+        LOG_INFO("  🔁 Rewriting literal bindings...");
+        rewrite_literal_bindings_for_invocation(inst->invocation, inst->name);
 
-        LOG_INFO("  🔌 Wiring POR sources → outputs...");
-        // wire_por_sources_to_outputs(def);
+        if (inst->definition)
+        {
+            LOG_INFO("  📘 Definition: %s", inst->definition->name);
+            LOG_INFO("    🔤 Rewriting definition-level signals...");
+            rewrite_definition_signals_for_instance(inst);
+
+            LOG_INFO("    🔧 Patching resolved_template_args...");
+            rewrite_conditional_invocation_for_instance(inst);
+        }
     }
 
     LOG_INFO("🧹 Cleaning up instance counters...");

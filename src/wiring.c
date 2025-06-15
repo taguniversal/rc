@@ -1,6 +1,7 @@
 #include "wiring.h"
 #include "log.h"
 #include "eval.h"
+#include "block_util.h"
 #include "instance.h"
 #include "eval.h"
 #include <stdio.h>
@@ -8,7 +9,7 @@
 #include <string.h>
 void dump_wiring(Block *blk)
 {
-    LOG_INFO("🧪 Dumping wiring for all instances in block PSI: %s", blk->psi);
+    LOG_INFO("🧪 Dumping wiring for all instances in block: %s", psi_to_string(&blk->psi));
 
     for (InstanceList *ul = blk->instances; ul; ul = ul->next)
     {
