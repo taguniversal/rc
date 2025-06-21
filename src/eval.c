@@ -5,6 +5,9 @@
 #include "eval_util.h"
 #include "instance.h"
 #include "string_list.h"
+#include "signal_map.h"
+#include "signal.h"
+#include "pubsub.h"
 #include "util.h"
 #include <stdlib.h>
 #include <string.h>
@@ -12,45 +15,49 @@
 
 #define MAX_ITERATIONS 5
 
-static int evaluate_conditional_logic(Instance *inst)
+int evaluate_conditional_logic(Instance *inst, SignalMap *signal_map)
 {
+    if (!inst || !inst->definition || !inst->invocation)
+        return 0;
+
     Definition *def = inst->definition;
     Invocation *inv = inst->invocation;
+    ConditionalInvocation *ci = def->conditional_invocation;
 
-    if (!def || !inv || !def->conditional_invocation)
+    if (!ci || !ci->pattern_args || ci->arg_count == 0 || !ci->output)
         return 0;
 
     LOG_INFO("🔘 Evaluating conditional logic for: %s", def->name);
 
-    // Build pattern from literal bindings
+    // 1. Build pattern from actual signal values
     char pattern[256] = {0};
 
-    for (size_t i = 0; i < def->conditional_invocation->case_count; ++i)
+    for (size_t i = 0; i < ci->arg_count; ++i)
     {
-        const char *sig = string_list_get_by_index(def->input_signals, i);
-        if (!sig) continue;
+        const char *sig = string_list_get_by_index(ci->pattern_args, i);
+        if (!sig)
+            continue;
 
-        for (size_t j = 0; j < inv->literal_bindings->count; ++j)
+        const char *value = get_signal_value(signal_map, sig);
+        if (!value)
         {
-            LiteralBinding lb = inv->literal_bindings->items[j];
-            if (strcmp(lb.name, sig) == 0)
-            {
-                strncat(pattern, lb.value, sizeof(pattern) - strlen(pattern) - 1);
-                break;
-            }
+            LOG_WARN("🚫 Signal '%s' not found in signal map", sig);
+            return 0; // 🚫 Bail out early if a signal is missing
         }
+
+        strncat(pattern, value, sizeof(pattern) - strlen(pattern) - 1);
     }
 
     LOG_INFO("🔣 Generated pattern: %s", pattern);
 
-    // Match against cases
-    for (size_t i = 0; i < def->conditional_invocation->case_count; ++i)
+    // 2. Match against conditional cases
+    for (size_t i = 0; i < ci->case_count; ++i)
     {
-        ConditionalCase c = def->conditional_invocation->cases[i];
+        ConditionalCase c = ci->cases[i];
         if (strcmp(c.pattern, pattern) == 0)
         {
-            LOG_INFO("📤 Matched result: %s", c.result);
-            // You can store this output result somewhere meaningful here
+            LOG_INFO("📤 Matched result: %s → Publishing to %s", c.result, ci->output);
+            publish_signal(ci->output, c.result);
             return 1;
         }
     }
@@ -59,7 +66,7 @@ static int evaluate_conditional_logic(Instance *inst)
     return 0;
 }
 
-int eval_instance(Instance *instance, Block *blk)
+int eval_instance(Instance *instance, Block *blk, SignalMap *signal_map)
 {
     if (!instance || !instance->definition || !instance->invocation)
     {
@@ -67,29 +74,54 @@ int eval_instance(Instance *instance, Block *blk)
         return 0;
     }
 
-    LOG_INFO("🔍 Evaluating instance: %s", instance->invocation->target_name);
-    int changed = evaluate_conditional_logic((Instance *)instance);
-    LOG_INFO("✅ Done evaluating: %s", instance->invocation->target_name);
+    // Publish any literal bindings to signal map
+    Invocation *inv = instance->invocation;
+    if (inv->literal_bindings) {
+        for (size_t i = 0; i < inv->literal_bindings->count; ++i) {
+            LiteralBinding *binding = &inv->literal_bindings->items[i];
+            if (!binding->name || !binding->value) continue;
+
+            update_signal_value(signal_map, binding->name, binding->value);
+            LOG_INFO("📥 Published literal: %s = %s", binding->name, binding->value);
+        }
+    }
+
+    // Now check if inputs are ready
+    StringList *input_names = inv->input_signals;
+    if (!all_signals_ready(input_names, signal_map)) {
+        LOG_INFO("⏳ Skipping %s — inputs not ready", inv->target_name);
+        return 0;
+    }
+
+    LOG_INFO("🔍 Evaluating instance: %s", inv->target_name);
+    int changed = evaluate_conditional_logic(instance, signal_map);
+    LOG_INFO("✅ Done evaluating: %s", inv->target_name);
     return changed;
 }
 
-int eval(Block *blk)
+
+int eval(Block *blk, SignalMap *signal_map)
 {
     int total_changes = 0;
     int iteration = 0;
 
     LOG_INFO("🔁 Starting evaluation loop (max %d iterations)", MAX_ITERATIONS);
 
-    do {
+    do
+    {
         int changes_this_round = 0;
-
-        for (InstanceList *inst = blk->instances; inst != NULL; inst = inst->next)
+        for (InstanceList *node = blk->instances; node != NULL; node = node->next)
         {
-            Instance temp = {
-                .definition = inst->instance->definition,
-                .invocation = inst->instance->invocation
-            };
-            changes_this_round += eval_instance(&temp, blk);
+            Instance *inst = node->instance;
+
+            if (!inst)
+                LOG_WARN("⚠️ NULL instance found in list.");
+            else if (!inst->definition)
+                LOG_WARN("⚠️ Instance missing definition: %s", inst->name ? inst->name : "(null)");
+            else if (!inst->invocation)
+                LOG_WARN("⚠️ Instance missing invocation: %s", inst->name ? inst->name : "(null)");
+
+            changes_this_round += eval_instance(inst, blk, signal_map);
         }
 
         total_changes += changes_this_round;

@@ -78,7 +78,7 @@ void compile_block(Block *blk,
     qualify_local_signals(blk);
     
     emit_all_instances(blk, sexpr_stage3_dir);
-    eval(blk); // Evaluate the system (simulation or codegen)
+   // eval(blk); // Evaluate the system (simulation or codegen)
     emit_all_instances(blk, sexpr_stage4_dir);
                  // Emit final S-expr per Unit
   //  emit_all_units_to_spirv(blk, spirv_stage4_dir);     // Emit SPIR-V per Unit

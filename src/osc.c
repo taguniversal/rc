@@ -291,12 +291,12 @@ void run_osc_listener(Block* blk,
                  &len);
     if (n > 0) {
       process_osc_message(blk, buffer, n);
-      eval(blk);
+   //TODO   eval(blk);
       process_osc_response(blk, buffer, n);
     } else {
       // Timeout occurred — keep ticking the simulation forward
       LOG_INFO("⏳ Timeout — triggering background eval cycle...\n");
-      eval(blk);
+  //TODO    eval(blk);
     }
 
   }

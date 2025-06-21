@@ -1,9 +1,15 @@
-// pubsub.c
+
 #include "block.h"
 #include "gap.h"
+#include "mkrand.h"
+
 #include <czmq.h>
 #include <stdio.h>
 #include <string.h>
+#ifdef LOG_INFO
+#undef LOG_INFO
+#endif
+#include "log.h" // Keep AFTER czmq because they define LOG_INFO
 
 static zsock_t *publisher = NULL;
 static zsock_t *subscriber = NULL;
@@ -34,7 +40,7 @@ void cleanup_pubsub(void) {
         zsock_destroy(&subscriber);
         subscriber = NULL;
     }
-    printf("🧹 PubSub cleaned up.\n");
+    LOG_INFO("🧹 PubSub cleaned up.");
 }
 
 /// Publish a packet over the PUB socket
@@ -55,7 +61,7 @@ void publish_packet(const GAPPacket *packet) {
         return;
     }
 
-    printf("📤 Published %lu bytes\n", total_size);
+    LOG_INFO("📤 Published %lu bytes", total_size);
 }
 
 GAPPacket *receive_packet(void) {
@@ -114,3 +120,37 @@ void subscribe_loop(void (*on_packet)(const GAPPacket *packet)) {
         zframe_destroy(&frame);
     }
 }
+
+void publish_signal(const char *signal_name, const char *value) {
+    if (!publisher)
+        init_pubsub();
+
+    size_t name_len = strlen(signal_name);
+    size_t value_len = strlen(value);
+    size_t payload_len = name_len + 1 + value_len;  // include null separator
+
+    GAPPacket *pkt = malloc(sizeof(GAPPacket) + payload_len);
+    if (!pkt) {
+        fprintf(stderr, "❌ Failed to allocate GAPPacket\n");
+        return;
+    }
+
+    memset(pkt, 0, sizeof(GAPPacket) + payload_len);
+    pkt->version = 1;
+    pkt->type = GAP_SIGNAL;
+    pkt->psi = mkrand_generate_ipv6(); // Optionally replace with meaningful routing
+    pkt->from = in6addr_loopback;
+    pkt->to = in6addr_loopback;
+    pkt->payload_len = payload_len;
+
+    // Construct payload: "signal_name\0value"
+    memcpy(pkt->payload, signal_name, name_len + 1);
+    memcpy(pkt->payload + name_len + 1, value, value_len);
+
+    LOG_INFO("📡 Publishing signal: %s = %s", signal_name, value);
+
+    publish_packet(pkt);
+    free(pkt);
+}
+
+

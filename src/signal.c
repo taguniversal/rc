@@ -1,20 +1,25 @@
-#include <zmq.h>
 
-void send_signal(const char *name, const char *payload) {
-    zmq_send(pub_socket, name, strlen(name), ZMQ_SNDMORE);
-    zmq_send(pub_socket, payload, strlen(payload), 0);
-}
+#include<stdbool.h>
+#include "string_list.h"
+#include "signal_map.h"
+#include "signal.h"
 
-void *signal_bus_thread(void *arg) {
-    void *sub = zmq_socket(ctx, ZMQ_SUB);
-    zmq_connect(sub, "inproc://bus");
-    zmq_setsockopt(sub, ZMQ_SUBSCRIBE, "", 0);
-
-    char topic[256];
-    char message[1024];
-    while (1) {
-        zmq_recv(sub, topic, sizeof(topic), 0);
-        zmq_recv(sub, message, sizeof(message), 0);
-        dispatch_signal(topic, message);
+bool all_signals_ready(StringList *input_names, SignalMap *signal_map) {
+    if (!input_names || string_list_count(input_names) == 0) {
+        return false;
     }
+
+    size_t count = string_list_count(input_names);
+    for (size_t i = 0; i < count; ++i) {
+        const char *name = string_list_get_by_index(input_names, i);
+        const char *value = get_signal_value(signal_map, name);
+
+        if (!value) {
+            return false; // 🛑 Input not ready
+        }
+    }
+
+    return true; // ✅ All inputs have values
 }
+
+

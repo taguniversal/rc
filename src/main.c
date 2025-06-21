@@ -8,6 +8,8 @@
 #include "mkrand.h"
 #include "compiler.h"
 #include "block_util.h"
+#include "signal.h"
+#include "signal_map.h"
 
 
 int main(int argc, char *argv[]) {
@@ -15,7 +17,7 @@ int main(int argc, char *argv[]) {
     const char *out_dir = NULL;
     int compile_mode = 0;
 
-    // Parse command-line arguments
+    // 🎛️ Parse command-line arguments
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--inv") == 0 && i + 1 < argc) {
             inv_dir = argv[++i];
@@ -31,53 +33,21 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // 🛰️ Setup PubSub + Global Signal Table
     init_pubsub();
+    SignalMap *global_signal_map = create_signal_map();
 
-    // Create GAP packet
-    const char *sexpr = "(Invoke (Target NOT) (Args (X 1)))";
-    size_t payload_len = strlen(sexpr);
-
-    GAPPacket *pkt = malloc(sizeof(GAPPacket) + payload_len);
-    memset(pkt, 0, sizeof(GAPPacket) + payload_len);
-
-    pkt->version = 1;
-    pkt->type = GAP_INVOKE;
-    pkt->reserved = 0;
-    pkt->psi = mkrand_generate_ipv6();  // Assume this generates a unique psi128_t
-    pkt->from = in6addr_loopback;
-    pkt->to = in6addr_loopback;
-    pkt->payload_len = payload_len;
-    memcpy(pkt->payload, sexpr, payload_len);
-
-    // Send via pubsub
-    printf("📤 Publishing GAP packet with PSI: ");
-    print_psi(&pkt->psi);
-    printf("\n");
-    publish_packet(pkt);
-
-    sleep(1);
-
-    // Try receiving once
-    GAPPacket *received = receive_packet();
-    if (received) {
-        printf("\n🔁 Received GAP packet:\n");
-        printf("PSI       : ");
-        print_psi(&received->psi);
-        printf("\nPayload   : %.*s\n", received->payload_len, received->payload);
-        free(received);
-    } else {
-        printf("\n⚠️ No packet received.\n");
-    }
-
-    free(pkt);
-    cleanup_pubsub();
-
-    // If --compile mode, run compiler
+    // 🔧 Compile Invocation Block (if requested)
+    Block blk = {0};
     if (compile_mode) {
-        Block blk = {0};
         blk.psi = mkrand_generate_ipv6();
         compile_block(&blk, inv_dir, out_dir);
     }
 
+    eval(&blk, global_signal_map);
+
+    // 🧼 Cleanup
+    destroy_signal_map(global_signal_map);
+    cleanup_pubsub();
     return 0;
 }

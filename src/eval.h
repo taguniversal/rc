@@ -2,6 +2,7 @@
 #define EVAL_H
 #include "block.h"
 #include "sqlite3.h"
+#include "signal_map.h"
 #include <stdint.h>
 #include <ctype.h>
 #include <stddef.h> // for size_t
@@ -9,7 +10,6 @@
 #define SAFETY_GUARD
 
 
-
-int eval(Block *blk);
+int eval(Block *blk, SignalMap *signal_map);
 
 #endif
