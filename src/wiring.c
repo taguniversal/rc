@@ -11,6 +11,12 @@ void dump_wiring(Block *blk)
 {
     LOG_INFO("🧪 Dumping wiring for all instances in block: %s", psi_to_string(&blk->psi));
 
+    int instance_count = 0;
+    for (InstanceList *cur = blk->instances; cur; cur = cur->next)
+        instance_count++;
+
+    LOG_INFO("🔎 Dumping wiring for %d instance(s)", instance_count);
+
     for (InstanceList *ul = blk->instances; ul; ul = ul->next)
     {
         Instance *instance = ul->instance;

@@ -73,8 +73,8 @@ void compile_block(Block *blk,
     emit_all_invocations(blk, sexpr_stage2_dir); // Emit S-expressions for each invocation
 
 
-    // Stage 3: Unit construction — flatten all logic into self-contained Invocation|Definition units
-    unify_invocations(blk);            // Instantiate definition+invocation pairs as Units
+    // Stage 3: Unit construction — flatten all logic into self-contained Invocation|Definition instances
+    unify_invocations(blk);            // Instantiate definition+invocation pairs as Instances
     qualify_local_signals(blk);
     
     emit_all_instances(blk, sexpr_stage3_dir);

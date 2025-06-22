@@ -1,4 +1,5 @@
 #include "signal_map.h"
+#include "log.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -67,3 +68,27 @@ const char *get_signal_value(SignalMap *map, const char *name) {
     }
     return NULL;
 }
+
+void print_signal_map(SignalMap *map)
+{
+    if (!map) {
+        LOG_WARN("⚠️ Signal map is NULL");
+        return;
+    }
+
+    LOG_INFO("📡 Signal Map Contents (%zu signals):", map->count);
+
+    SignalEntry *entry = map->head;
+    while (entry)
+    {
+        const char *val = entry->value ? entry->value : "NULL";
+        LOG_INFO("   🔹 %s = %s", entry->name, val);
+        entry = entry->next;
+    }
+
+    if (!map->head)
+    {
+        LOG_INFO("   (empty)");
+    }
+}
+

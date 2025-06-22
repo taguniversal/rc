@@ -19,5 +19,5 @@ void destroy_signal_map(SignalMap *map);
 
 void update_signal_value(SignalMap *map, const char *name, const char *value);
 const char *get_signal_value(SignalMap *map, const char *name); // NULL if not found
-
+void print_signal_map(SignalMap* map);
 #endif

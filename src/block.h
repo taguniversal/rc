@@ -21,5 +21,6 @@ typedef struct Block {
     InstanceList *instances;
 } Block;
 
+void block_add_instance(Block *blk, Instance *instance);
 
 #endif

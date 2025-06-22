@@ -45,7 +45,8 @@ int main(int argc, char *argv[]) {
     }
 
     eval(&blk, global_signal_map);
-
+    
+    print_signal_map(global_signal_map);
     // 🧼 Cleanup
     destroy_signal_map(global_signal_map);
     cleanup_pubsub();

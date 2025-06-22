@@ -3,7 +3,7 @@
 
   (bind (X 1))
   (bind (Y 1))
-  (Inputs X Y
+  (Inputs X Y)
 
   (Outputs
     Nor_Out
