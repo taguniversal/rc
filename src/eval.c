@@ -169,6 +169,8 @@ int eval_instance(Instance *instance, Block *blk, SignalMap *signal_map)
         return 0;
     }
 
+    LOG_INFO("Evaluating instance %s", instance->name);
+
     // Publish any literal bindings to signal map
     Invocation *inv = instance->invocation;
     if (inv->literal_bindings)

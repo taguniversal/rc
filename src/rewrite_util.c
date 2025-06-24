@@ -153,6 +153,130 @@ void rewrite_definition_signals_for_instance(Instance *inst)
     }
 }
 
+void resolve_definition_io_connections(Block *blk)
+{
+    if (!blk || !blk->instances)
+        return;
+
+    LOG_INFO("🔌 Resolving definition I/O connections for all instances...");
+
+    for (InstanceList *it = blk->instances; it != NULL; it = it->next)
+    {
+        Instance *inst = it->instance;
+        if (!inst || !inst->definition || !inst->invocation)
+            continue;
+
+        Definition *def = inst->definition;
+        Invocation *inv = inst->invocation;
+
+        // Clone original names so we can still match them in body
+        StringList *orig_inputs = string_list_clone(def->input_signals);
+        StringList *orig_outputs = string_list_clone(def->output_signals);
+
+        // Replace input/output lists directly
+        for (size_t i = 0; i < string_list_count(orig_inputs); ++i)
+        {
+            const char *new_name = string_list_get_by_index(inv->input_signals, i);
+            if (new_name)
+                string_list_set_by_index(def->input_signals, i, strdup(new_name));
+        }
+
+        for (size_t i = 0; i < string_list_count(orig_outputs); ++i)
+        {
+            const char *new_name = string_list_get_by_index(inv->output_signals, i);
+            if (new_name)
+                string_list_set_by_index(def->output_signals, i, strdup(new_name));
+        }
+
+        // Patch body signal items (input/output roles)
+        for (BodyItem *item = def->body; item; item = item->next)
+        {
+            if (item->type != BODY_SIGNAL_INPUT && item->type != BODY_SIGNAL_OUTPUT)
+                continue;
+
+            for (size_t i = 0; i < string_list_count(orig_inputs); ++i)
+            {
+                const char *orig = string_list_get_by_index(orig_inputs, i);
+                const char *new_name = string_list_get_by_index(inv->input_signals, i);
+                if (item->data.signal_name && strcmp(item->data.signal_name, orig) == 0)
+                {
+                    item->data.signal_name = strdup(new_name);
+                    break;
+                }
+            }
+
+            for (size_t i = 0; i < string_list_count(orig_outputs); ++i)
+            {
+                const char *orig = string_list_get_by_index(orig_outputs, i);
+                const char *new_name = string_list_get_by_index(inv->output_signals, i);
+                if (item->data.signal_name && strcmp(item->data.signal_name, orig) == 0)
+                {
+                    item->data.signal_name = strdup(new_name);
+                    break;
+                }
+            }
+        }
+
+        // Patch nested invocations in body
+        for (BodyItem *item = def->body; item; item = item->next)
+        {
+            if (item->type != BODY_INVOCATION)
+                continue;
+
+            Invocation *inner = item->data.invocation;
+            for (size_t i = 0; i < string_list_count(inner->input_signals); ++i)
+            {
+                const char *name = string_list_get_by_index(inner->input_signals, i);
+                for (size_t j = 0; j < string_list_count(orig_inputs); ++j)
+                {
+                    if (name && strcmp(name, string_list_get_by_index(orig_inputs, j)) == 0)
+                    {
+                        string_list_set_by_index(inner->input_signals, i,
+                            strdup(string_list_get_by_index(inv->input_signals, j)));
+                        break;
+                    }
+                }
+            }
+
+            for (size_t i = 0; i < string_list_count(inner->output_signals); ++i)
+            {
+                const char *name = string_list_get_by_index(inner->output_signals, i);
+                for (size_t j = 0; j < string_list_count(orig_outputs); ++j)
+                {
+                    if (name && strcmp(name, string_list_get_by_index(orig_outputs, j)) == 0)
+                    {
+                        string_list_set_by_index(inner->output_signals, i,
+                            strdup(string_list_get_by_index(inv->output_signals, j)));
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Patch conditional invocation output
+        if (def->conditional_invocation && def->conditional_invocation->output)
+        {
+            for (size_t i = 0; i < string_list_count(orig_outputs); ++i)
+            {
+                const char *orig = string_list_get_by_index(orig_outputs, i);
+                const char *new_out = string_list_get_by_index(inv->output_signals, i);
+                if (strcmp(def->conditional_invocation->output, orig) == 0)
+                {
+                    def->conditional_invocation->output = strdup(new_out);
+                    break;
+                }
+            }
+        }
+
+        destroy_string_list(orig_inputs);
+        destroy_string_list(orig_outputs);
+    }
+
+    LOG_INFO("✅ All instance connections resolved.");
+}
+
+
+
 void rewrite_conditional_invocation_for_instance(Instance *inst)
 {
     if (!inst || !inst->definition || !inst->definition->conditional_invocation)
