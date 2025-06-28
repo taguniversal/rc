@@ -70,10 +70,11 @@ void rewrite_invocation_for_instance(Instance *inst)
     for (size_t i = 0; i < string_list_count(inv->input_signals); ++i)
     {
         const char *name = string_list_get_by_index(inv->input_signals, i);
-        if (!name) continue;
+        if (!name)
+            continue;
 
         char *new_name;
-        asprintf(&new_name, "%s.%s", inst->name, name);  // INV.XOR.0.X
+        asprintf(&new_name, "%s.%s", inst->name, name); // INV.XOR.0.X
         string_list_set_by_index(inv->input_signals, i, new_name);
 
         LOG_INFO("🔁 Input signal rewritten: %s → %s", name, new_name);
@@ -82,10 +83,11 @@ void rewrite_invocation_for_instance(Instance *inst)
     for (size_t i = 0; i < string_list_count(inv->output_signals); ++i)
     {
         const char *name = string_list_get_by_index(inv->output_signals, i);
-        if (!name) continue;
+        if (!name)
+            continue;
 
         char *new_name;
-        asprintf(&new_name, "%s.%s", inst->name, name);  // INV.XOR.0.OUT
+        asprintf(&new_name, "%s.%s", inst->name, name); // INV.XOR.0.OUT
         string_list_set_by_index(inv->output_signals, i, new_name);
 
         LOG_INFO("🔁 Output signal rewritten: %s → %s", name, new_name);
@@ -103,7 +105,8 @@ void rewrite_definition_signals_for_instance(Instance *inst)
     for (size_t i = 0; i < string_list_count(def->input_signals); ++i)
     {
         const char *name = string_list_get_by_index(def->input_signals, i);
-        if (!name) continue;
+        if (!name)
+            continue;
 
         char *new_name;
         asprintf(&new_name, "%s.local.%s", inst->name, name);
@@ -116,7 +119,8 @@ void rewrite_definition_signals_for_instance(Instance *inst)
     for (size_t i = 0; i < string_list_count(def->output_signals); ++i)
     {
         const char *name = string_list_get_by_index(def->output_signals, i);
-        if (!name) continue;
+        if (!name)
+            continue;
 
         char *new_name;
         asprintf(&new_name, "%s.local.%s", inst->name, name);
@@ -232,7 +236,7 @@ void resolve_definition_io_connections(Block *blk)
                     if (name && strcmp(name, string_list_get_by_index(orig_inputs, j)) == 0)
                     {
                         string_list_set_by_index(inner->input_signals, i,
-                            strdup(string_list_get_by_index(inv->input_signals, j)));
+                                                 strdup(string_list_get_by_index(inv->input_signals, j)));
                         break;
                     }
                 }
@@ -246,7 +250,28 @@ void resolve_definition_io_connections(Block *blk)
                     if (name && strcmp(name, string_list_get_by_index(orig_outputs, j)) == 0)
                     {
                         string_list_set_by_index(inner->output_signals, i,
-                            strdup(string_list_get_by_index(inv->output_signals, j)));
+                                                 strdup(string_list_get_by_index(inv->output_signals, j)));
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Patch ConditionalInvocation template args
+        if (def->conditional_invocation && def->conditional_invocation->pattern_args)
+        {
+            for (size_t i = 0; i < string_list_count(def->conditional_invocation->pattern_args); ++i)
+            {
+                const char *old_name = string_list_get_by_index(def->conditional_invocation->pattern_args, i);
+                // Check against original inputs
+                for (size_t j = 0; j < string_list_count(orig_inputs); ++j)
+                {
+                    const char *orig = string_list_get_by_index(orig_inputs, j);
+                    const char *new_name = string_list_get_by_index(inv->input_signals, j);
+                    if (old_name && strcmp(old_name, orig) == 0)
+                    {
+                        LOG_INFO("🔁 [%s] Updating CI template: %s → %s", inst->name, orig, new_name);
+                        string_list_set_by_index(def->conditional_invocation->pattern_args, i, strdup(new_name));
                         break;
                     }
                 }
@@ -275,8 +300,6 @@ void resolve_definition_io_connections(Block *blk)
     LOG_INFO("✅ All instance connections resolved.");
 }
 
-
-
 void rewrite_conditional_invocation_for_instance(Instance *inst)
 {
     if (!inst || !inst->definition || !inst->definition->conditional_invocation)
@@ -287,7 +310,8 @@ void rewrite_conditional_invocation_for_instance(Instance *inst)
     for (size_t i = 0; i < ci->arg_count; ++i)
     {
         const char *arg = string_list_get_by_index(ci->pattern_args, i);
-        if (!arg) continue;
+        if (!arg)
+            continue;
 
         char *original = strdup(arg);
         char *rewritten;
@@ -322,7 +346,7 @@ void rewrite_literal_bindings_for_invocation(Invocation *inv, const char *instan
     }
 
     char prefix[256];
-    snprintf(prefix, sizeof(prefix), "%s.", instance_name);  // e.g., INV.AND.0.
+    snprintf(prefix, sizeof(prefix), "%s.", instance_name); // e.g., INV.AND.0.
 
     for (size_t i = 0; i < inv->literal_bindings->count; ++i)
     {
@@ -341,7 +365,6 @@ void rewrite_literal_bindings_for_invocation(Invocation *inv, const char *instan
         LOG_INFO("  🔁 After rewrite:  bind(%s = %s)", b->name, b->value);
     }
 }
-
 
 int qualify_local_signals(Block *blk)
 {

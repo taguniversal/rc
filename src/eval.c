@@ -33,6 +33,13 @@ int evaluate_conditional_logic(Instance *inst, SignalMap *signal_map)
     // 1. Build pattern from actual signal values
     char pattern[256] = {0};
 
+    LOG_INFO("🧵 Pattern args (%zu):", ci->arg_count);
+    for (size_t i = 0; i < ci->arg_count; ++i)
+    {
+        const char *sig = string_list_get_by_index(ci->pattern_args, i);
+        LOG_INFO("    [%zu] %s", i, sig ? sig : "(null)");
+    }
+
     for (size_t i = 0; i < ci->arg_count; ++i)
     {
         const char *sig = string_list_get_by_index(ci->pattern_args, i);
@@ -58,8 +65,7 @@ int evaluate_conditional_logic(Instance *inst, SignalMap *signal_map)
         if (strcmp(c.pattern, pattern) == 0)
         {
             LOG_INFO("📤 Matched result: %s → Publishing to %s", c.result, ci->output);
-            update_signal_value(signal_map, ci->output, c.result);
-            publish_signal(ci->output, c.result);
+            publish_signal(signal_map, ci->output, c.result);
             return 1;
         }
     }
@@ -68,98 +74,6 @@ int evaluate_conditional_logic(Instance *inst, SignalMap *signal_map)
     return 0;
 }
 
-void propagate_inputs_to_definition(Instance *instance, SignalMap *map)
-{
-    if (!instance || !instance->invocation || !instance->definition)
-        return;
-
-    StringList *inv_inputs = instance->invocation->input_signals;
-    StringList *def_inputs = instance->definition->input_signals;
-
-    if (!inv_inputs || !def_inputs || inv_inputs->size != def_inputs->size)
-    {
-        LOG_WARN("⚠️ Input signal count mismatch for instance: %s", instance->invocation->target_name);
-        return;
-    }
-
-    for (size_t i = 0; i < inv_inputs->size; ++i)
-    {
-        const char *inv_name = string_list_get_by_index(inv_inputs, i);
-        const char *def_name = string_list_get_by_index(def_inputs, i);
-
-        if (!inv_name || !def_name)
-        {
-            LOG_WARN("⚠️ Null signal name at index %zu in instance: %s", i, instance->invocation->target_name);
-            continue;
-        }
-
-        const char *value = get_signal_value(map, inv_name);
-        if (value)
-        {
-            update_signal_value(map, def_name, value);
-            LOG_INFO("🔄 Copied signal: %s → %s = %s", inv_name, def_name, value);
-        }
-        else
-        {
-            LOG_WARN("⚠️ Signal value not found for: %s", inv_name);
-        }
-    }
-}
-
-void propagate_outputs_to_invocation(Instance *instance, SignalMap *map)
-{
-    if (!instance || !instance->invocation || !instance->definition)
-        return;
-
-    StringList *def_outputs = instance->definition->output_signals;
-    StringList *inv_outputs = instance->invocation->output_signals;
-
-    if (!def_outputs || !inv_outputs)
-    {
-        LOG_WARN("⚠️ Missing output signals in instance: %s — def_outputs=%p, inv_outputs=%p", instance->invocation->target_name, def_outputs, inv_outputs);
-        return;
-    }
-
-    if (def_outputs->size != inv_outputs->size)
-    {
-        LOG_WARN("⚠️ Output signal count mismatch for instance: %s", instance->invocation->target_name);
-        LOG_WARN("    📦 Definition outputs (%zu):", def_outputs->size);
-        for (size_t i = 0; i < def_outputs->size; ++i)
-        {
-            LOG_WARN("      🔸 %s", string_list_get_by_index(def_outputs, i));
-        }
-
-        LOG_WARN("    📦 Invocation outputs (%zu):", inv_outputs->size);
-        for (size_t i = 0; i < inv_outputs->size; ++i)
-        {
-            LOG_WARN("      🔹 %s", string_list_get_by_index(inv_outputs, i));
-        }
-        return;
-    }
-
-    for (size_t i = 0; i < def_outputs->size; ++i)
-    {
-        const char *def_name = string_list_get_by_index(def_outputs, i);
-        const char *inv_name = string_list_get_by_index(inv_outputs, i);
-
-        if (!def_name || !inv_name)
-        {
-            LOG_WARN("⚠️ Null signal name at index %zu in instance: %s", i, instance->invocation->target_name);
-            continue;
-        }
-
-        const char *value = get_signal_value(map, def_name);
-        if (value)
-        {
-            update_signal_value(map, inv_name, value);
-            LOG_INFO("🔁 Copied signal: %s → %s = %s", def_name, inv_name, value);
-        }
-        else
-        {
-            LOG_WARN("⚠️ Signal value not found for: %s", def_name);
-        }
-    }
-}
 
 int eval_instance(Instance *instance, Block *blk, SignalMap *signal_map)
 {
@@ -178,6 +92,12 @@ int eval_instance(Instance *instance, Block *blk, SignalMap *signal_map)
         for (size_t i = 0; i < inv->literal_bindings->count; ++i)
         {
             LiteralBinding *binding = &inv->literal_bindings->items[i];
+
+            if (!binding->name)
+                LOG_WARN("⚠️ NULL binding name at index %zu", i);
+            if (!binding->value)
+                LOG_WARN("⚠️ NULL binding value at index %zu", i);
+
             if (!binding->name || !binding->value)
                 continue;
 
@@ -185,8 +105,6 @@ int eval_instance(Instance *instance, Block *blk, SignalMap *signal_map)
             LOG_INFO("📥 Published literal: %s = %s", binding->name, binding->value);
         }
     }
-
-    propagate_inputs_to_definition(instance, signal_map);
 
     // Now check if inputs are ready
     StringList *input_names = inv->input_signals;
@@ -199,8 +117,6 @@ int eval_instance(Instance *instance, Block *blk, SignalMap *signal_map)
     LOG_INFO("🔍 Evaluating instance: %s", inv->target_name);
     int changed = evaluate_conditional_logic(instance, signal_map);
     LOG_INFO("✅ Done evaluating: %s", inv->target_name);
-
-    propagate_outputs_to_invocation(instance, signal_map);
 
     return changed;
 }

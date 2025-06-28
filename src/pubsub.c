@@ -160,7 +160,6 @@ void poll_pubsub(SignalMap *signal_map)
         snprintf(signal_name, sizeof(signal_name), "%.*s", (int)name_len, payload);
         snprintf(signal_value, sizeof(signal_value), "%s", sep + 1);
 
-        update_signal_value(signal_map, signal_name, signal_value);
         LOG_INFO("📬 PubSub delivered: %s = %s", signal_name, signal_value);
 
         free(packet);
@@ -192,8 +191,11 @@ void subscribe_loop(void (*on_packet)(const GAPPacket *packet))
     }
 }
 
-void publish_signal(const char *signal_name, const char *value)
+void publish_signal(SignalMap* signal_map, const char *signal_name, const char *value)
 {
+
+    update_signal_value(signal_map, signal_name, value);
+
     if (!publisher)
         init_pubsub();
 
