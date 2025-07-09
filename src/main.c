@@ -41,8 +41,10 @@ int main(int argc, char *argv[]) {
     Block blk = {0};
     if (compile_mode) {
         blk.psi = mkrand_generate_ipv6();
-        compile_block(&blk, inv_dir, out_dir);
+        compile_block(&blk, global_signal_map, inv_dir, out_dir);
     }
+
+    print_signal_map(global_signal_map);
 
     eval(&blk, global_signal_map);
     

@@ -10,7 +10,7 @@
 #include "spirv_asm.h"
 #include "wiring.h"
 #include "emit_sexpr.h"
-
+#include "signal_map.h"
 #include <libgen.h>
 #include <errno.h>
 #include <sys/stat.h> // for mkdir
@@ -23,6 +23,7 @@ void stage_path_buf(char *buf, size_t bufsize, int stage, const char *backend, c
 }
 
 void compile_block(Block *blk,
+                   SignalMap* signal_map,
                    const char *inv_dir,
                    const char *out_dir)
 {
@@ -80,11 +81,16 @@ void compile_block(Block *blk,
   emit_all_invocations(blk, sexpr_stage2_dir); // Emit S-expressions for each invocation
 
   // Stage 3: Unit construction — flatten all logic into self-contained Invocation|Definition instances
-  unify_invocations(blk); // Instantiate definition+invocation pairs as Instances
-  qualify_local_signals(blk);
+
+  unify_invocations(blk, signal_map); // Instantiate definition+invocation pairs as Instances
+ 
+  for (Invocation *inv = blk->invocations; inv; inv = inv->next) {
+    dump_literal_bindings(inv);
+  }
 
   emit_all_instances(blk, sexpr_stage3_dir);
-  resolve_definition_io_connections(blk);
+ 
+  publish_all_literal_bindings(blk, signal_map);
   emit_all_instances(blk, sexpr_stage4_dir);
 
   // Emit final S-expr per Unit
