@@ -94,5 +94,3 @@ spirv_bin = custom_target('spirv-bin',
   command : ['/usr/local/bin/spirv-as', '@INPUT@', '-o', '@OUTPUT@'],
   install : false
 )
-
-

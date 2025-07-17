@@ -63,3 +63,5 @@ sudo apt install meson ninja-build
 
 
 This builds rc and then runs it against the inv/ directory to generate the rewritten s-expressions with fully qualified signal names, which are the source of truth for the entire built module which is the base for emitting to SPIRV and VHDL targets.
+
+⚠️ Note: Verilog sketches under `src/rtl/` are licensed separately and not covered by the MIT license. See `src/rtl/LICENSE` for details.
